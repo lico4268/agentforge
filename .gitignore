@@ -1,0 +1,13 @@
+.env
+.env.local
+
+# Python
+server/.venv/
+server/__pycache__/
+server/**/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Node
+ui/node_modules/

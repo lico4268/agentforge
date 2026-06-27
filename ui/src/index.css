@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+@import '@xyflow/react/dist/style.css';
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: #0b0e14;
+  color: #e6e6e6;
+}
+
+/* Agentforge node category palette — shared by nodes, ports, library */
+@theme {
+  --color-cat-cognitive: #8b5cf6;
+  --color-cat-model: #3b82f6;
+  --color-cat-tool: #10b981;
+  --color-cat-policy: #f59e0b;
+  --color-cat-io: #64748b;
+}
