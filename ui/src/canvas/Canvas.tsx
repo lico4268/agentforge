@@ -75,7 +75,7 @@ export function Canvas() {
   )
 
   return (
-    <div ref={wrapperRef} className="h-full w-full">
+    <div ref={wrapperRef} className="h-full w-full bg-[#0e1511]">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -92,12 +92,12 @@ export function Canvas() {
         fitViewOptions={{ padding: 0.2 }}
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#1c2333" />
-        <Controls className="!bg-[#11151f] !border-white/10" />
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="rgba(255,255,255,0.07)" />
+        <Controls className="!rounded-lg !border-[#3c4a42] !bg-[#161d19]/90 backdrop-blur" />
         <MiniMap
           pannable
           zoomable
-          className="!bg-[#11151f]"
+          className="!rounded-lg !border-[#3c4a42] !bg-[#161d19]/90"
           nodeColor={(n) => {
             const m = registry.get((n.data as { manifestType: string }).manifestType)
             return m ? CATEGORY_META[m.category].color : '#475569'

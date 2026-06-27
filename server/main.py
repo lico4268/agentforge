@@ -22,7 +22,7 @@ app.add_middleware(
 
 # ─── 모델 설정 파일 ──────────────────────────────────────────────────────────────
 
-MODELS_CONFIG_PATH = Path(__file__).parent / "models_config.json"
+MODELS_CONFIG_PATH = Path(__file__).parent.parent / "models_config.json"
 
 def _load_models_config() -> list[dict]:
     """models_config.json을 읽어 enabled 모델만 반환. API 키 미설정 provider는 available=False 표시."""

@@ -1,6 +1,41 @@
 @import 'tailwindcss';
 @import '@xyflow/react/dist/style.css';
 
+@theme {
+  /* Agentforge design system — dark forest green palette */
+  --color-surface: #0e1511;
+  --color-surface-dim: #0e1511;
+  --color-surface-bright: #343b36;
+  --color-surface-container-lowest: #09100c;
+  --color-surface-container-low: #161d19;
+  --color-surface-container: #1a211d;
+  --color-surface-container-high: #242c27;
+  --color-surface-container-highest: #2f3632;
+  --color-on-surface: #dde4dd;
+  --color-on-surface-variant: #bbcabf;
+  --color-outline: #86948a;
+  --color-outline-variant: #3c4a42;
+  --color-primary: #4edea3;
+  --color-on-primary: #003824;
+  --color-primary-fixed: #6ffbbe;
+  --color-background: #0e1511;
+  --color-on-background: #dde4dd;
+  --color-error: #ffb4ab;
+
+  /* Node category colors */
+  --color-cat-cognitive: #b388ff;
+  --color-cat-memory: #18ffff;
+  --color-cat-model: #82b1ff;
+  --color-cat-tool: #10b981;
+  --color-cat-policy: #ff8a80;
+  --color-cat-human: #f43f5e;
+  --color-cat-io: #ffd180;
+
+  /* Typography */
+  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'Fira Code', monospace;
+}
+
 :root {
   color-scheme: dark;
 }
@@ -13,17 +48,36 @@ body,
 }
 
 body {
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  background: #0b0e14;
-  color: #e6e6e6;
+  font-family: var(--font-sans);
+  background: #0e1511;
+  color: #dde4dd;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Agentforge node category palette — shared by nodes, ports, library */
-@theme {
-  --color-cat-cognitive: #8b5cf6;
-  --color-cat-model: #3b82f6;
-  --color-cat-tool: #10b981;
-  --color-cat-policy: #f59e0b;
-  --color-cat-io: #64748b;
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2f3632; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3c4a42; }
+
+/* Material Symbols */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Node running pulse */
+@keyframes node-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1;   }
+}
+.node-running {
+  animation: node-pulse 1.4s ease-in-out infinite;
 }

@@ -1,13 +1,11 @@
+import { useQuery } from '@tanstack/react-query'
 import { useGraphStore } from '@/stores/useGraphStore'
 import { useNodeRuntime } from '@/execution/useExecutionStore'
 import { useRegistry } from '@/registry/RegistryContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
-import type { ConfigField } from '@/types'
+import { loadModels } from '@/registry/loadModels'
+import type { ConfigField, ModelConfig } from '@/types'
 
-/**
- * Right panel — config form generated from the selected node's manifest, plus
- * its last input/output once a run has touched it. See ui-architecture.md §3/§10.
- */
 export function Inspector() {
   const registry = useRegistry()
   const selectedId = useGraphStore((s) => s.selectedNodeId)
@@ -15,64 +13,126 @@ export function Inspector() {
   const updateNodeConfig = useGraphStore((s) => s.updateNodeConfig)
   const runtime = useNodeRuntime(selectedId ?? '')
 
+  const { data: models } = useQuery({
+    queryKey: ['models'],
+    queryFn: loadModels,
+    staleTime: 60_000,
+    retry: 1,
+  })
+
   if (!node) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#0d111a] p-4 text-center text-xs text-slate-600">
-        Select a node to inspect its config and I/O.
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#161d19]/80 backdrop-blur-xl p-6 text-center">
+        <span className="material-symbols-outlined text-[#3c4a42]" style={{ fontSize: 40 }}>
+          account_tree
+        </span>
+        <p className="text-[12px] text-[#86948a]">Select a node to inspect its config and I/O.</p>
       </div>
     )
   }
 
   const manifest = registry.get(node.data.manifestType)
   if (!manifest) return null
+
   const meta = CATEGORY_META[manifest.category]
   const config = node.data.config
-
   const setField = (key: string, value: unknown) =>
     updateNodeConfig(node.id, { ...config, [key]: value })
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-[#0d111a] p-3 text-sm">
-      <div className="mb-1 flex items-center gap-2">
-        <span className="inline-block h-2 w-2 rounded-full" style={{ background: meta.color }} />
-        <h2 className="font-semibold text-slate-100">{manifest.label}</h2>
-      </div>
-      <p className="mb-4 text-xs text-slate-500">{manifest.description}</p>
-
-      {manifest.config.length > 0 && (
-        <div className="mb-4 flex flex-col gap-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Config
-          </h3>
-          {manifest.config.map((field) => (
-            <Field
-              key={field.key}
-              field={field}
-              value={config[field.key] ?? field.default}
-              onChange={(v) => setField(field.key, v)}
-            />
-          ))}
+    <div className="flex h-full flex-col overflow-hidden bg-[#161d19]/80 backdrop-blur-xl">
+      {/* Node header */}
+      <div className="relative shrink-0 overflow-hidden border-b border-[#3c4a42]/50 px-5 py-4">
+        {/* Accent glow */}
+        <div
+          className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full blur-[50px]"
+          style={{ background: `${meta.color}12` }}
+        />
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ background: meta.color, boxShadow: `0 0 8px ${meta.color}99` }}
+          />
+          <h2 className="text-[15px] font-semibold tracking-wide text-[#dde4dd]">{manifest.label}</h2>
         </div>
-      )}
-
-      {runtime && runtime.callCount > 0 && (
-        <div className="flex flex-col gap-2">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Last run
-          </h3>
-          <Stat label="Status" value={runtime.status} />
-          <Stat label="Calls" value={String(runtime.callCount)} />
-          <Stat label="Duration" value={`${runtime.totalDurationMs} ms`} />
-          <Stat label="Tokens" value={String(runtime.totalTokens)} />
-          {runtime.policyDecision && (
-            <Stat
-              label="Policy"
-              value={`${runtime.policyDecision.activated ? 'activated' : 'skipped'} — ${runtime.policyDecision.reason}`}
-            />
+        <p className="mt-1 text-[12px] leading-relaxed text-[#86948a]">{manifest.description}</p>
+        <div className="mt-2.5 flex items-center gap-2">
+          <span className="flex items-center gap-1 rounded border border-[#3c4a42] bg-[#2f3632] px-2 py-0.5 font-mono text-[10px] text-[#bbcabf]">
+            <span className="material-symbols-outlined" style={{ fontSize: 11 }}>
+              {meta.icon}
+            </span>
+            {meta.label}
+          </span>
+          {runtime && runtime.callCount > 0 && (
+            <span className="flex items-center gap-1 rounded border border-[#3c4a42] bg-[#2f3632] px-2 py-0.5 font-mono text-[10px] text-[#bbcabf]">
+              <span className="material-symbols-outlined" style={{ fontSize: 11 }}>schedule</span>
+              {(runtime.totalDurationMs / Math.max(1, runtime.callCount)).toFixed(0)} ms avg
+            </span>
           )}
-          <IOBlock label="Output" value={runtime.lastOutput} />
         </div>
-      )}
+      </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-6">
+
+        {/* CONFIG section */}
+        {manifest.config.length > 0 && (
+          <section className="flex flex-col gap-4">
+            <h3 className="border-b border-[#3c4a42]/40 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+              Config
+            </h3>
+            {manifest.config.map((field) => (
+              <Field
+                key={field.key}
+                field={field}
+                value={config[field.key] ?? field.default}
+                onChange={(v) => setField(field.key, v)}
+                models={models}
+                currentProvider={String(config['provider'] ?? 'anthropic')}
+              />
+            ))}
+          </section>
+        )}
+
+        {/* LAST I/O STATE section */}
+        {runtime && runtime.callCount > 0 && runtime.lastOutput !== undefined && (
+          <section className="flex flex-col gap-3 border-t border-[#3c4a42]/30 pt-5">
+            <h3 className="border-b border-[#3c4a42]/40 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+              Last I/O State
+            </h3>
+            <IOBlock label="Output" value={runtime.lastOutput} />
+          </section>
+        )}
+
+        {/* EXECUTION METRICS section */}
+        {runtime && runtime.callCount > 0 && (
+          <section className="flex flex-col gap-3 border-t border-[#3c4a42]/30 pt-5 pb-4">
+            <h3 className="border-b border-[#3c4a42]/40 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+              Execution Metrics
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <MetricCard label="Calls"    value={String(runtime.callCount)} />
+              <MetricCard label="Duration" value={`${runtime.totalDurationMs} ms`} />
+              <MetricCard label="Tokens"   value={String(runtime.totalTokens)} />
+              <MetricCard
+                label="Status"
+                value={runtime.status}
+                accent={statusColor(runtime.status)}
+              />
+            </div>
+            {runtime.policyDecision && (
+              <div className="rounded border border-[#3c4a42] bg-[#242c27] px-3 py-2 text-[11px]">
+                <span className="text-[#86948a]">Policy: </span>
+                <span className={runtime.policyDecision.activated ? 'text-[#ff8a80]' : 'text-[#4edea3]'}>
+                  {runtime.policyDecision.activated ? 'activated' : 'skipped'}
+                </span>
+                {' — '}
+                <span className="text-[#bbcabf]">{runtime.policyDecision.reason}</span>
+              </div>
+            )}
+          </section>
+        )}
+      </div>
     </div>
   )
 }
@@ -81,42 +141,144 @@ function Field({
   field,
   value,
   onChange,
+  models,
+  currentProvider,
 }: {
   field: ConfigField
   value: unknown
   onChange: (v: unknown) => void
+  models?: ModelConfig[]
+  currentProvider: string
 }) {
   const inputCls =
-    'w-full rounded border border-white/10 bg-[#11151f] px-2 py-1 text-xs text-slate-100 outline-none focus:border-white/30'
+    'w-full rounded-md border border-[#3c4a42] bg-[#09100c] px-3 py-2 text-[12px] font-mono text-[#dde4dd] outline-none transition-all focus:border-[#4edea3] focus:shadow-[0_0_0_2px_rgba(78,222,163,0.15)]'
+
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[11px] text-slate-400">{field.label}</span>
-      {field.type === 'select' ? (
-        <select className={inputCls} value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
-          {field.options?.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[12px] text-[#bbcabf]">{field.label}</span>
+
+      {field.type === 'model-id' ? (
+        <>
+          <div className="relative">
+            <select
+              className={inputCls + ' appearance-none pr-7'}
+              value={String(value ?? '')}
+              onChange={(e) => onChange(e.target.value)}
+              disabled={!models}
+            >
+              {!models && <option value="">Loading…</option>}
+              {(models?.filter((m) => m.provider === currentProvider) ?? []).length === 0 && models && (
+                <option value={String(value ?? '')}>{String(value ?? '—')}</option>
+              )}
+              {models
+                ?.filter((m) => m.provider === currentProvider)
+                .map((m) => (
+                  <option key={m.id} value={m.id} disabled={!m.available}>
+                    {m.label}{!m.available ? ' (no key)' : ''}
+                  </option>
+                ))}
+            </select>
+            <span className="material-symbols-outlined pointer-events-none absolute right-2 top-2 text-[#86948a]" style={{ fontSize: 16 }}>
+              unfold_more
+            </span>
+          </div>
+          {field.description && (
+            <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
+          )}
+        </>
+      ) : field.type === 'select' ? (
+        <>
+          <div className="relative">
+            <select
+              className={inputCls + ' appearance-none pr-7'}
+              value={String(value ?? '')}
+              onChange={(e) => onChange(e.target.value)}
+            >
+              {field.options?.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined pointer-events-none absolute right-2 top-2 text-[#86948a]" style={{ fontSize: 16 }}>
+              unfold_more
+            </span>
+          </div>
+          {field.description && (
+            <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
+          )}
+        </>
       ) : field.type === 'text' ? (
-        <textarea className={inputCls} rows={3} value={String(value ?? '')} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />
+        <>
+          <textarea
+            className={inputCls + ' resize-y'}
+            rows={4}
+            value={String(value ?? '')}
+            placeholder={field.placeholder}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {field.description && (
+            <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
+          )}
+        </>
       ) : field.type === 'boolean' ? (
-        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(e) => onChange(e.target.checked)}
+            className="h-4 w-4 rounded border-[#3c4a42] bg-[#09100c] accent-[#4edea3]"
+          />
+          {field.description && (
+            <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
+          )}
+        </div>
       ) : field.type === 'number' ? (
-        <input type="number" className={inputCls} value={Number(value ?? 0)} onChange={(e) => onChange(Number(e.target.value))} />
+        <>
+          <input
+            type="number"
+            className={inputCls}
+            value={Number(value ?? 0)}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+          {field.description && (
+            <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
+          )}
+        </>
       ) : (
-        <input type="text" className={inputCls} value={String(value ?? '')} placeholder={field.placeholder} onChange={(e) => onChange(e.target.value)} />
+        <>
+          <input
+            type="text"
+            className={inputCls}
+            value={String(value ?? '')}
+            placeholder={field.placeholder}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {field.description && (
+            <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
+          )}
+        </>
       )}
     </label>
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  value,
+  accent,
+}: {
+  label: string
+  value: string
+  accent?: string
+}) {
   return (
-    <div className="flex justify-between gap-2 text-xs">
-      <span className="text-slate-500">{label}</span>
-      <span className="text-right text-slate-300">{value}</span>
+    <div className="flex flex-col gap-1 rounded border border-[#3c4a42]/60 bg-[#242c27] p-2">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-[#86948a]">{label}</span>
+      <span
+        className="font-mono text-[12px] text-[#dde4dd]"
+        style={accent ? { color: accent } : undefined}
+      >
+        {value}
+      </span>
     </div>
   )
 }
@@ -124,11 +286,32 @@ function Stat({ label, value }: { label: string; value: string }) {
 function IOBlock({ label, value }: { label: string; value: unknown }) {
   if (value === undefined) return null
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[11px] text-slate-500">{label}</span>
-      <pre className="overflow-x-auto rounded bg-black/40 p-2 text-[10px] text-slate-300">
-        {JSON.stringify(value, null, 2)}
-      </pre>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[11px] text-[#86948a]">{label}</span>
+        <button
+          onClick={() => navigator.clipboard.writeText(JSON.stringify(value, null, 2))}
+          className="text-[#86948a] transition-colors hover:text-[#dde4dd]"
+          title="Copy"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>content_copy</span>
+        </button>
+      </div>
+      <div className="rounded-md border border-[#3c4a42] bg-[#09100c] p-2 overflow-x-auto">
+        <pre className="m-0 font-mono text-[11px] leading-relaxed text-[#dde4dd]">
+          {JSON.stringify(value, null, 2)}
+        </pre>
+      </div>
     </div>
   )
+}
+
+function statusColor(status: string) {
+  switch (status) {
+    case 'success': return '#4edea3'
+    case 'failed':  return '#ff8a80'
+    case 'running': return '#ffd180'
+    case 'skipped': return '#86948a'
+    default:        return '#bbcabf'
+  }
 }

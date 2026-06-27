@@ -7,35 +7,33 @@ import { loadModels } from '@/registry/loadModels'
 import type { ModelConfig } from '@/types'
 
 const ARCH_OPTIONS = [
-  { value: 'gsm8k-treatment', label: 'GSM8K Treatment (full)' },
-  { value: 'gsm8k-baseline',  label: 'GSM8K Baseline (simple)' },
-  { value: 'current',         label: 'Current canvas' },
+  { value: 'gsm8k-treatment', label: 'GSM8K Treatment' },
+  { value: 'gsm8k-baseline',  label: 'GSM8K Baseline'  },
+  { value: 'current',         label: 'Current Canvas'  },
 ] as const
 
 type ArchOption = (typeof ARCH_OPTIONS)[number]['value']
 
-const PROVIDER_BADGE: Record<string, string> = {
-  anthropic: '🟠',
-  openai:    '🟢',
-  google:    '🔵',
-  local:     '⚪',
+const PROVIDER_COLOR: Record<string, string> = {
+  anthropic: '#f97316',
+  openai:    '#10b981',
+  google:    '#3b82f6',
+  local:     '#64748b',
 }
 
-/** Top bar — run the current graph through the transport, reset prior run. */
 export function Toolbar() {
-  const transport    = useTransport()
+  const transport      = useTransport()
   const toArchitecture = useGraphStore((s) => s.toArchitecture)
-  const reset        = useExecutionStore((s) => s.reset)
-  const nodeCount    = useGraphStore((s) => s.nodes.length)
-  const runStatus    = useExecutionStore((s) => s.runStatus)
-  const runResult    = useExecutionStore((s) => s.runResult)
-  const runError     = useExecutionStore((s) => s.runError)
+  const reset          = useExecutionStore((s) => s.reset)
+  const nodeCount      = useGraphStore((s) => s.nodes.length)
+  const runStatus      = useExecutionStore((s) => s.runStatus)
+  const runResult      = useExecutionStore((s) => s.runResult)
+  const runError       = useExecutionStore((s) => s.runError)
 
-  const [task, setTask]       = useState('Janet has 3 ducks and 5 chickens. How many animals does she have?')
+  const [task, setTask]         = useState('Janet has 3 ducks and 5 chickens. How many animals does she have?')
   const [archName, setArchName] = useState<ArchOption>('gsm8k-treatment')
   const [modelId, setModelId]   = useState<string>('claude-haiku-4-5-20251001')
 
-  // 백엔드에서 모델 목록 fetch
   const { data: models, isError: modelsError } = useQuery({
     queryKey: ['models'],
     queryFn: loadModels,
@@ -43,8 +41,8 @@ export function Toolbar() {
     retry: 1,
   })
 
-  const selectedModel: ModelConfig | undefined = models?.find((m) => m.id === modelId)
-    ?? models?.[0]
+  const selectedModel: ModelConfig | undefined =
+    models?.find((m) => m.id === modelId) ?? models?.[0]
 
   const isRunning = runStatus === 'running'
 
@@ -63,82 +61,110 @@ export function Toolbar() {
   }
 
   return (
-    <div className="flex flex-col border-b border-white/5 bg-[#0d111a]">
-      <div className="flex items-center justify-between px-4 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-slate-100">Agentforge</span>
-          <span className="text-[10px] text-slate-600">v0.1</span>
+    <div className="shrink-0 border-b border-[#3c4a42] bg-[#1a211d]">
+      {/* Single-row toolbar */}
+      <div className="flex h-14 items-center gap-3 px-4">
+
+        {/* Logo */}
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[15px] font-semibold tracking-tight text-[#dde4dd]">Agentforge</span>
+          <span className="rounded border border-[#3c4a42]/60 bg-[#2f3632]/60 px-1.5 py-px font-mono text-[10px] text-[#86948a]">
+            v0.1
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* 아키텍처 선택 */}
+        {/* Task input — takes remaining center space */}
+        <div className="flex flex-1 items-center gap-2 rounded border border-[#3c4a42] bg-[#161d19] px-3 py-1.5 transition-all focus-within:border-[#4edea3] focus-within:shadow-[0_0_0_2px_rgba(78,222,163,0.12)]">
+          <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#86948a]">
+            Task
+          </span>
+          <input
+            value={task}
+            onChange={(e) => setTask(e.target.value)}
+            placeholder="Enter task for the agent…"
+            className="w-full bg-transparent text-[13px] text-[#dde4dd] outline-none placeholder:text-[#3c4a42]"
+          />
+          {selectedModel && (
+            <div className="flex shrink-0 items-center gap-1.5 border-l border-[#3c4a42]/60 pl-3">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: PROVIDER_COLOR[selectedModel.provider] ?? '#64748b' }}
+              />
+              <span className="font-mono text-[11px] text-[#bbcabf]">{selectedModel.label}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Right controls */}
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Settings icon */}
+          <button className="flex h-8 w-8 items-center justify-center rounded text-[#86948a] transition-colors hover:bg-[#242c27] hover:text-[#dde4dd]">
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>settings</span>
+          </button>
+
+          <div className="h-5 w-px bg-[#3c4a42]" />
+
+          {/* Architecture select */}
           <select
             value={archName}
             onChange={(e) => setArchName(e.target.value as ArchOption)}
-            className="rounded border border-white/10 bg-[#161b27] px-2 py-1 text-xs text-slate-300 focus:outline-none"
+            className="rounded border border-[#3c4a42] bg-[#242c27] px-3 py-1.5 text-[12px] text-[#dde4dd] outline-none transition-colors focus:border-[#4edea3]"
           >
             {ARCH_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
 
-          {/* 모델 선택 — 백엔드 /api/models 기반 */}
+          {/* Model select */}
           <select
             value={selectedModel?.id ?? ''}
             onChange={(e) => setModelId(e.target.value)}
             disabled={!models}
-            className="rounded border border-white/10 bg-[#161b27] px-2 py-1 text-xs text-slate-300 focus:outline-none disabled:opacity-50"
+            className="rounded border border-[#3c4a42] bg-[#242c27] px-3 py-1.5 text-[12px] text-[#dde4dd] outline-none transition-colors focus:border-[#4edea3] disabled:opacity-50"
           >
             {!models && (
-              <option value="">{modelsError ? '모델 로드 실패' : '로딩 중…'}</option>
+              <option value="">{modelsError ? 'Load failed' : 'Loading…'}</option>
             )}
             {models?.map((m) => (
               <option key={m.id} value={m.id} disabled={!m.available}>
-                {PROVIDER_BADGE[m.provider] ?? '•'} {m.label}{!m.available ? ' (키 없음)' : ''}
+                {m.label}{!m.available ? ' (no key)' : ''}
               </option>
             ))}
           </select>
 
-          {/* Run 버튼 */}
+          {/* Run button */}
           <button
             onClick={onRun}
-            disabled={isRunning || !selectedModel || !selectedModel.available || (archName === 'current' && nodeCount === 0)}
-            className="rounded bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={
+              isRunning ||
+              !selectedModel ||
+              !selectedModel.available ||
+              (archName === 'current' && nodeCount === 0)
+            }
+            className="flex items-center gap-1.5 rounded bg-[#4edea3] px-4 py-1.5 text-[12px] font-bold text-[#003824] shadow-[0_0_10px_rgba(78,222,163,0.25)] transition-all hover:bg-[#6ffbbe] hover:shadow-[0_0_16px_rgba(78,222,163,0.45)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
           >
-            {isRunning ? '⏳ Running…' : '▶ Run'}
+            <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: "'FILL' 1" }}>
+              play_arrow
+            </span>
+            {isRunning ? 'Running…' : 'Run'}
           </button>
         </div>
       </div>
 
-      {/* Task 입력 */}
-      <div className="flex items-center gap-2 border-t border-white/5 px-4 py-1.5">
-        <span className="shrink-0 text-[10px] text-slate-500">Task</span>
-        <input
-          value={task}
-          onChange={(e) => setTask(e.target.value)}
-          placeholder="Enter task for the agent…"
-          className="w-full rounded border border-white/10 bg-[#161b27] px-2 py-1 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
-        />
-        {selectedModel && (
-          <span className="shrink-0 text-[10px] text-slate-600">
-            {PROVIDER_BADGE[selectedModel.provider]} {selectedModel.label}
-          </span>
-        )}
-      </div>
-
-      {/* 실행 결과 배너 */}
+      {/* Result / error banner */}
       {runStatus === 'complete' && runResult && (
-        <div className="border-t border-emerald-900/50 bg-emerald-950/40 px-4 py-1.5 text-xs text-emerald-300">
+        <div className="border-t border-[#003824]/80 bg-[#002113]/60 px-4 py-1.5 font-mono text-[12px] text-[#4edea3]">
           ✓ {String(runResult.answer ?? '—')}
           {!!runResult.verdict && (
-            <span className="ml-3 text-slate-400">
-              Verified: {(runResult.verdict as Record<string, unknown>).passed ? '✓ pass' : '✗ fail'}
+            <span className="ml-3 text-[#86948a]">
+              Verified:{' '}
+              {(runResult.verdict as Record<string, unknown>).passed ? '✓ pass' : '✗ fail'}
             </span>
           )}
         </div>
       )}
       {runStatus === 'error' && runError && (
-        <div className="border-t border-red-900/50 bg-red-950/40 px-4 py-1.5 text-xs text-red-300">
+        <div className="border-t border-[#93000a]/80 bg-[#410005]/40 px-4 py-1.5 font-mono text-[12px] text-[#ffb4ab]">
           ✗ {runError}
         </div>
       )}

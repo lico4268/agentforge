@@ -39,8 +39,19 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "inputs": [],
         "outputs": [{"id": "model", "label": "Model", "dataType": "model"}],
         "config": [
-            {"key": "provider", "label": "Provider", "type": "select", "options": ["anthropic", "openai", "google", "local"]},
-            {"key": "model", "label": "Model ID", "type": "text"},
+            {
+                "key": "provider",
+                "label": "Provider",
+                "type": "select",
+                "default": "anthropic",
+                "options": [
+                    {"label": "Anthropic", "value": "anthropic"},
+                    {"label": "OpenAI",    "value": "openai"},
+                    {"label": "Google",    "value": "google"},
+                    {"label": "Local",     "value": "local"},
+                ],
+            },
+            {"key": "model", "label": "Model ID", "type": "model-id", "default": "claude-haiku-4-5-20251001", "description": "provider 선택에 따라 목록이 필터링됩니다."},
             {"key": "temperature", "label": "Temperature", "type": "number", "default": 0},
         ],
     },
@@ -56,7 +67,17 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         ],
         "outputs": [{"id": "plan", "label": "Plan", "dataType": "plan"}],
         "config": [
-            {"key": "strategy", "label": "Strategy", "type": "select", "options": ["decompose", "goal", "multistep"]},
+            {
+                "key": "strategy",
+                "label": "Strategy",
+                "type": "select",
+                "default": "decompose",
+                "options": [
+                    {"label": "Decompose",  "value": "decompose"},
+                    {"label": "Goal-first", "value": "goal"},
+                    {"label": "Multi-step", "value": "multistep"},
+                ],
+            },
         ],
         "defaults": {
             "systemPrompt": "Decompose the task into ordered steps and return as JSON.",
@@ -79,7 +100,16 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
             {"id": "confidence", "label": "Confidence", "dataType": "number"},
         ],
         "config": [
-            {"key": "style", "label": "Style", "type": "select", "options": ["chain_of_thought", "direct"]},
+            {
+                "key": "style",
+                "label": "Style",
+                "type": "select",
+                "default": "chain_of_thought",
+                "options": [
+                    {"label": "Chain of thought", "value": "chain_of_thought"},
+                    {"label": "Direct",           "value": "direct"},
+                ],
+            },
         ],
         "defaults": {
             "systemPrompt": "Solve the task step by step. Return your answer and confidence (0-1).",
@@ -104,7 +134,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "config": [
             {"key": "passThreshold", "label": "Pass threshold", "type": "number", "default": 0.85},
             {"key": "autoThreshold", "label": "Auto threshold", "type": "number", "default": 0.6},
-            {"key": "escalateTags", "label": "Escalate tags", "type": "string[]"},
+            {"key": "escalateTags",  "label": "Escalate tags",  "type": "string[]"},
         ],
     },
     {
@@ -141,8 +171,27 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
             {"id": "reject", "label": "Reject", "dataType": "any"},
         ],
         "config": [
-            {"key": "summarize", "label": "Summarize", "type": "select", "options": ["off", "fields", "llm"]},
-            {"key": "blockUntil", "label": "Block until", "type": "select", "options": ["always", "when-flagged"]},
+            {
+                "key": "summarize",
+                "label": "Summarize",
+                "type": "select",
+                "default": "off",
+                "options": [
+                    {"label": "Off",    "value": "off"},
+                    {"label": "Fields", "value": "fields"},
+                    {"label": "LLM",    "value": "llm"},
+                ],
+            },
+            {
+                "key": "blockUntil",
+                "label": "Block until",
+                "type": "select",
+                "default": "always",
+                "options": [
+                    {"label": "Always",       "value": "always"},
+                    {"label": "When flagged", "value": "when-flagged"},
+                ],
+            },
         ],
     },
 ]

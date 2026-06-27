@@ -1,14 +1,26 @@
 import type { NodeCategory } from '@/types'
 
-/** Single source for category color/label, used by nodes, ports, and library. */
 export const CATEGORY_META: Record<
   NodeCategory,
-  { label: string; color: string; varName: string }
+  { label: string; color: string; varName: string; icon: string }
 > = {
-  cognitive: { label: 'Cognitive', color: '#8b5cf6', varName: 'cat-cognitive' },
-  memory:    { label: 'Memory',    color: '#06b6d4', varName: 'cat-memory' },
-  model:     { label: 'Model',     color: '#3b82f6', varName: 'cat-model' },
-  tool:      { label: 'Tool',      color: '#10b981', varName: 'cat-tool' },
-  policy:    { label: 'Policy',    color: '#f59e0b', varName: 'cat-policy' },
-  io:        { label: 'I/O',       color: '#64748b', varName: 'cat-io' },
+  cognitive: { label: 'Cognitive', color: '#b388ff', varName: 'cat-cognitive', icon: 'psychology'     },
+  memory:    { label: 'Memory',    color: '#18ffff', varName: 'cat-memory',    icon: 'memory'         },
+  model:     { label: 'Model',     color: '#82b1ff', varName: 'cat-model',     icon: 'smart_toy'      },
+  tool:      { label: 'Tool',      color: '#10b981', varName: 'cat-tool',      icon: 'build'          },
+  policy:    { label: 'Policy',    color: '#ff8a80', varName: 'cat-policy',    icon: 'policy'         },
+  human:     { label: 'Human',     color: '#f43f5e', varName: 'cat-human',     icon: 'person_check'   },
+  io:        { label: 'I/O',       color: '#ffd180', varName: 'cat-io',        icon: 'swap_horiz'     },
+}
+
+/** Per-node type icons for the library panel */
+export const NODE_TYPE_ICONS: Record<string, string> = {
+  'planning.decompose': 'psychology',
+  'reasoning.cot':      'account_tree',
+  'verification.auto':  'verified',
+  'policy.review':      'policy',
+  'human.checkpoint':   'person_check',
+  'model.binding':      'smart_toy',
+  'io.input':           'login',
+  'io.output':          'logout',
 }

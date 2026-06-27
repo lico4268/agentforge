@@ -2,23 +2,21 @@ import { Fragment } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { Port } from '@/types'
 
-const HANDLE_STYLE = {
-  width: 9,
-  height: 9,
-  background: '#0b0e14',
-  border: '2px solid #64748b',
-} as const
+function handleStyle(color: string) {
+  return {
+    width: 9,
+    height: 9,
+    background: '#0e1511',
+    border: `2px solid ${color}`,
+    borderRadius: '50%',
+  } as const
+}
 
-/**
- * Input handles distributed across the TOP edge of the node.
- * The section div has position:relative so handles are positioned relative
- * to it — Position.Top gives top:-4px (pokes above section top = node top edge).
- */
-export function NodeInputs({ inputs }: { inputs: Port[] }) {
+export function NodeInputs({ inputs, color = '#3c4a42' }: { inputs: Port[]; color?: string }) {
   if (!inputs.length) return null
   const n = inputs.length
   return (
-    <div className="relative h-7 border-b border-white/5">
+    <div className="relative h-6 border-b border-[#3c4a42]/40">
       {inputs.map((p, i) => {
         const left = `${((i + 1) / (n + 1)) * 100}%`
         return (
@@ -27,10 +25,10 @@ export function NodeInputs({ inputs }: { inputs: Port[] }) {
               type="target"
               position={Position.Top}
               id={p.id}
-              style={{ ...HANDLE_STYLE, left }}
+              style={{ ...handleStyle(color), left }}
             />
             <span
-              className="absolute bottom-0.5 text-[10px] text-slate-500 select-none pointer-events-none whitespace-nowrap"
+              className="pointer-events-none absolute bottom-0.5 select-none whitespace-nowrap font-mono text-[9px] text-[#86948a]"
               style={{ left, transform: 'translateX(-50%)' }}
             >
               {p.label}
@@ -42,15 +40,11 @@ export function NodeInputs({ inputs }: { inputs: Port[] }) {
   )
 }
 
-/**
- * Output handles distributed across the BOTTOM edge of the node.
- * Position.Bottom gives bottom:-4px (pokes below section bottom = node bottom edge).
- */
-export function NodeOutputs({ outputs }: { outputs: Port[] }) {
+export function NodeOutputs({ outputs, color = '#3c4a42' }: { outputs: Port[]; color?: string }) {
   if (!outputs.length) return null
   const n = outputs.length
   return (
-    <div className="relative h-7 border-t border-white/5">
+    <div className="relative h-6 border-t border-[#3c4a42]/40">
       {outputs.map((p, i) => {
         const left = `${((i + 1) / (n + 1)) * 100}%`
         return (
@@ -59,10 +53,10 @@ export function NodeOutputs({ outputs }: { outputs: Port[] }) {
               type="source"
               position={Position.Bottom}
               id={p.id}
-              style={{ ...HANDLE_STYLE, left }}
+              style={{ ...handleStyle(color), left }}
             />
             <span
-              className="absolute top-0.5 text-[10px] text-slate-500 select-none pointer-events-none whitespace-nowrap"
+              className="pointer-events-none absolute top-0.5 select-none whitespace-nowrap font-mono text-[9px] text-[#86948a]"
               style={{ left, transform: 'translateX(-50%)' }}
             >
               {p.label}

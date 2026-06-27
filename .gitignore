@@ -1,13 +1,45 @@
+# Environments
 .env
 .env.local
+.env.example
+
+# OS
+.DS_Store
+**/.DS_Store
+
+# Sync / Local DB
+.sync-exclude.lst
+.sync_*.db
+.sync_*.db-journal
+
+# Agent/IDE
+.codegraph/
+.vscode/
+.idea/
+CLAUDE.local.md
 
 # Python
 server/.venv/
-server/__pycache__/
-server/**/__pycache__/
 **/__pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.uv_cache/
 
 # Node
 ui/node_modules/
+ui/dist/
+ui/build/
+.npm/
+npm-debug.log*
+
+# Docs / Refer
+refer_data/

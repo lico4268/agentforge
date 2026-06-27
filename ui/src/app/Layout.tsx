@@ -7,10 +7,10 @@ import { LogPanel } from '@/panels/LogPanel'
 import { Toolbar } from './Toolbar'
 
 const vHandle = (
-  <Separator className="w-px shrink-0 bg-white/5 transition-colors hover:bg-white/20" />
+  <Separator className="w-px shrink-0 bg-[#3c4a42]/40 transition-colors hover:bg-[#4edea3]/30" />
 )
 const hHandle = (
-  <Separator className="h-px shrink-0 bg-white/5 transition-colors hover:bg-white/20" />
+  <Separator className="h-px shrink-0 bg-[#3c4a42]/40 transition-colors hover:bg-[#4edea3]/30" />
 )
 
 /**

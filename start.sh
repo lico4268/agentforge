@@ -63,10 +63,14 @@ BACKEND_UVICORN="$BACKEND_VENV/bin/uvicorn"
 
 echo -e "${BOLD}[server]${RESET} venv → ${CYAN}$BACKEND_VENV${RESET}"
 
+if ! command -v uv &> /dev/null; then
+  err "uv 가 설치되어 있지 않습니다. 설치해주세요: curl -LsSf https://astral.sh/uv/install.sh | sh"
+  exit 1
+fi
+
 if [ ! -d "$BACKEND_VENV" ]; then
-  log "Python venv 없음 → 생성: $BACKEND_VENV"
-  python3 -m venv "$BACKEND_VENV"
-  "$BACKEND_PYTHON" -m ensurepip --upgrade 2>/dev/null || true
+  log "Python venv 없음 → 생성: $BACKEND_VENV (uv 사용)"
+  uv venv --python 3.12 "$BACKEND_VENV"
   ok "venv 생성 완료"
 else
   # 디렉토리 이동/rename 후 shebang이 깨진 경우 venv 재생성
@@ -74,24 +78,13 @@ else
   if [ -n "$VENV_PYTHON_SHEBANG" ] && [ ! -f "$VENV_PYTHON_SHEBANG" ]; then
     warn "venv shebang 경로 깨짐 ($VENV_PYTHON_SHEBANG) → venv 재생성"
     rm -rf "$BACKEND_VENV"
-    python3 -m venv "$BACKEND_VENV"
-    "$BACKEND_PYTHON" -m ensurepip --upgrade 2>/dev/null || true
+    uv venv --python 3.12 "$BACKEND_VENV"
     ok "venv 재생성 완료"
   fi
 fi
 
-log "백엔드 의존성 설치/업데이트 (${BACKEND_PYTHON} -m pip)…"
-# pyproject.toml 에서 deps 읽어 설치 (패키지 빌드 없이 deps만)
-# pip 바이너리 대신 python -m pip 사용 → venv 생성 직후도 항상 작동
-DEPS=$(cd "$BACKEND" && "$BACKEND_PYTHON" -c "
-import tomllib
-with open('pyproject.toml', 'rb') as f:
-    d = tomllib.load(f)
-deps = d['project']['dependencies']
-deps += d['project'].get('optional-dependencies', {}).get('dev', [])
-print('\n'.join(deps))
-")
-echo "$DEPS" | xargs "$BACKEND_PYTHON" -m pip install -q
+log "백엔드 의존성 설치/업데이트 (uv pip install)…"
+(cd "$BACKEND" && uv pip install --python "$BACKEND_VENV" -e ".[dev]" -q)
 ok "백엔드 deps 준비"
 
 # .env 체크

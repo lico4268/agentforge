@@ -2,8 +2,8 @@ import type { NodeManifest } from '@/types'
 
 /**
  * Bundled fallback node set — used when the backend /api/nodes is unreachable.
- * Mirrors backend/nodes/builtin/* exactly: type ids, port ids, config keys.
- * Adding a node = adding an entry here AND the corresponding NodeBase subclass.
+ * Mirrors server/manifests.py exactly: type ids, runtime, port ids, config keys.
+ * node-spec.md §4 가 이 목록의 정의 문서다.
  */
 export const BUILTIN_MANIFESTS: NodeManifest[] = [
 
@@ -11,173 +11,47 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
 
   {
     type: 'io.input',
+    runtime: 'io',
     category: 'io',
     label: 'Input',
-    description: 'Entry point — the question or task given to the agent.',
+    description: '그래프 진입점. task와 tag를 시드.',
     inputs: [],
-    outputs: [{ id: 'out', label: 'task', dataType: 'text', required: false }],
+    outputs: [
+      { id: 'task', label: 'Task', dataType: 'text' },
+      { id: 'tags', label: 'Tags', dataType: 'any' },
+    ],
     config: [
       {
         key: 'sample',
         label: 'Sample task',
         type: 'text',
         placeholder: 'e.g. Natalia sold clips to 48 of her friends…',
-        description: 'Used as the agent input when running in MockTransport or via direct API.',
       },
+      { key: 'taskTags', label: 'Task tags', type: 'string[]' },
     ],
   },
 
   {
     type: 'io.output',
+    runtime: 'io',
     category: 'io',
     label: 'Output',
-    description: 'Collects and surfaces the final result of the agent.',
-    inputs: [{ id: 'in', label: 'result', dataType: 'any', required: true }],
+    description: '그래프 종단.',
+    inputs: [{ id: 'result', label: 'Result', dataType: 'any', required: true }],
     outputs: [],
     config: [],
-  },
-
-  // ── Cognitive ──────────────────────────────────────────────────────────────
-
-  {
-    type: 'planning.task_decomposition',
-    category: 'cognitive',
-    label: 'Planning',
-    description: 'Decomposes the incoming task into an ordered sequence of sub-steps.',
-    inputs: [{ id: 'in', label: 'task', dataType: 'text', required: true }],
-    outputs: [{ id: 'plan', label: 'plan', dataType: 'plan', required: false }],
-    config: [
-      {
-        key: 'strategy',
-        label: 'Strategy',
-        type: 'select',
-        default: 'decompose',
-        options: [
-          { label: 'Decompose', value: 'decompose' },
-          { label: 'Goal-first', value: 'goal' },
-          { label: 'Multi-step', value: 'multistep' },
-        ],
-      },
-      {
-        key: 'maxSteps',
-        label: 'Max steps',
-        type: 'number',
-        default: 5,
-        description: 'Upper bound on the number of sub-steps generated.',
-      },
-    ],
-  },
-
-  {
-    type: 'verification.critique',
-    category: 'cognitive',
-    label: 'Verification',
-    description: 'Critiques the answer. Routes to "verified" if acceptable, "needs retry" otherwise.',
-    inputs: [{ id: 'in', label: 'answer', dataType: 'text', required: true }],
-    outputs: [
-      { id: 'pass',  label: 'verified',     dataType: 'text', required: false },
-      { id: 'retry', label: 'needs retry',  dataType: 'text', required: false },
-    ],
-    config: [
-      {
-        key: 'maxRetries',
-        label: 'Max retries',
-        type: 'number',
-        default: 2,
-      },
-      {
-        key: 'criteria',
-        label: 'Evaluation criteria',
-        type: 'text',
-        placeholder: 'Check for factual accuracy and completeness…',
-        description: 'What the verifier looks for. Passed verbatim to the LLM judge.',
-      },
-    ],
-  },
-
-  {
-    type: 'cognitive.reflection',
-    category: 'cognitive',
-    label: 'Reflection',
-    description: 'Reviews the execution trajectory and extracts actionable insights for future runs.',
-    inputs: [
-      { id: 'trajectory', label: 'trajectory', dataType: 'any', required: true },
-    ],
-    outputs: [
-      { id: 'insight', label: 'insight', dataType: 'text', required: false },
-    ],
-    config: [
-      {
-        key: 'focus',
-        label: 'Focus',
-        type: 'select',
-        default: 'general',
-        options: [
-          { label: 'General', value: 'general' },
-          { label: 'Errors only', value: 'errors' },
-          { label: 'Strategy', value: 'strategy' },
-        ],
-      },
-    ],
-  },
-
-  // ── Memory ─────────────────────────────────────────────────────────────────
-
-  {
-    type: 'memory.buffer',
-    category: 'memory',
-    label: 'Buffer Memory',
-    description: 'Keeps the N most recent messages in a sliding-window buffer.',
-    inputs:  [{ id: 'in',      label: 'message', dataType: 'text',     required: true  }],
-    outputs: [{ id: 'history', label: 'history', dataType: 'messages', required: false }],
-    config: [
-      {
-        key: 'windowSize',
-        label: 'Window size',
-        type: 'number',
-        default: 10,
-        description: 'Maximum number of messages to retain.',
-      },
-    ],
-  },
-
-  {
-    type: 'memory.retrieval',
-    category: 'memory',
-    label: 'Memory Retrieval',
-    description: 'Searches a vector store for past context relevant to the current query.',
-    inputs:  [{ id: 'query',   label: 'query',   dataType: 'text',     required: true  }],
-    outputs: [{ id: 'context', label: 'context', dataType: 'messages', required: false }],
-    config: [
-      {
-        key: 'topK',
-        label: 'Top-K results',
-        type: 'number',
-        default: 3,
-      },
-      {
-        key: 'store',
-        label: 'Vector store',
-        type: 'select',
-        default: 'in_memory',
-        options: [
-          { label: 'In-memory', value: 'in_memory' },
-          { label: 'Chroma',    value: 'chroma'    },
-          { label: 'Pinecone',  value: 'pinecone'  },
-        ],
-      },
-    ],
   },
 
   // ── Model ──────────────────────────────────────────────────────────────────
 
   {
-    type: 'model.inference',
+    type: 'model.binding',
+    runtime: 'model',
     category: 'model',
     label: 'Model',
-    description: 'Calls an LLM with the supplied context. No cognitive structure — pure inference.',
-    inputs:  [{ id: 'in',  label: 'context', dataType: 'any',  required: true  }],
-    outputs: [{ id: 'out', label: 'answer',  dataType: 'text', required: false }],
+    description: '공유 LLM 부품. llm_step의 model 포트에 연결하면 인라인 설정을 덮어씀.',
+    inputs: [],
+    outputs: [{ id: 'model', label: 'Model', dataType: 'model' }],
     config: [
       {
         key: 'provider',
@@ -187,116 +61,178 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
         options: [
           { label: 'Anthropic', value: 'anthropic' },
           { label: 'OpenAI',    value: 'openai'    },
+          { label: 'Google',    value: 'google'    },
           { label: 'Local',     value: 'local'     },
         ],
       },
       {
         key: 'model',
-        label: 'Model',
-        type: 'string',
-        default: 'claude-sonnet-4-6',
+        label: 'Model ID',
+        type: 'model-id',
+        default: 'claude-haiku-4-5-20251001',
+        description: 'provider 선택에 따라 목록이 필터링됩니다.',
       },
-      {
-        key: 'systemPrompt',
-        label: 'System prompt',
-        type: 'text',
-        placeholder: 'You are a helpful assistant…',
-        description: 'Instructions prepended to every request. Defines the model\'s role.',
-      },
-      {
-        key: 'temperature',
-        label: 'Temperature',
-        type: 'number',
-        default: 0,
-      },
-      {
-        key: 'maxTokens',
-        label: 'Max tokens',
-        type: 'number',
-        default: 1024,
-      },
+      { key: 'temperature', label: 'Temperature', type: 'number', default: 0 },
     ],
   },
 
-  // ── Tool ───────────────────────────────────────────────────────────────────
+  // ── Cognitive (llm_step 프리셋) ────────────────────────────────────────────
 
   {
-    type: 'tool.web_search',
-    category: 'tool',
-    label: 'Web Search',
-    description: 'Queries a search engine and returns the top results as text.',
-    inputs:  [{ id: 'query',   label: 'query',   dataType: 'text', required: true  }],
-    outputs: [{ id: 'results', label: 'results', dataType: 'text', required: false }],
+    type: 'planning.decompose',
+    runtime: 'llm_step',
+    category: 'cognitive',
+    label: 'Planning',
+    description: 'task를 정렬된 단계(plan)로 분해.',
+    inputs: [
+      { id: 'task',  label: 'Task',  dataType: 'text',  required: true  },
+      { id: 'model', label: 'Model', dataType: 'model', required: false },
+    ],
+    outputs: [{ id: 'plan', label: 'Plan', dataType: 'plan' }],
     config: [
       {
-        key: 'maxResults',
-        label: 'Max results',
-        type: 'number',
-        default: 5,
-      },
-      {
-        key: 'engine',
-        label: 'Search engine',
+        key: 'strategy',
+        label: 'Strategy',
         type: 'select',
-        default: 'tavily',
+        default: 'decompose',
         options: [
-          { label: 'Tavily', value: 'tavily' },
-          { label: 'Serper', value: 'serper' },
+          { label: 'Decompose',  value: 'decompose'  },
+          { label: 'Goal-first', value: 'goal'       },
+          { label: 'Multi-step', value: 'multistep'  },
         ],
       },
     ],
+    defaults: {
+      systemPrompt: 'Decompose the task into ordered steps and return as JSON.',
+      outputSchema: { steps: 'string[]' },
+    },
   },
 
   {
-    type: 'tool.code_exec',
-    category: 'tool',
-    label: 'Code Executor',
-    description: 'Runs Python code in a sandboxed environment and returns stdout or an error.',
-    inputs: [{ id: 'code', label: 'code', dataType: 'text', required: true }],
+    type: 'reasoning.cot',
+    runtime: 'llm_step',
+    category: 'cognitive',
+    label: 'Reasoning',
+    description: 'Chain-of-thought 추론. answer와 confidence를 반환.',
+    inputs: [
+      { id: 'task',  label: 'Task',  dataType: 'text',  required: true  },
+      { id: 'plan',  label: 'Plan',  dataType: 'plan',  required: false },
+      { id: 'model', label: 'Model', dataType: 'model', required: false },
+    ],
     outputs: [
-      { id: 'result', label: 'result', dataType: 'text', required: false },
-      { id: 'error',  label: 'error',  dataType: 'text', required: false },
+      { id: 'answer',     label: 'Answer',     dataType: 'text'   },
+      { id: 'confidence', label: 'Confidence', dataType: 'number' },
     ],
     config: [
       {
-        key: 'timeout',
-        label: 'Timeout (s)',
-        type: 'number',
-        default: 10,
+        key: 'style',
+        label: 'Style',
+        type: 'select',
+        default: 'chain_of_thought',
+        options: [
+          { label: 'Chain of thought', value: 'chain_of_thought' },
+          { label: 'Direct',           value: 'direct'           },
+        ],
       },
     ],
+    defaults: {
+      systemPrompt: 'Solve the task step by step. Return your answer and confidence (0-1).',
+      outputSchema: { answer: 'string', confidence: 'number' },
+    },
+  },
+
+  {
+    type: 'verification.auto',
+    runtime: 'llm_step',
+    category: 'cognitive',
+    label: 'Auto-Verify',
+    description: 'LLM 자동 검증. 실패 시 재시도 루프로 연결.',
+    inputs: [
+      { id: 'answer', label: 'Answer', dataType: 'text',  required: true  },
+      { id: 'task',   label: 'Task',   dataType: 'text',  required: false },
+      { id: 'model',  label: 'Model',  dataType: 'model', required: false },
+    ],
+    outputs: [{ id: 'verdict', label: 'Verdict', dataType: 'judgement' }],
+    config: [
+      {
+        key: 'criteria',
+        label: 'Criteria',
+        type: 'string[]',
+        placeholder: 'Check for factual accuracy…',
+        description: '검증 기준 항목 목록.',
+      },
+      { key: 'maxRetries', label: 'Max retries', type: 'number', default: 2 },
+    ],
+    defaults: {
+      systemPrompt: 'Verify the answer for correctness. Return passed (bool) and feedback.',
+      outputSchema: { passed: 'boolean', feedback: 'string' },
+    },
   },
 
   // ── Policy ─────────────────────────────────────────────────────────────────
 
   {
-    type: 'policy.verification',
+    type: 'policy.review',
+    runtime: 'policy',
     category: 'policy',
-    label: 'Verification Policy',
-    description: 'Routes the answer through verification only when confidence is below threshold.',
-    inputs: [{ id: 'in', label: 'answer', dataType: 'text', required: true }],
+    label: 'Review Policy',
+    description: 'confidence·태그 기반 3분기 라우터. pass / auto-verify / human 분기.',
+    inputs: [
+      { id: 'answer',     label: 'Answer',     dataType: 'text'   },
+      { id: 'confidence', label: 'Confidence', dataType: 'number' },
+    ],
     outputs: [
-      { id: 'verify', label: 'needs check', dataType: 'text', required: false },
-      { id: 'pass',   label: 'accepted',    dataType: 'text', required: false },
+      { id: 'pass',  label: 'Pass',        dataType: 'any' },
+      { id: 'auto',  label: 'Auto-verify', dataType: 'any' },
+      { id: 'human', label: 'Human',       dataType: 'any' },
+    ],
+    config: [
+      { key: 'passThreshold',  label: 'Pass threshold',  type: 'number', default: 0.85 },
+      { key: 'autoThreshold',  label: 'Auto threshold',  type: 'number', default: 0.6  },
+      {
+        key: 'escalateTags',
+        label: 'Escalate tags',
+        type: 'string[]',
+        description: '이 태그가 있으면 무조건 human 분기.',
+      },
+    ],
+  },
+
+  // ── Human ──────────────────────────────────────────────────────────────────
+
+  {
+    type: 'human.checkpoint',
+    runtime: 'checkpoint',
+    category: 'human',
+    label: 'Human Checkpoint',
+    description: '실행 정지 후 인간 검토·수정·재실행. approve / revise / reject 3분기.',
+    inputs: [{ id: 'review', label: 'Review', dataType: 'any' }],
+    outputs: [
+      { id: 'approve', label: 'Approve', dataType: 'any' },
+      { id: 'revise',  label: 'Revise',  dataType: 'any' },
+      { id: 'reject',  label: 'Reject',  dataType: 'any' },
     ],
     config: [
       {
-        key: 'mode',
-        label: 'Activation mode',
+        key: 'summarize',
+        label: 'Summarize',
         type: 'select',
-        default: 'confidence',
+        default: 'off',
         options: [
-          { label: 'Confidence score', value: 'confidence' },
-          { label: 'Always verify',    value: 'always'     },
-          { label: 'Never verify',     value: 'never'      },
+          { label: 'Off',    value: 'off'    },
+          { label: 'Fields', value: 'fields' },
+          { label: 'LLM',    value: 'llm'    },
         ],
       },
       {
-        key: 'threshold',
-        label: 'Confidence threshold',
-        type: 'number',
-        default: 0.7,
-        description: 'Only used when mode = "confidence". Range 0–1.',
+        key: 'blockUntil',
+        label: 'Block until',
+        type: 'select',
+        default: 'always',
+        options: [
+          { label: 'Always',      value: 'always'      },
+          { label: 'When flagged', value: 'when-flagged' },
+        ],
       },
     ],
   },
