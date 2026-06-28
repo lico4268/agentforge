@@ -37,7 +37,8 @@ AgentForge 마일스톤 추적기. **세션 시작 시 이 파일을 읽고 다�
 - [x] 백엔드 `ruff` 도입 — `pyproject.toml` `[tool.ruff]` (E/F/I/UP/B, line-length 100, isort first-party 지정)
 - [x] 테스트 스캐폴딩 — `server/tests/`(pytest, 12 통과), `ui/src/__tests__/`(vitest, 4 통과) + 예시 테스트
 - [x] 기존 코드 ruff 정리: 25건(import 정렬·미사용·UP·E501) 전부 해소, `ruff check` clean, 테스트 12개 유지
-- [ ] 에러/로깅 표준화: `ExecutionEvent` 실패 경로 단일화(`node_failed`), `error` 필드 도입 검토, `print` → `logging`
+- [x] 에러/로깅 표준화: `make_error_event()` 헬퍼로 노드 실패 방출 단일화(`event_type="error"` + 구조화 `error{type,detail}` 필드), 프론트 `ExecutionErrorSchema`·리듀서·LogPanel 연동, `logging_config.setup_logging()` 도입
+      - 결정: `node_failed` 신규 도입 대신 기존 프론트 계약(`error`→`failed`) 유지. 서버엔 `print`가 없어 "추가" 형태로 로깅 도입.
 - [ ] 문서 정합성 정리: CLAUDE.md·AGENTS.md의 `NodeRegistry` 규칙을 실제 LangGraph 구조에 맞게 갱신 (또는 `harness.py`/빈 `nodes/__init__.py` 정리)
 
 ---

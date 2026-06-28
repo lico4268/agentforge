@@ -29,6 +29,20 @@ describe('ExecutionEventSchema', () => {
     expect(parsed.tokenUsage?.prompt).toBe(100)
   })
 
+  it('구조화된 error 필드를 가진 error 이벤트를 통과시킨다', () => {
+    const payload = {
+      eventType: 'error',
+      runId: 'run-1',
+      nodeId: 'reasoning',
+      timestamp: new Date().toISOString(),
+      message: 'bad output',
+      error: { type: 'ValueError', detail: 'bad output' },
+    }
+    const parsed = ExecutionEventSchema.parse(payload)
+    expect(parsed.error?.type).toBe('ValueError')
+    expect(parsed.error?.detail).toBe('bad output')
+  })
+
   it('알 수 없는 eventType은 거부한다', () => {
     const bad = {
       eventType: 'not_a_real_event',

@@ -8,10 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import config as cfg
 from events import WSEventEmitter
+from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
 from models import build_model
 from state import initial_state
 
+setup_logging()
 app = FastAPI(title="Agentforge Backend", version="0.1.0")
 
 app.add_middleware(
@@ -182,8 +184,10 @@ async def ws_run(ws: WebSocket):
                         },
                     })
                 except ValueError as e:
+                    logger.warning("run %s rejected: %s", run_id, e)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
                 except Exception as e:
+                    logger.exception("run %s failed", run_id)
                     await ws.send_json({
                         "kind": "error", "runId": run_id, "message": f"Execution error: {e}",
                     })
@@ -212,6 +216,7 @@ async def ws_run(ws: WebSocket):
                         },
                     })
                 except Exception as e:
+                    logger.exception("resume of run %s failed", run_id)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
 
             elif kind == "reconnect":

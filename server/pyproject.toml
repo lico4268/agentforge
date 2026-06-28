@@ -29,7 +29,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "config", "events", "harness", "manifests", "models", "state"]
+py-modules = ["main", "config", "events", "harness", "manifests", "models", "state", "logging_config"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -46,7 +46,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
 # stdlib → 서드파티 → 로컬. 로컬 모듈을 first-party로 인식시킨다.
-known-first-party = ["config", "events", "harness", "manifests", "models", "state", "graphs", "nodes"]
+known-first-party = ["config", "events", "harness", "manifests", "models", "state", "logging_config", "graphs", "nodes"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

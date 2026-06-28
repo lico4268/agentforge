@@ -29,13 +29,17 @@ def build_baseline(model: BaseChatModel, emit: EventEmitter, run_id: str):
             emit=emit,
             run_id=run_id,
         )
-        await emit(make_event(run_id, "reasoning", "node_end", **result))
+        await emit(make_event(
+            run_id, "reasoning", "node_end",
+            output={"answer": result["answer"], "confidence": result["confidence"]},
+        ))
         return {"answer": result["answer"], "confidence": result["confidence"]}
 
     async def output_node(state: AgentState) -> dict:
-        await emit(make_event(run_id, "output", "node_end",
-                              answer=state.get("answer"),
-                              verdict=state.get("verdict")))
+        await emit(make_event(
+            run_id, "output", "node_end",
+            output={"answer": state.get("answer"), "verdict": state.get("verdict")},
+        ))
         return {}
 
     graph = StateGraph(AgentState)

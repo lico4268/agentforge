@@ -38,7 +38,7 @@ export function reduceEvent(
     }
 
     case 'error':
-      return { ...base, status: 'failed' }
+      return { ...base, status: 'failed', lastError: event.error ?? base.lastError }
 
     default:
       return base

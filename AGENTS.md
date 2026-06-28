@@ -44,5 +44,6 @@ AI 코딩 에이전트(Claude Code, Cursor, Antigravity 등)가 **이 저장소�
 
 ## 7. 에러·로깅 (표준화)
 
-- 노드 실행 실패는 산발적으로 처리하지 말고, 표준 실패 이벤트 경로(`event_type="node_failed"`)로 일관되게 방출한다. 자세한 형식은 ROADMAP의 에러 표준화 항목 진행에 따른다.
-- `print` 대신 표준 `logging`을 사용하고 레벨은 `config.LOG_LEVEL`을 따른다.
+- 노드 실행 실패는 산발적으로 처리하지 말고 `events.make_error_event(run_id, node_id, exc)`로 방출한다. 이는 `event_type="error"` + 구조화된 `error={"type", "detail"}` 필드를 만든다. 프론트 `eventReducer`가 `'error'` → 노드 상태 `'failed'`로 매핑하고 `LogPanel`이 `error.detail`을 표시한다.
+- `error` 필드를 추가/변경하면 백엔드 `to_frontend()`와 프론트 `ui/src/types/events.ts`의 `ExecutionErrorSchema`를 함께 갱신한다 (§4 타입 계약).
+- `print`를 쓰지 않는다. `from logging_config import logger`를 사용하고, 앱 시작 시 `setup_logging()`이 `config.LOG_LEVEL` 기준으로 초기화한다.

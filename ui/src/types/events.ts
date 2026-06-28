@@ -36,6 +36,13 @@ export const PolicyDecisionSchema = z.object({
 })
 export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>
 
+/** Structured failure detail — backend make_error_event() {type, detail}. */
+export const ExecutionErrorSchema = z.object({
+  type: z.string(),
+  detail: z.string(),
+})
+export type ExecutionError = z.infer<typeof ExecutionErrorSchema>
+
 export const ExecutionEventSchema = z.object({
   eventType: z.enum(EXECUTION_EVENT_TYPES),
   runId: z.string(),
@@ -51,6 +58,7 @@ export const ExecutionEventSchema = z.object({
   tokenUsage: TokenUsageSchema.optional(),
   policyDecision: PolicyDecisionSchema.optional(),
   message: z.string().optional(),
+  error: ExecutionErrorSchema.optional(),
   timestamp: z.string(),
 })
 export type ExecutionEvent = z.infer<typeof ExecutionEventSchema>
@@ -71,6 +79,7 @@ export type NodeRuntime = {
   lastInput?: unknown
   lastOutput?: unknown
   policyDecision?: PolicyDecision
+  lastError?: ExecutionError
 }
 
 export const EMPTY_RUNTIME: NodeRuntime = {

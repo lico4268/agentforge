@@ -11,7 +11,7 @@ class ExecutionEvent:
     __slots__ = (
         "event_type", "run_id", "node_id", "timestamp",
         "duration_ms", "input", "output", "token_usage",
-        "policy_decision", "message",
+        "policy_decision", "message", "error",
     )
 
     def __init__(
@@ -26,6 +26,7 @@ class ExecutionEvent:
         token_usage: dict | None = None,
         policy_decision: dict | None = None,
         message: str | None = None,
+        error: dict | None = None,
     ) -> None:
         self.event_type = event_type
         self.run_id = run_id
@@ -37,6 +38,7 @@ class ExecutionEvent:
         self.token_usage = token_usage
         self.policy_decision = policy_decision
         self.message = message
+        self.error = error
 
     def to_frontend(self) -> dict:
         """프론트 ExecutionEventSchema와 일치하는 camelCase dict."""
@@ -58,6 +60,8 @@ class ExecutionEvent:
             d["policyDecision"] = self.policy_decision
         if self.message is not None:
             d["message"] = self.message
+        if self.error is not None:
+            d["error"] = self.error
         return d
 
     def model_dump(self) -> dict:
@@ -71,6 +75,7 @@ class ExecutionEvent:
             "output": self.output,
             "policy_decision": self.policy_decision,
             "message": self.message,
+            "error": self.error,
         }
 
 
@@ -85,6 +90,27 @@ def make_event(
     **kwargs: Any,
 ) -> ExecutionEvent:
     return ExecutionEvent(event_type=event_type, run_id=run_id, node_id=node_id, **kwargs)
+
+
+def make_error_event(
+    run_id: str,
+    node_id: str,
+    exc: BaseException,
+    *,
+    message: str | None = None,
+) -> ExecutionEvent:
+    """노드 실패 표준 이벤트. event_type="error" + 구조화된 error 필드.
+
+    프론트 eventReducer가 'error' → status 'failed'로 매핑한다.
+    error 필드는 {type, detail} 형태로 LogPanel/Inspector에 그대로 표시된다.
+    """
+    return ExecutionEvent(
+        event_type="error",
+        run_id=run_id,
+        node_id=node_id,
+        message=message or str(exc),
+        error={"type": type(exc).__name__, "detail": str(exc)},
+    )
 
 
 # ─── WebSocket emitter ─────────────────────────────────────────────────────────

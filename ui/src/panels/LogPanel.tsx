@@ -48,6 +48,11 @@ export function LogPanel() {
               {e.durationMs != null && (
                 <span className="text-[#3c4a42]">{e.durationMs}ms</span>
               )}
+              {e.error && (
+                <span className="text-[#ff8a80]">
+                  {e.error.type}: {e.error.detail}
+                </span>
+              )}
             </div>
           ))
         )}

@@ -5,7 +5,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
 
-from events import EventEmitter, make_event
+from events import EventEmitter, make_error_event
+from logging_config import logger
 from state import AgentState
 
 
@@ -52,7 +53,8 @@ async def run_llm_step(
         try:
             result = await structured.ainvoke(recovery_messages)
         except Exception as second_err:
-            await emit(make_event(run_id, node_id, "error", message=str(second_err)))
+            logger.error("node %r failed: %s", node_id, second_err)
+            await emit(make_error_event(run_id, node_id, second_err))
             raise
 
     return result.model_dump()
