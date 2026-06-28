@@ -51,7 +51,11 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                     {"label": "Local",     "value": "local"},
                 ],
             },
-            {"key": "model", "label": "Model ID", "type": "model-id", "default": "claude-haiku-4-5-20251001", "description": "provider 선택에 따라 목록이 필터링됩니다."},
+            {
+                "key": "model", "label": "Model ID", "type": "model-id",
+                "default": "claude-haiku-4-5-20251001",
+                "description": "provider 선택에 따라 목록이 필터링됩니다.",
+            },
             {"key": "temperature", "label": "Temperature", "type": "number", "default": 0},
         ],
     },

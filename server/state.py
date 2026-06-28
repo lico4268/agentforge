@@ -13,7 +13,9 @@ class AgentState(TypedDict):
     batch_mode: bool              # True면 Human Checkpoint 우회
 
 
-def initial_state(task: str, task_tags: list[str] | None = None, batch_mode: bool = False) -> AgentState:
+def initial_state(
+    task: str, task_tags: list[str] | None = None, batch_mode: bool = False
+) -> AgentState:
     return AgentState(
         task=task,
         task_tags=task_tags or [],

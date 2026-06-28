@@ -5,16 +5,16 @@ gsm8k-treatment: Input → Planning → Reasoning → Review Policy
   └ human → Human Checkpoint → approve/revise/reject
 """
 from langchain_core.language_models import BaseChatModel
-from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
-from state import AgentState
+from config import MAX_RETRIES
 from events import EventEmitter, make_event
 from models import PlanOut, ReasonOut, VerdictOut
+from nodes.checkpoint import make_human_checkpoint
 from nodes.llm_step import run_llm_step
 from nodes.policy import compute_branch, make_route_review, make_route_verify
-from nodes.checkpoint import make_human_checkpoint
-from config import MAX_RETRIES
+from state import AgentState
 
 PLANNING_SYSTEM_PROMPT = """\
 You are a planning assistant. Decompose the given task into an ordered list of steps.
@@ -62,8 +62,10 @@ def build_treatment(model: BaseChatModel, emit: EventEmitter, run_id: str):
             emit=emit,
             run_id=run_id,
         )
-        await emit(make_event(run_id, "reasoning", "node_end",
-                              output={"answer": result["answer"], "confidence": result["confidence"]}))
+        await emit(make_event(
+            run_id, "reasoning", "node_end",
+            output={"answer": result["answer"], "confidence": result["confidence"]},
+        ))
         return {"answer": result["answer"], "confidence": result["confidence"]}
 
     async def review_policy(state: AgentState) -> dict:
@@ -102,8 +104,10 @@ def build_treatment(model: BaseChatModel, emit: EventEmitter, run_id: str):
         }
 
     async def output_node(state: AgentState) -> dict:
-        await emit(make_event(run_id, "output", "node_end",
-                              output={"answer": state.get("answer"), "verdict": state.get("verdict")}))
+        await emit(make_event(
+            run_id, "output", "node_end",
+            output={"answer": state.get("answer"), "verdict": state.get("verdict")},
+        ))
         return {}
 
     graph = StateGraph(AgentState)

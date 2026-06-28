@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
 from langchain_core.language_models import BaseChatModel
-import config
+from pydantic import BaseModel, Field
 
+import config
 
 # ─── Output schemas ────────────────────────────────────────────────────────────
 
@@ -62,4 +62,6 @@ def build_model(
             api_key="local",
         )
     else:
-        raise ValueError(f"Unknown provider: {provider!r}. Must be 'anthropic', 'openai', 'google', or 'local'.")
+        raise ValueError(
+            f"Unknown provider: {provider!r}. Must be 'anthropic', 'openai', 'google', or 'local'."
+        )

@@ -3,10 +3,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from events import WSEventEmitter, make_event
+import config as cfg
+from events import WSEventEmitter
 from manifests import BUILTIN_MANIFESTS
 from models import build_model
 from state import initial_state
@@ -15,29 +16,25 @@ app = FastAPI(title="Agentforge Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cfg.CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ─── 모델 설정 파일 ──────────────────────────────────────────────────────────────
-
-MODELS_CONFIG_PATH = Path(__file__).parent.parent / "models_config.json"
+# ─── 모델 목록 ───────────────────────────────────────────────────────────────────
 
 def _load_models_config() -> list[dict]:
-    """models_config.json을 읽어 enabled 모델만 반환. API 키 미설정 provider는 available=False 표시."""
-    import config as cfg
-
+    """config.yaml models.list에서 enabled 모델만 반환.
+    API 키 미설정 provider는 available=False 표시."""
     key_by_provider = {
         "anthropic": bool(cfg.ANTHROPIC_API_KEY),
         "openai":    bool(cfg.OPENAI_API_KEY),
         "google":    bool(cfg.GOOGLE_API_KEY),
-        "local":     True,  # 로컬은 항상 시도 가능
+        "local":     True,
     }
 
-    raw = json.loads(MODELS_CONFIG_PATH.read_text(encoding="utf-8"))
     result = []
-    for m in raw.get("models", []):
+    for m in cfg.MODELS_LIST:
         if not m.get("enabled", True):
             continue
         provider = m.get("provider", "")
@@ -47,6 +44,8 @@ def _load_models_config() -> list[dict]:
             "label":       m.get("label", m["id"]),
             "description": m.get("description", ""),
             "available":   key_by_provider.get(provider, False),
+            "temperature": m.get("temperature", 0.7),
+            "maxTokens":   m.get("max_tokens", 4096),
         })
     return result
 
@@ -185,7 +184,9 @@ async def ws_run(ws: WebSocket):
                 except ValueError as e:
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
                 except Exception as e:
-                    await ws.send_json({"kind": "error", "runId": run_id, "message": f"Execution error: {e}"})
+                    await ws.send_json({
+                        "kind": "error", "runId": run_id, "message": f"Execution error: {e}",
+                    })
 
             elif kind == "resume":
                 run_id = msg.get("runId") or current_run_id
@@ -193,7 +194,9 @@ async def ws_run(ws: WebSocket):
                 graph = active_runs.get(run_id)
 
                 if not graph:
-                    await ws.send_json({"kind": "error", "runId": run_id, "message": "Run not found"})
+                    await ws.send_json({
+                        "kind": "error", "runId": run_id, "message": "Run not found",
+                    })
                     continue
 
                 from langgraph.types import Command

@@ -2,6 +2,8 @@
 
 ComfyUI 스타일의 에이전트 아키텍처 빌더. 노드 캔버스에서 LLM 에이전트 파이프라인을 시각적으로 설계하고 실행한다.
 
+> 코딩·린트·import·타입 계약 규칙은 [AGENTS.md](./AGENTS.md)를 따른다. 진행 상태는 [ROADMAP.md](./ROADMAP.md) 참고.
+
 ---
 
 ## 디렉토리 구조

@@ -1,5 +1,6 @@
 import json
 from typing import Any
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel
@@ -45,7 +46,9 @@ async def run_llm_step(
         result = await structured.ainvoke(messages)
     except Exception as first_err:
         # 1회 복구 재시도
-        recovery_messages = messages + [HumanMessage(content=f"Output validation error: {first_err}\nPlease fix and retry.")]
+        recovery_messages = messages + [
+            HumanMessage(content=f"Output validation error: {first_err}\nPlease fix and retry.")
+        ]
         try:
             result = await structured.ainvoke(recovery_messages)
         except Exception as second_err:

@@ -3,11 +3,12 @@ v0.1 벤치마크 하니스: run_dataset + GSM8K grader + Report
 """
 import re
 import uuid
-from typing import Callable
+from collections.abc import Callable
+
 from pydantic import BaseModel
 
-from state import AgentState, initial_state
 from events import ListEventEmitter
+from state import AgentState, initial_state
 
 
 class Item(BaseModel):

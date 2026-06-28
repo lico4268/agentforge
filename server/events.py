@@ -1,6 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
-
 
 # ─── Event model (frontend-compatible flat shape) ──────────────────────────────
 
@@ -31,7 +30,7 @@ class ExecutionEvent:
         self.event_type = event_type
         self.run_id = run_id
         self.node_id = node_id
-        self.timestamp = datetime.now(timezone.utc).isoformat()
+        self.timestamp = datetime.now(UTC).isoformat()
         self.duration_ms = duration_ms
         self.input = input
         self.output = output

@@ -1,7 +1,7 @@
-from typing import Literal
-from langgraph.types import interrupt, Command
-from state import AgentState
+from langgraph.types import Command, interrupt
+
 from events import EventEmitter, make_event
+from state import AgentState
 
 
 def make_human_checkpoint(emit: EventEmitter, run_id: str):

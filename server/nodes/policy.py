@@ -1,6 +1,7 @@
 from typing import Literal
+
+from config import AUTO_THRESHOLD, ESCALATE_TAGS, MAX_RETRIES, PASS_THRESHOLD
 from state import AgentState
-from config import PASS_THRESHOLD, AUTO_THRESHOLD, ESCALATE_TAGS, MAX_RETRIES
 
 
 def compute_branch(state: AgentState) -> Literal["pass", "auto", "human"]:

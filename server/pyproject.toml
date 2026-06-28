@@ -12,6 +12,7 @@ dependencies = [
     "langchain-google-genai>=2.0.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
     "websockets>=13.0",
 ]
 
@@ -20,6 +21,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "httpx>=0.27.0",
+    "ruff>=0.6.0",
 ]
 
 [build-system]
@@ -32,3 +34,20 @@ py-modules = ["main", "config", "events", "harness", "manifests", "models", "sta
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["graphs*", "nodes*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [".venv", "*.egg-info"]
+
+[tool.ruff.lint]
+# E/F: pyflakes+pycodestyle, I: isort, UP: pyupgrade, B: bugbear
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+# stdlib → 서드파티 → 로컬. 로컬 모듈을 first-party로 인식시킨다.
+known-first-party = ["config", "events", "harness", "manifests", "models", "state", "graphs", "nodes"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
