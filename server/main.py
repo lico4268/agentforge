@@ -159,7 +159,7 @@ async def ws_run(ws: WebSocket):
                 history: list = []
                 run_history[run_id] = history
 
-                emitter = WSEventEmitter(ws=ws, run_id=run_id, history=history)
+                emitter = WSEventEmitter(ws, run_id, history)
                 await ws.send_json({"kind": "run_started", "runId": run_id})
 
                 try:
