@@ -10,23 +10,23 @@ ComfyUI 스타일의 에이전트 아키텍처 빌더. 노드 캔버스에서 LL
 
 ```
 agentforge/
+├── config.yaml              # 중앙 설정 (서버·모델 목록·실행 파라미터·UI). config.py가 로드
 ├── server/                  # FastAPI 백엔드 (Python 3.12)
-│   ├── main.py              # FastAPI 앱 진입점, CORS, WebSocket 라우팅
-│   ├── manifests.py         # GET /api/nodes — 노드 manifest 목록 반환
-│   ├── models.py            # Pydantic 타입 (NodeManifest, GraphNode, ExecutionEvent 등)
-│   ├── models_config.json   # 사용 가능한 LLM 모델 목록
-│   ├── state.py             # 실행 상태 관리
-│   ├── events.py            # ExecutionEvent 정의 및 asyncio.Queue 브리지
-│   ├── harness.py           # 실행 엔진 (위상 정렬 → 노드 순차 실행)
-│   ├── config.py            # 환경 변수 로드 (.env)
-│   ├── nodes/               # 노드 플러그인 디렉토리
-│   │   ├── __init__.py      # NodeRegistry (노드 타입 등록/조회)
-│   │   ├── llm_step.py      # LLM 호출 노드
-│   │   ├── checkpoint.py    # 체크포인트 노드
-│   │   └── policy.py        # 정책 검증 노드
-│   └── graphs/              # LangGraph 그래프 정의
-│       ├── baseline.py      # 기본 실행 그래프
-│       └── treatment.py     # 실험/처리 그래프
+│   ├── main.py              # FastAPI 앱 진입점, CORS, REST, WebSocket, dispatch_graph
+│   ├── manifests.py         # GET /api/nodes — 빌트인 노드 manifest(dict) 목록
+│   ├── models.py            # LLM 출력 스키마(PlanOut/ReasonOut/VerdictOut) + build_model 팩토리
+│   ├── state.py             # AgentState(TypedDict) 정의 및 initial_state
+│   ├── events.py            # ExecutionEvent + make_event/make_error_event + WS/List emitter
+│   ├── logging_config.py    # setup_logging() / logger (config.LOG_LEVEL 기준)
+│   ├── harness.py           # 벤치마크 하니스 (run_dataset + gsm8k_grader + Report) — pass@1 측정
+│   ├── config.py            # config.yaml + .env(API 키) 로드
+│   ├── nodes/               # 그래프가 호출하는 노드 헬퍼 (NodeRegistry 아님 — __init__.py는 빈 패키지 마커)
+│   │   ├── llm_step.py      # run_llm_step — 구조화 출력 LLM 호출 헬퍼
+│   │   ├── checkpoint.py    # make_human_checkpoint — interrupt 기반 인간 검토
+│   │   └── policy.py        # compute_branch / route_review / route_verify — 순수 라우팅 함수
+│   └── graphs/              # LangGraph StateGraph 정의 (실제 실행 엔진)
+│       ├── baseline.py      # build_baseline — Reasoning만 하는 단발 베이스라인
+│       └── treatment.py     # build_treatment — Planning→Reasoning→Policy 3분기 구조
 │
 ├── ui/                      # React + TypeScript 프론트엔드 (Vite)
 │   └── src/
@@ -120,17 +120,20 @@ cd ui && npm install <패키지>
 프론트 캔버스 (React Flow)
     │ WebSocket ws://localhost:8000/ws/run
     ▼
-백엔드 WS 핸들러
-    │ { kind: "run", architecture, input }
+백엔드 WS 핸들러 (main.py: ws_run)
+    │ { kind: "run", architecture, input, model }
     ▼
-ExecutionEngine (harness.py)
-    │ 위상 정렬 → 노드 순차 실행
+dispatch_graph(arch_name) → graphs/*.py의 LangGraph StateGraph 빌더
+    │ graph.ainvoke(state0)
     ▼
-각 Node.run() → emit(ExecutionEvent) → asyncio.Queue → WS 스트림
+각 노드 함수 → emit(make_event(...)) → WSEventEmitter → WS 스트림
     │
     ▼
 프론트 노드 상태 업데이트 (running / done / failed / skipped)
 ```
+
+> v0.1 현재 `dispatch_graph`는 arch 이름(`gsm8k-baseline`/`gsm8k-treatment`)으로 고정 그래프에 디스패치한다.
+> v0.3에서 캔버스 그래프를 직접 `StateGraph`로 빌드하는 `compile(architecture)`로 교체 예정 (ROADMAP 참고).
 
 **MockTransport → WebSocketTransport 전환**: `ui/src/transport/TransportContext.tsx`에서 한 줄 변경.
 
@@ -147,6 +150,6 @@ ExecutionEngine (harness.py)
 ## 개발 규칙
 
 - 타입 계약: 백엔드 Pydantic 필드명은 프론트 Zod 스키마와 **camelCase로 통일** (snake_case 변환 없음).
-- 노드 추가: `server/nodes/`에 `NodeBase` 구현 → `nodes/__init__.py` 레지스트리에 등록.
+- 노드 추가: `server/nodes/`에 헬퍼 함수(예: `run_llm_step` 패턴)를 만들고, `server/graphs/`의 `StateGraph` 빌더에서 `add_node`로 연결한다. 프론트에는 `server/manifests.py`의 `BUILTIN_MANIFESTS`에 manifest(dict)를 추가한다. (구 `NodeBase`/`NodeRegistry` 방식 아님 — 그 규칙은 폐기됨)
 - 이벤트 `output` 필드: Inspector에 JSON으로 그대로 표시되므로 직렬화 가능한 형태(`str`, `dict`, `list`)만 넣는다.
-- v0.1~v0.2는 위상 정렬 순차 실행. v0.3+에서 LangGraph `StateGraph`로 `ExecutionEngine` 교체 예정.
+- 실행 엔진은 v0.1부터 LangGraph `StateGraph`다. v0.3+ 과제는 고정 그래프 디스패치 → 캔버스 그래프 동적 컴파일(`compile(architecture)`)이다 (ROADMAP 참고).

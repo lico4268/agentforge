@@ -34,7 +34,10 @@ AI 코딩 에이전트(Claude Code, Cursor, Antigravity 등)가 **이 저장소�
 
 ## 5. 노드 추가 규칙
 
-- `server/nodes/`에 `NodeBase`를 구현하고 `server/nodes/__init__.py`의 `NodeRegistry`에 등록한다.
+> 실행 엔진은 LangGraph `StateGraph`다. 구 `NodeBase`/`NodeRegistry` 방식은 폐기됐다 (`server/nodes/__init__.py`는 빈 패키지 마커).
+
+- **백엔드 실행**: `server/nodes/`에 노드 헬퍼 함수를 만들고(예: `run_llm_step`/`make_human_checkpoint` 패턴), `server/graphs/`의 그래프 빌더에서 `graph.add_node(...)`로 연결한다. 분기는 `add_conditional_edges` + `policy.py`류 순수 라우팅 함수로 처리한다.
+- **프론트 노출**: `server/manifests.py`의 `BUILTIN_MANIFESTS`에 manifest(dict)를 추가한다. `GET /api/nodes`가 이를 반환하고 프론트 `NodeRegistry`(`ui/src/registry/`)가 이를 받아 팔레트·캔버스·Inspector를 렌더한다.
 - 이벤트 `output` 필드는 Inspector에 JSON으로 그대로 표시되므로 직렬화 가능한 형태(`str`, `dict`, `list`)만 넣는다.
 
 ## 6. 테스트 (권장)
