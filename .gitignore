@@ -17,6 +17,7 @@
 .vscode/
 .idea/
 CLAUDE.local.md
+ROADMAP.md
 
 # Python
 server/.venv/
