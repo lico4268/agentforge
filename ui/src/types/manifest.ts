@@ -54,6 +54,16 @@ export type ConfigField = z.infer<typeof ConfigFieldSchema>
 
 const RUNTIMES = ['llm_step', 'policy', 'checkpoint', 'model', 'io'] as const
 
+/** A model slot embedded inside a node (replaces the external model.binding connection). */
+export const ModelSlotSchema = z.object({
+  id: z.string(),
+  provider: z.enum(['anthropic', 'openai', 'google', 'local']),
+  model: z.string(),
+  temperature: z.number().default(0),
+  role: z.string().default(''),
+})
+export type ModelSlot = z.infer<typeof ModelSlotSchema>
+
 export const NodeManifestSchema = z.object({
   /** Unique type id, e.g. "planning.decompose". */
   type: z.string(),
@@ -65,6 +75,8 @@ export const NodeManifestSchema = z.object({
   inputs: z.array(PortSchema).default([]),
   outputs: z.array(PortSchema).default([]),
   config: z.array(ConfigFieldSchema).default([]),
+  /** Max number of model slots embedded in this node. When set, model input port is replaced by inline slots. */
+  maxModelSlots: z.number().int().min(1).optional(),
   /** llm_step 프리셋 기본값 (systemPrompt / outputSchema / inline model). */
   defaults: z
     .object({

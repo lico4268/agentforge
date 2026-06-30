@@ -37,6 +37,7 @@ type GraphState = {
   addNode: (manifestType: string, position: { x: number; y: number }, config?: Record<string, unknown>) => void
   updateNodeConfig: (id: string, config: Record<string, unknown>) => void
   select: (id: string | null) => void
+  removeEdge: (edgeId: string) => void
 
   loadArchitecture: (arch: Architecture) => void
   toArchitecture: (name: string) => Architecture
@@ -77,6 +78,9 @@ export const useGraphStore = create<GraphState>((set, get) => ({
     })),
 
   select: (id) => set({ selectedNodeId: id }),
+
+  removeEdge: (edgeId) =>
+    set((s) => ({ edges: s.edges.filter((e) => e.id !== edgeId) })),
 
   loadArchitecture: (arch) =>
     set({

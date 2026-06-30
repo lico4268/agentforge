@@ -4,13 +4,16 @@ import { useNodeRuntime } from '@/execution/useExecutionStore'
 import { useRegistry } from '@/registry/RegistryContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { loadModels } from '@/registry/loadModels'
-import type { ConfigField, ModelConfig } from '@/types'
+import type { ConfigField, ModelConfig, ModelSlot } from '@/types'
 
 export function Inspector() {
   const registry = useRegistry()
   const selectedId = useGraphStore((s) => s.selectedNodeId)
   const node = useGraphStore((s) => s.nodes.find((n) => n.id === s.selectedNodeId))
   const updateNodeConfig = useGraphStore((s) => s.updateNodeConfig)
+  const edges = useGraphStore((s) => s.edges)
+  const allNodes = useGraphStore((s) => s.nodes)
+  const removeEdge = useGraphStore((s) => s.removeEdge)
   const runtime = useNodeRuntime(selectedId ?? '')
 
   const { data: models } = useQuery({
@@ -75,6 +78,17 @@ export function Inspector() {
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-6">
 
+        {/* MODEL SLOTS section */}
+        {manifest.maxModelSlots && (
+          <ModelSlotsEditor
+            slots={(config.modelSlots as ModelSlot[] | undefined) ?? []}
+            maxSlots={manifest.maxModelSlots}
+            models={models}
+            onChange={(slots) => setField('modelSlots', slots)}
+            accent={meta.color}
+          />
+        )}
+
         {/* CONFIG section */}
         {manifest.config.length > 0 && (
           <section className="flex flex-col gap-4">
@@ -91,6 +105,38 @@ export function Inspector() {
                 currentProvider={String(config['provider'] ?? 'anthropic')}
               />
             ))}
+          </section>
+        )}
+
+        {/* CONNECTIONS section */}
+        {edges.filter(e => e.source === node.id).length > 0 && (
+          <section className="flex flex-col gap-3 border-t border-[#3c4a42]/30 pt-5">
+            <h3 className="border-b border-[#3c4a42]/40 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+              Connections (Output)
+            </h3>
+            <div className="flex flex-col gap-2">
+              {edges.filter(e => e.source === node.id).map(edge => {
+                const targetNode = allNodes.find(n => n.id === edge.target)
+                const targetManifest = targetNode ? registry.get(targetNode.data.manifestType) : null
+                const targetLabel = targetManifest ? targetManifest.label : edge.target
+
+                return (
+                  <div key={edge.id} className="flex items-center justify-between rounded-md border border-[#3c4a42] bg-[#09100c] p-2">
+                    <div className="flex flex-col">
+                      <span className="text-[11px] text-[#dde4dd]">To: {targetLabel}</span>
+                      <span className="font-mono text-[10px] text-[#86948a]">Port: {edge.targetHandle || 'in'}</span>
+                    </div>
+                    <button
+                      onClick={() => removeEdge(edge.id)}
+                      className="flex h-6 w-6 items-center justify-center rounded hover:bg-[#ff8a80]/20 text-[#86948a] hover:text-[#ff8a80] transition-colors"
+                      title="Remove Connection"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </section>
         )}
 
@@ -314,4 +360,163 @@ function statusColor(status: string) {
     case 'skipped': return '#86948a'
     default:        return '#bbcabf'
   }
+}
+
+const PROVIDERS = [
+  { label: 'Anthropic', value: 'anthropic' },
+  { label: 'OpenAI',    value: 'openai'    },
+  { label: 'Google',    value: 'google'    },
+  { label: 'Local',     value: 'local'     },
+] as const
+
+const DEFAULT_MODELS: Record<string, string> = {
+  anthropic: 'claude-haiku-4-5-20251001',
+  openai:    'gpt-4o',
+  google:    'gemini-2.0-flash',
+  local:     'llama3',
+}
+
+let slotSeq = 0
+const nextSlotId = () => `slot-${Date.now().toString(36)}-${slotSeq++}`
+
+function ModelSlotsEditor({
+  slots,
+  maxSlots,
+  models,
+  onChange,
+  accent,
+}: {
+  slots: ModelSlot[]
+  maxSlots: number
+  models?: ModelConfig[]
+  onChange: (slots: ModelSlot[]) => void
+  accent: string
+}) {
+  const selectCls =
+    'w-full rounded-md border border-[#3c4a42] bg-[#09100c] px-2 py-1.5 text-[11px] font-mono text-[#dde4dd] outline-none appearance-none focus:border-[#4edea3]'
+
+  const addSlot = () => {
+    if (slots.length >= maxSlots) return
+    const provider = 'anthropic' as const
+    onChange([
+      ...slots,
+      { id: nextSlotId(), provider, model: DEFAULT_MODELS[provider], temperature: 0, role: '' },
+    ])
+  }
+
+  const removeSlot = (id: string) => onChange(slots.filter((s) => s.id !== id))
+
+  const updateSlot = (id: string, patch: Partial<ModelSlot>) =>
+    onChange(slots.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between border-b border-[#3c4a42]/40 pb-1">
+        <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+          Model Slots
+        </h3>
+        <span className="font-mono text-[10px]" style={{ color: accent }}>
+          {slots.length} / {maxSlots}
+        </span>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {slots.map((slot, idx) => {
+          const providerModels = models?.filter((m) => m.provider === slot.provider) ?? []
+          return (
+            <div
+              key={slot.id}
+              className="flex flex-col gap-2 rounded-md border border-[#3c4a42] bg-[#09100c] p-3"
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] text-[#86948a]">Slot {idx + 1}</span>
+                <button
+                  onClick={() => removeSlot(slot.id)}
+                  className="flex h-5 w-5 items-center justify-center rounded text-[#86948a] transition-colors hover:bg-[#ff8a80]/20 hover:text-[#ff8a80]"
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>close</span>
+                </button>
+              </div>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-[#86948a]">Role</span>
+                <input
+                  type="text"
+                  className={selectCls}
+                  placeholder="e.g. Primary Reasoning"
+                  value={slot.role}
+                  onChange={(e) => updateSlot(slot.id, { role: e.target.value })}
+                />
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-[#86948a]">Provider</span>
+                <div className="relative">
+                  <select
+                    className={selectCls + ' pr-6'}
+                    value={slot.provider}
+                    onChange={(e) => {
+                      const provider = e.target.value as ModelSlot['provider']
+                      updateSlot(slot.id, { provider, model: DEFAULT_MODELS[provider] })
+                    }}
+                  >
+                    {PROVIDERS.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1.5 text-[#86948a]" style={{ fontSize: 14 }}>unfold_more</span>
+                </div>
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-[#86948a]">Model</span>
+                <div className="relative">
+                  <select
+                    className={selectCls + ' pr-6'}
+                    value={slot.model}
+                    onChange={(e) => updateSlot(slot.id, { model: e.target.value })}
+                    disabled={!models}
+                  >
+                    {!models && <option value="">Loading…</option>}
+                    {providerModels.length === 0 && models && (
+                      <option value={slot.model}>{slot.model}</option>
+                    )}
+                    {providerModels.map((m) => (
+                      <option key={m.id} value={m.id} disabled={!m.available}>
+                        {m.label}{!m.available ? ' (no key)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1.5 text-[#86948a]" style={{ fontSize: 14 }}>unfold_more</span>
+                </div>
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-[#86948a]">Temperature</span>
+                <input
+                  type="number"
+                  className={selectCls}
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  value={slot.temperature}
+                  onChange={(e) => updateSlot(slot.id, { temperature: Number(e.target.value) })}
+                />
+              </label>
+            </div>
+          )
+        })}
+
+        {slots.length < maxSlots && (
+          <button
+            onClick={addSlot}
+            className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-[#3c4a42] py-2 text-[11px] text-[#86948a] transition-colors hover:border-[#4edea3]/60 hover:text-[#4edea3]"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
+            Add Model Slot
+          </button>
+        )}
+      </div>
+    </section>
+  )
 }

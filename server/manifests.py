@@ -65,9 +65,9 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "category": "cognitive",
         "label": "Planning",
         "description": "task를 단계로 분해.",
+        "maxModelSlots": 2,
         "inputs": [
             {"id": "task", "label": "Task", "dataType": "text", "required": True},
-            {"id": "model", "label": "Model", "dataType": "model", "required": False},
         ],
         "outputs": [{"id": "plan", "label": "Plan", "dataType": "plan"}],
         "config": [
@@ -94,10 +94,10 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "category": "cognitive",
         "label": "Reasoning",
         "description": "Chain-of-thought 추론.",
+        "maxModelSlots": 2,
         "inputs": [
             {"id": "task", "label": "Task", "dataType": "text", "required": True},
             {"id": "plan", "label": "Plan", "dataType": "plan", "required": False},
-            {"id": "model", "label": "Model", "dataType": "model", "required": False},
         ],
         "outputs": [
             {"id": "answer", "label": "Answer", "dataType": "text"},
@@ -147,10 +147,10 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "category": "cognitive",
         "label": "Auto-Verify",
         "description": "LLM 자동 검증. 실패 시 재시도 루프.",
+        "maxModelSlots": 2,
         "inputs": [
             {"id": "answer", "label": "Answer", "dataType": "text", "required": True},
             {"id": "task", "label": "Task", "dataType": "text"},
-            {"id": "model", "label": "Model", "dataType": "model", "required": False},
         ],
         "outputs": [{"id": "verdict", "label": "Verdict", "dataType": "judgement"}],
         "config": [

@@ -3,9 +3,10 @@ import type { NodeProps } from '@xyflow/react'
 import { useRegistry } from '@/registry/RegistryContext'
 import { useNodeRuntime } from '@/execution/useExecutionStore'
 import { CATEGORY_META } from '@/lib/categoryStyle'
-import type { NodeRuntimeStatus } from '@/types'
+import type { NodeRuntimeStatus, Port, ModelSlot } from '@/types'
 import type { RFNodeData } from '@/stores/useGraphStore'
 import { NodeInputs, NodeOutputs } from './NodePorts'
+import { ModelSlotsSection } from './ModelSlots'
 
 function GenericNodeImpl({ id, data, selected }: NodeProps) {
   const registry = useRegistry()
@@ -23,6 +24,23 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
   const meta   = CATEGORY_META[manifest.category]
   const status = runtime?.status ?? 'idle'
   const isRunning = status === 'running'
+
+  const modelSlots: ModelSlot[] = Array.isArray((data as RFNodeData).config?.modelSlots)
+    ? ((data as RFNodeData).config.modelSlots as ModelSlot[])
+    : []
+
+  // When maxModelSlots is set, output ports are driven by filled slots.
+  // Each slot gets one output port; static manifest outputs are used as fallback
+  // when no slots are filled.
+  const dynamicOutputs: Port[] = manifest.maxModelSlots
+    ? modelSlots.length > 0
+      ? modelSlots.map((slot) => ({
+          id: slot.id,
+          label: slot.role || slot.model,
+          dataType: manifest.outputs[0]?.dataType ?? 'any',
+        }))
+      : manifest.outputs
+    : manifest.outputs
 
   const borderColor = selected
     ? meta.color
@@ -67,6 +85,15 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
         <StatusBadge status={status} />
       </div>
 
+      {/* Embedded model slots */}
+      {manifest.maxModelSlots && (
+        <ModelSlotsSection
+          slots={modelSlots}
+          maxSlots={manifest.maxModelSlots}
+          accent={meta.color}
+        />
+      )}
+
       {/* Stats footer */}
       {runtime && runtime.callCount > 0 && (
         <div className="flex items-center justify-between border-t border-[#3c4a42]/40 px-3 py-1 font-mono text-[10px] text-[#86948a]">
@@ -75,8 +102,8 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
         </div>
       )}
 
-      {/* Output handles */}
-      <NodeOutputs outputs={manifest.outputs} color={meta.color} />
+      {/* Output handles — dynamic when model slots are active */}
+      <NodeOutputs outputs={dynamicOutputs} color={meta.color} />
     </div>
   )
 }
