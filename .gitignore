@@ -16,8 +16,12 @@
 .codegraph/
 .vscode/
 .idea/
+.claude/
+.mcp.json
 CLAUDE.local.md
 ROADMAP.md
+POLICY_REDESIGN.md
+OPENROUTER_SUBAGENT_SETUP.md
 
 # Python
 server/.venv/

@@ -8,7 +8,6 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
-from config import MAX_RETRIES
 from events import EventEmitter, make_event
 from models import PlanOut, ReasonOut, VerdictOut
 from nodes.checkpoint import make_human_checkpoint
@@ -137,7 +136,4 @@ def build_treatment(model: BaseChatModel, emit: EventEmitter, run_id: str):
     graph.add_edge("output", END)
 
     checkpointer = MemorySaver()
-    return graph.compile(
-        checkpointer=checkpointer,
-        recursion_limit=MAX_RETRIES * 10 + 20,
-    )
+    return graph.compile(checkpointer=checkpointer)

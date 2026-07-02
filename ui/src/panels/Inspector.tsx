@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useGraphStore } from '@/stores/useGraphStore'
-import { useNodeRuntime } from '@/execution/useExecutionStore'
+import { useNodeRuntime, useExecutionStore } from '@/execution/useExecutionStore'
 import { useRegistry } from '@/registry/RegistryContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { loadModels } from '@/registry/loadModels'
@@ -15,6 +15,8 @@ export function Inspector() {
   const allNodes = useGraphStore((s) => s.nodes)
   const removeEdge = useGraphStore((s) => s.removeEdge)
   const runtime = useNodeRuntime(selectedId ?? '')
+  const runResult = useExecutionStore((s) => s.runResult)
+  const runStatus = useExecutionStore((s) => s.runStatus)
 
   const { data: models } = useQuery({
     queryKey: ['models'],
@@ -77,6 +79,14 @@ export function Inspector() {
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-6">
+
+        {/* FINAL RESULT section — output 노드 전용 최종 결과 표시 */}
+        {manifest.type === 'io.output' && (
+          <FinalResult
+            result={pickFinalResult(runtime?.lastOutput, runResult)}
+            runStatus={runStatus}
+          />
+        )}
 
         {/* MODEL SLOTS section */}
         {manifest.maxModelSlots && (
@@ -326,6 +336,117 @@ function MetricCard({
         {value}
       </span>
     </div>
+  )
+}
+
+type FinalResultData = {
+  answer?: unknown
+  confidence?: unknown
+  verdict?: { passed?: boolean; feedback?: string } | null
+} | null
+
+/**
+ * output 노드가 방출한 node_end.output({answer, verdict})을 우선 사용하고,
+ * 아직 노드 이벤트가 없으면 run_complete로 받은 전역 runResult로 폴백한다.
+ */
+function pickFinalResult(
+  lastOutput: unknown,
+  runResult: Record<string, unknown> | null,
+): FinalResultData {
+  const fromNode =
+    lastOutput && typeof lastOutput === 'object'
+      ? (lastOutput as Record<string, unknown>)
+      : null
+  const src = fromNode && 'answer' in fromNode ? fromNode : runResult
+  if (!src) return null
+  return src as FinalResultData
+}
+
+function FinalResult({
+  result,
+  runStatus,
+}: {
+  result: FinalResultData
+  runStatus: string
+}) {
+  if (!result || result.answer === undefined || result.answer === null) {
+    return (
+      <section className="flex flex-col gap-3">
+        <h3 className="border-b border-[#3c4a42]/40 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+          Final Result
+        </h3>
+        <div className="rounded-md border border-dashed border-[#3c4a42] bg-[#09100c] p-4 text-center text-[11px] text-[#86948a]">
+          {runStatus === 'running'
+            ? '실행 중… 결과 대기 중'
+            : '아직 결과가 없습니다. Run을 실행하세요.'}
+        </div>
+      </section>
+    )
+  }
+
+  const verdict = result.verdict
+  const answerText =
+    typeof result.answer === 'string'
+      ? result.answer
+      : JSON.stringify(result.answer, null, 2)
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between border-b border-[#3c4a42]/40 pb-1">
+        <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+          Final Result
+        </h3>
+        {verdict && typeof verdict.passed === 'boolean' && (
+          <span
+            className="rounded px-1.5 py-0.5 font-mono text-[10px]"
+            style={{
+              color: verdict.passed ? '#4edea3' : '#ff8a80',
+              background: verdict.passed ? '#4edea31a' : '#ff8a801a',
+            }}
+          >
+            {verdict.passed ? '✓ pass' : '✗ fail'}
+          </span>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-[11px] text-[#86948a]">Answer</span>
+          <button
+            onClick={() => navigator.clipboard.writeText(answerText)}
+            className="text-[#86948a] transition-colors hover:text-[#dde4dd]"
+            title="Copy"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>content_copy</span>
+          </button>
+        </div>
+        <div className="rounded-md border border-[#4edea3]/40 bg-[#0d1712] p-3">
+          <pre className="m-0 whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-[#dde4dd]">
+            {answerText}
+          </pre>
+        </div>
+      </div>
+
+      {result.confidence !== undefined && result.confidence !== null && (
+        <div className="flex items-center gap-2 font-mono text-[11px] text-[#86948a]">
+          <span>Confidence</span>
+          <span className="text-[#bbcabf]">
+            {typeof result.confidence === 'number'
+              ? result.confidence.toFixed(2)
+              : String(result.confidence)}
+          </span>
+        </div>
+      )}
+
+      {verdict?.feedback && (
+        <div className="flex flex-col gap-1">
+          <span className="font-mono text-[11px] text-[#86948a]">Verdict feedback</span>
+          <div className="rounded-md border border-[#3c4a42] bg-[#09100c] p-2 text-[11px] leading-relaxed text-[#bbcabf]">
+            {verdict.feedback}
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 

@@ -107,25 +107,25 @@ DEFAULT_MODEL_CFG = {
 }
 
 
-def dispatch_graph(arch_name: str, model_cfg: dict, emit: Any, run_id: str):
+def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
     """
-    v0.1: arch name으로 고정 그래프 빌더에 디스패치.
-    v0.2+: compile(architecture)로 교체 (§8 seam).
+    v0.1: 'gsm8k-baseline'/'gsm8k-treatment' 이름은 고정 그래프 빌더에 디스패치.
+    v0.3: 그 외는 compile_graph(architecture)로 캔버스를 직접 컴파일 (§8 seam).
     """
+    arch_name = (architecture.get("metadata") or {}).get("name", "")
     cfg = {**DEFAULT_MODEL_CFG, **model_cfg}
-    model = build_model(cfg["provider"], cfg["model"], float(cfg["temperature"]))
 
     if arch_name == "gsm8k-baseline":
+        model = build_model(cfg["provider"], cfg["model"], float(cfg["temperature"]))
         from graphs.baseline import build_baseline
         return build_baseline(model=model, emit=emit, run_id=run_id)
     elif arch_name == "gsm8k-treatment":
+        model = build_model(cfg["provider"], cfg["model"], float(cfg["temperature"]))
         from graphs.treatment import build_treatment
         return build_treatment(model=model, emit=emit, run_id=run_id)
     else:
-        raise ValueError(
-            f"Unknown architecture name: {arch_name!r}. "
-            "Valid names: 'gsm8k-baseline', 'gsm8k-treatment'."
-        )
+        from graphs.compile import compile_graph
+        return compile_graph(architecture, cfg, emit, run_id)
 
 
 # ─── WebSocket 실행 핸들러 ────────────────────────────────────────────────────────
@@ -150,7 +150,6 @@ async def ws_run(ws: WebSocket):
 
             if kind == "run":
                 arch = msg.get("architecture") or {}
-                arch_name = (arch.get("metadata") or {}).get("name", "")
                 input_data = msg.get("input") or {}
                 model_cfg = msg.get("model") or {}
 
@@ -163,7 +162,7 @@ async def ws_run(ws: WebSocket):
                 await ws.send_json({"kind": "run_started", "runId": run_id})
 
                 try:
-                    graph = dispatch_graph(arch_name, model_cfg, emitter, run_id)
+                    graph = dispatch_graph(arch, model_cfg, emitter, run_id)
                     active_runs[run_id] = graph
 
                     state0 = initial_state(
@@ -171,7 +170,10 @@ async def ws_run(ws: WebSocket):
                         task_tags=input_data.get("task_tags", []),
                         batch_mode=False,
                     )
-                    config = {"configurable": {"thread_id": run_id}}
+                    config = {
+                        "configurable": {"thread_id": run_id},
+                        "recursion_limit": cfg.MAX_RETRIES * 10 + 20,
+                    }
                     final = await graph.ainvoke(state0, config=config)
 
                     await ws.send_json({
