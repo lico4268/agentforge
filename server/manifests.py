@@ -1,6 +1,7 @@
 """
 v0.1 빌트인 노드 매니페스트. /api/nodes 엔드포인트에서 반환.
 """
+
 from typing import Any
 
 BUILTIN_MANIFESTS: list[dict[str, Any]] = [
@@ -46,13 +47,15 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                 "default": "anthropic",
                 "options": [
                     {"label": "Anthropic", "value": "anthropic"},
-                    {"label": "OpenAI",    "value": "openai"},
-                    {"label": "Google",    "value": "google"},
-                    {"label": "Local",     "value": "local"},
+                    {"label": "OpenAI", "value": "openai"},
+                    {"label": "Google", "value": "google"},
+                    {"label": "Local", "value": "local"},
                 ],
             },
             {
-                "key": "model", "label": "Model ID", "type": "model-id",
+                "key": "model",
+                "label": "Model ID",
+                "type": "model-id",
                 "default": "claude-haiku-4-5-20251001",
                 "description": "provider 선택에 따라 목록이 필터링됩니다.",
             },
@@ -77,10 +80,16 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                 "type": "select",
                 "default": "decompose",
                 "options": [
-                    {"label": "Decompose",  "value": "decompose"},
+                    {"label": "Decompose", "value": "decompose"},
                     {"label": "Goal-first", "value": "goal"},
                     {"label": "Multi-step", "value": "multistep"},
                 ],
+            },
+            {
+                "key": "systemPrompt",
+                "label": "System prompt",
+                "type": "text",
+                "default": "Decompose the task into ordered steps and return as JSON.",
             },
         ],
         "defaults": {
@@ -111,8 +120,14 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                 "default": "chain_of_thought",
                 "options": [
                     {"label": "Chain of thought", "value": "chain_of_thought"},
-                    {"label": "Direct",           "value": "direct"},
+                    {"label": "Direct", "value": "direct"},
                 ],
+            },
+            {
+                "key": "systemPrompt",
+                "label": "System prompt",
+                "type": "text",
+                "default": "Solve the task step by step. Return your answer and confidence (0-1).",
             },
         ],
         "defaults": {
@@ -121,45 +136,34 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         },
     },
     {
-        "type": "policy.review",
-        "runtime": "policy",
+        "type": "review.intent",
+        "runtime": "review",
         "category": "policy",
-        "label": "Review Policy",
-        "description": "confidence·태그 기반 3분기 라우터.",
-        "inputs": [
-            {"id": "answer", "label": "Answer", "dataType": "text"},
-            {"id": "confidence", "label": "Confidence", "dataType": "number"},
-        ],
-        "outputs": [
-            {"id": "pass", "label": "Pass", "dataType": "any"},
-            {"id": "auto", "label": "Auto-verify", "dataType": "any"},
-            {"id": "human", "label": "Human", "dataType": "any"},
-        ],
-        "config": [
-            {"key": "passThreshold", "label": "Pass threshold", "type": "number", "default": 0.85},
-            {"key": "autoThreshold", "label": "Auto threshold", "type": "number", "default": 0.6},
-            {"key": "escalateTags",  "label": "Escalate tags",  "type": "string[]"},
-        ],
-    },
-    {
-        "type": "verification.auto",
-        "runtime": "llm_step",
-        "category": "cognitive",
-        "label": "Auto-Verify",
-        "description": "LLM 자동 검증. 실패 시 재시도 루프.",
+        "label": "Review",
+        "description": "의도×기준 대조 리뷰. ReviewDelta 기반 accept/refine/clarify 3분기.",
         "maxModelSlots": 2,
         "inputs": [
             {"id": "answer", "label": "Answer", "dataType": "text", "required": True},
             {"id": "task", "label": "Task", "dataType": "text"},
         ],
-        "outputs": [{"id": "verdict", "label": "Verdict", "dataType": "judgement"}],
+        "outputs": [
+            {"id": "accept", "label": "Accept", "dataType": "any"},
+            {"id": "refine", "label": "Refine", "dataType": "any"},
+            {"id": "clarify", "label": "Clarify", "dataType": "any"},
+        ],
         "config": [
-            {"key": "criteria", "label": "Criteria", "type": "string[]"},
+            {"key": "criteria", "label": "Acceptance criteria", "type": "string[]"},
             {"key": "maxRetries", "label": "Max retries", "type": "number", "default": 2},
+            {"key": "escalateTags", "label": "Escalate tags", "type": "string[]"},
         ],
         "defaults": {
-            "systemPrompt": "Verify the answer for correctness. Return passed (bool) and feedback.",
-            "outputSchema": {"passed": "boolean", "feedback": "string"},
+            "outputSchema": {
+                "per_criterion": "object[]",
+                "misalignments": "string[]",
+                "elicit_questions": "string[]",
+                "proposed_criteria": "string[]",
+                "reroute_hint": "string",
+            },
         },
     },
     {
@@ -181,9 +185,9 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                 "type": "select",
                 "default": "off",
                 "options": [
-                    {"label": "Off",    "value": "off"},
+                    {"label": "Off", "value": "off"},
                     {"label": "Fields", "value": "fields"},
-                    {"label": "LLM",    "value": "llm"},
+                    {"label": "LLM", "value": "llm"},
                 ],
             },
             {
@@ -192,7 +196,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                 "type": "select",
                 "default": "always",
                 "options": [
-                    {"label": "Always",       "value": "always"},
+                    {"label": "Always", "value": "always"},
                     {"label": "When flagged", "value": "when-flagged"},
                 ],
             },

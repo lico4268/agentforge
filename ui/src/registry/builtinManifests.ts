@@ -57,7 +57,7 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
         key: 'provider',
         label: 'Provider',
         type: 'select',
-        default: 'anthropic',
+        default: 'google',
         options: [
           { label: 'Anthropic', value: 'anthropic' },
           { label: 'OpenAI',    value: 'openai'    },
@@ -69,7 +69,7 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
         key: 'model',
         label: 'Model ID',
         type: 'model-id',
-        default: 'claude-haiku-4-5-20251001',
+        default: 'gemini-3.5-flash',
         description: 'provider 선택에 따라 목록이 필터링됩니다.',
       },
       { key: 'temperature', label: 'Temperature', type: 'number', default: 0 },
@@ -141,61 +141,49 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
     },
   },
 
-  {
-    type: 'verification.auto',
-    runtime: 'llm_step',
-    category: 'cognitive',
-    label: 'Auto-Verify',
-    description: 'LLM 자동 검증. 실패 시 재시도 루프로 연결.',
-    inputs: [
-      { id: 'answer', label: 'Answer', dataType: 'text',  required: true  },
-      { id: 'task',   label: 'Task',   dataType: 'text',  required: false },
-      { id: 'model',  label: 'Model',  dataType: 'model', required: false },
-    ],
-    outputs: [{ id: 'verdict', label: 'Verdict', dataType: 'judgement' }],
-    config: [
-      {
-        key: 'criteria',
-        label: 'Criteria',
-        type: 'string[]',
-        placeholder: 'Check for factual accuracy…',
-        description: '검증 기준 항목 목록.',
-      },
-      { key: 'maxRetries', label: 'Max retries', type: 'number', default: 2 },
-    ],
-    defaults: {
-      systemPrompt: 'Verify the answer for correctness. Return passed (bool) and feedback.',
-      outputSchema: { passed: 'boolean', feedback: 'string' },
-    },
-  },
-
   // ── Policy ─────────────────────────────────────────────────────────────────
 
   {
-    type: 'policy.review',
-    runtime: 'policy',
+    type: 'review.intent',
+    runtime: 'review',
     category: 'policy',
-    label: 'Review Policy',
-    description: 'confidence·태그 기반 3분기 라우터. pass / auto-verify / human 분기.',
+    label: 'Review',
+    description: '의도×기준 대조 리뷰. ReviewDelta 기반 accept / refine / clarify 3분기.',
+    maxModelSlots: 2,
     inputs: [
-      { id: 'answer',     label: 'Answer',     dataType: 'text'   },
-      { id: 'confidence', label: 'Confidence', dataType: 'number' },
+      { id: 'answer', label: 'Answer', dataType: 'text', required: true  },
+      { id: 'task',   label: 'Task',   dataType: 'text', required: false },
     ],
     outputs: [
-      { id: 'pass',  label: 'Pass',        dataType: 'any' },
-      { id: 'auto',  label: 'Auto-verify', dataType: 'any' },
-      { id: 'human', label: 'Human',       dataType: 'any' },
+      { id: 'accept',  label: 'Accept',  dataType: 'any' },
+      { id: 'refine',  label: 'Refine',  dataType: 'any' },
+      { id: 'clarify', label: 'Clarify', dataType: 'any' },
     ],
     config: [
-      { key: 'passThreshold',  label: 'Pass threshold',  type: 'number', default: 0.85 },
-      { key: 'autoThreshold',  label: 'Auto threshold',  type: 'number', default: 0.6  },
+      {
+        key: 'criteria',
+        label: 'Acceptance criteria',
+        type: 'string[]',
+        placeholder: '단위(원) 포함…',
+        description: '이진 판정 가능한 합격 기준 목록. 비면 의도 정합성만 평가.',
+      },
+      { key: 'maxRetries', label: 'Max retries', type: 'number', default: 2 },
       {
         key: 'escalateTags',
         label: 'Escalate tags',
         type: 'string[]',
-        description: '이 태그가 있으면 무조건 human 분기.',
+        description: '이 태그가 있으면 자동 통과(accept) 금지 → clarify.',
       },
     ],
+    defaults: {
+      outputSchema: {
+        per_criterion: 'object[]',
+        misalignments: 'string[]',
+        elicit_questions: 'string[]',
+        proposed_criteria: 'string[]',
+        reroute_hint: 'string',
+      },
+    },
   },
 
   // ── Human ──────────────────────────────────────────────────────────────────

@@ -55,12 +55,16 @@ export class MockTransport implements Transport {
       const startAt = cursor
       const endAt = cursor + stepMs
 
-      const isPolicy = arch.nodes.find((n) => n.id === nodeId)?.type.startsWith(
-        'policy.',
+      const isReview = arch.nodes.find((n) => n.id === nodeId)?.type.startsWith(
+        'review.',
       )
-      // Demo a conditional policy: skip the *next* node sometimes.
-      const policyDecision = isPolicy
-        ? { activated: Math.random() > 0.5, reason: 'mock confidence check' }
+      // Demo a conditional review: skip the *next* node sometimes.
+      const policyDecision = isReview
+        ? {
+            activated: Math.random() > 0.5,
+            branch: Math.random() > 0.5 ? 'accept' : 'refine',
+            reason: 'mock intent alignment review',
+          }
         : undefined
 
       this.schedule(startAt, () =>
@@ -86,7 +90,7 @@ export class MockTransport implements Transport {
         h({
           kind: 'run_complete',
           runId,
-          result: { answer: `Mock run finished (${order.length} nodes)`, verdict: null },
+          result: { answer: `Mock run finished (${order.length} nodes)`, reviewDelta: null },
         }),
       ),
     )

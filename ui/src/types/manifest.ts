@@ -52,7 +52,7 @@ export const ConfigFieldSchema = z.object({
 })
 export type ConfigField = z.infer<typeof ConfigFieldSchema>
 
-const RUNTIMES = ['llm_step', 'policy', 'checkpoint', 'model', 'io'] as const
+const RUNTIMES = ['llm_step', 'policy', 'review', 'checkpoint', 'model', 'io'] as const
 
 /** A model slot embedded inside a node (replaces the external model.binding connection). */
 export const ModelSlotSchema = z.object({

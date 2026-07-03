@@ -2,6 +2,7 @@
 gsm8k-baseline: Input → Reasoning → Output
 검증 구조 없이 단순 추론만 하는 베이스라인.
 """
+
 from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
@@ -29,17 +30,25 @@ def build_baseline(model: BaseChatModel, emit: EventEmitter, run_id: str):
             emit=emit,
             run_id=run_id,
         )
-        await emit(make_event(
-            run_id, "reasoning", "node_end",
-            output={"answer": result["answer"], "confidence": result["confidence"]},
-        ))
+        await emit(
+            make_event(
+                run_id,
+                "reasoning",
+                "node_end",
+                output={"answer": result["answer"], "confidence": result["confidence"]},
+            )
+        )
         return {"answer": result["answer"], "confidence": result["confidence"]}
 
     async def output_node(state: AgentState) -> dict:
-        await emit(make_event(
-            run_id, "output", "node_end",
-            output={"answer": state.get("answer"), "verdict": state.get("verdict")},
-        ))
+        await emit(
+            make_event(
+                run_id,
+                "output",
+                "node_end",
+                output={"answer": state.get("answer"), "verdict": state.get("verdict")},
+            )
+        )
         return {}
 
     graph = StateGraph(AgentState)

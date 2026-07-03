@@ -3,6 +3,7 @@
 서버 코드는 `print` 대신 `from logging_config import logger`를 사용한다 (AGENTS.md §7).
 레벨은 config.LOG_LEVEL("info" 등 문자열)을 따른다.
 """
+
 import logging
 
 import config as cfg
@@ -21,9 +22,7 @@ def setup_logging() -> logging.Logger:
     level = getattr(logging, str(cfg.LOG_LEVEL).upper(), logging.INFO)
 
     handler = logging.StreamHandler()
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
-    )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
 
     logger.setLevel(level)
     logger.addHandler(handler)

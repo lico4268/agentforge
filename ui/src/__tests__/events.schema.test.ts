@@ -18,10 +18,10 @@ describe('ExecutionEventSchema', () => {
     const payload = {
       eventType: 'node_end',
       runId: 'run-1',
-      nodeId: 'review_policy',
+      nodeId: 'review',
       timestamp: new Date().toISOString(),
       durationMs: 42,
-      policyDecision: { activated: true, reason: 'high-stakes tag' },
+      policyDecision: { activated: true, reason: 'high-stakes tag', branch: 'clarify' },
       tokenUsage: { prompt: 100, completion: 20 },
     }
     const parsed = ExecutionEventSchema.parse(payload)

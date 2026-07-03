@@ -29,18 +29,11 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
     ? ((data as RFNodeData).config.modelSlots as ModelSlot[])
     : []
 
-  // When maxModelSlots is set, output ports are driven by filled slots.
-  // Each slot gets one output port; static manifest outputs are used as fallback
-  // when no slots are filled.
-  const dynamicOutputs: Port[] = manifest.maxModelSlots
-    ? modelSlots.length > 0
-      ? modelSlots.map((slot) => ({
-          id: slot.id,
-          label: slot.role || slot.model,
-          dataType: manifest.outputs[0]?.dataType ?? 'any',
-        }))
-      : manifest.outputs
-    : manifest.outputs
+  // Output ports always come from the static manifest definition.
+  // (Previously, when maxModelSlots was set and slots were filled, outputs were
+  //  replaced with slot-derived handles — but edges reference manifest handle
+  //  ids like 'accept'/'refine'/'clarify', so swapping them dropped the edges.)
+  const dynamicOutputs: Port[] = manifest.outputs
 
   const borderColor = selected
     ? meta.color

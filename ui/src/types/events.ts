@@ -29,10 +29,14 @@ export const TokenUsageSchema = z.object({
 })
 export type TokenUsage = z.infer<typeof TokenUsageSchema>
 
-/** Why a Policy node activated or skipped — v0.1's key portfolio signal. */
+/** Why a review/policy node activated or skipped — v0.1's key portfolio signal. */
 export const PolicyDecisionSchema = z.object({
   activated: z.boolean(),
   reason: z.string(),
+  /** review 노드 판정: accept / refine / clarify */
+  branch: z.string().optional(),
+  /** batch_mode에서 clarify → accept 강등 여부 */
+  demoted: z.boolean().optional(),
 })
 export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>
 

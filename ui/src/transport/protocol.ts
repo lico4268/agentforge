@@ -53,8 +53,8 @@ export const ServerMessageSchema = z.discriminatedUnion('kind', [
     runId: z.string(),
     result: z.object({
       answer: z.string().nullable().optional(),
-      verdict: z.record(z.string(), z.unknown()).nullable().optional(),
-      confidence: z.number().nullable().optional(),
+      reviewDelta: z.record(z.string(), z.unknown()).nullable().optional(),
+      reviewBranch: z.string().nullable().optional(),
     }),
   }),
   // Human Checkpoint 정지 알림 (backend-spec.md §5)

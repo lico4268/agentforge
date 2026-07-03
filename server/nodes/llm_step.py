@@ -16,7 +16,7 @@ def _render(value: Any) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, list) and all(isinstance(i, str) for i in value):
-        return "\n".join(f"{i+1}. {s}" for i, s in enumerate(value))
+        return "\n".join(f"{i + 1}. {s}" for i, s in enumerate(value))
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
@@ -25,7 +25,7 @@ async def run_llm_step(
     *,
     node_id: str,
     system_prompt: str,
-    input_keys: list[tuple[str, str]],   # [(state_key, label), ...]
+    input_keys: list[tuple[str, str]],  # [(state_key, label), ...]
     output_model: type[BaseModel],
     model: BaseChatModel,
     emit: EventEmitter,

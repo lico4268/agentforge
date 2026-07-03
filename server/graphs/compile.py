@@ -4,6 +4,7 @@ StateGraph로 컴파일한다. v0.1의 고정 그래프(baseline.py/treatment.py
 대체하는 v0.3 seam — dispatch_graph가 'gsm8k-baseline'/'gsm8k-treatment' 외의
 아키텍처 이름을 여기로 폴백한다.
 """
+
 from typing import Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -12,9 +13,11 @@ from langgraph.graph import END, START, StateGraph
 import config
 from events import EventEmitter, make_event
 from manifests import BUILTIN_MANIFESTS
-from models import PlanOut, ReasonOut, VerdictOut, build_model
+from models import Criterion, PlanOut, ReasonOut, build_model
 from nodes.checkpoint import make_human_checkpoint
 from nodes.llm_step import run_llm_step
+from nodes.policy import make_route_review
+from nodes.review import make_review
 from state import AgentState
 
 MANIFESTS_BY_TYPE = {m["type"]: m for m in BUILTIN_MANIFESTS}
@@ -39,32 +42,31 @@ LLM_STEP_TABLE: dict[str, dict[str, Any]] = {
             "confidence": result["confidence"],
         },
     },
-    "verification.auto": {
-        "output_model": VerdictOut,
-        "extra_inputs": [],
-        "to_updates": lambda result, state: {
-            "verdict": {"passed": result["passed"], "feedback": result["feedback"]},
-            "feedback": result["feedback"],
-            "retries": (state.get("retries") or 0) + 1,
-        },
-        "to_event_output": lambda result: {
-            "passed": result["passed"],
-            "feedback": result["feedback"],
-        },
-    },
 }
 
 PASSTHROUGH_TYPES = {"io.input", "io.output", "model.binding"}
 
 
-def _make_passthrough_node(node_id: str, node_type: str, emit: EventEmitter, run_id: str):
+def _make_passthrough_node(
+    node_id: str,
+    node_type: str,
+    node_config: dict,
+    emit: EventEmitter,
+    run_id: str,
+):
     async def passthrough(state: AgentState) -> dict:
         await emit(make_event(run_id, node_id, "node_start"))
         output = None
-        if node_type == "io.output":
-            output = {"answer": state.get("answer"), "verdict": state.get("verdict")}
+        updates: dict = {}
+        if node_type == "io.input":
+            sample = node_config.get("sample")
+            if sample:
+                updates["task"] = sample
+                output = {"task": sample}
+        elif node_type == "io.output":
+            output = {"answer": state.get("answer"), "review": state.get("review_delta")}
         await emit(make_event(run_id, node_id, "node_end", output=output))
-        return {}
+        return updates
 
     return passthrough
 
@@ -109,54 +111,22 @@ def _make_llm_step_node(node: dict, manifest: dict, model, emit: EventEmitter, r
     return step
 
 
-def _make_branch_computer(node_cfg: dict):
-    pass_threshold = float(node_cfg.get("passThreshold", config.PASS_THRESHOLD))
-    auto_threshold = float(node_cfg.get("autoThreshold", config.AUTO_THRESHOLD))
-    escalate_tags = set(node_cfg.get("escalateTags") or config.ESCALATE_TAGS)
-
-    def compute(state: AgentState) -> str:
-        c = state.get("confidence") or 0.0
-        tags = set(state.get("task_tags") or [])
-        if tags & escalate_tags:
-            branch = "human"
-        elif c >= pass_threshold:
-            branch = "pass"
-        elif c >= auto_threshold:
-            branch = "auto"
-        else:
-            branch = "human"
-        if branch == "human" and state.get("batch_mode"):
-            branch = "auto"
-        return branch
-
-    return compute
-
-
-def _make_policy_node(node_id: str, compute_branch, emit: EventEmitter, run_id: str):
-    async def policy(state: AgentState) -> dict:
-        await emit(make_event(run_id, node_id, "node_start"))
-        branch = compute_branch(state)
-        c = state.get("confidence") or 0.0
-        await emit(make_event(
-            run_id, node_id, "node_end",
-            policy_decision={"activated": branch != "pass", "reason": f"conf {c:.2f} -> {branch}"},
-        ))
-        return {}
-
-    return policy
-
-
-def _make_route_review(node_id: str, compute_branch, wired: set[str]):
-    def route(state: AgentState) -> str:
-        branch = compute_branch(state)
-        if branch in wired:
-            return branch
-        for fallback in ("pass", "auto", "human"):
-            if fallback in wired:
-                return fallback
-        raise ValueError(f"policy.review node {node_id!r} has no outgoing edges")
-
-    return route
+def _make_review_node(node: dict, model, emit: EventEmitter, run_id: str):
+    node_cfg = node.get("config") or {}
+    seed_criteria = [
+        Criterion(id=f"cfg-{i + 1}", text=text).model_dump()
+        for i, text in enumerate(node_cfg.get("criteria") or [])
+        if isinstance(text, str) and text.strip()
+    ]
+    return make_review(
+        model=model,
+        emit=emit,
+        run_id=run_id,
+        node_id=node["id"],
+        max_retries=int(node_cfg.get("maxRetries", config.MAX_RETRIES)),
+        escalate_tags=set(node_cfg.get("escalateTags") or config.ESCALATE_TAGS),
+        seed_criteria=seed_criteria,
+    )
 
 
 def _filter_control_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
@@ -172,7 +142,8 @@ def _filter_control_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
         e["target"] for e in edges if nodes_by_id.get(e["source"], {}).get("type") != "io.input"
     }
     return [
-        e for e in edges
+        e
+        for e in edges
         if not (
             nodes_by_id.get(e["source"], {}).get("type") == "io.input"
             and e["target"] in targets_with_real_source
@@ -206,15 +177,18 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             raise ValueError(f"Unknown node type: {node_type!r} (node {node_id!r})")
 
         if node_type in PASSTHROUGH_TYPES:
-            graph.add_node(node_id, _make_passthrough_node(node_id, node_type, emit, run_id))
+            graph.add_node(
+                node_id,
+                _make_passthrough_node(node_id, node_type, node.get("config") or {}, emit, run_id),
+            )
         elif manifest.get("runtime") == "llm_step":
             model = _resolve_model(node, default_model_cfg)
             graph.add_node(node_id, _make_llm_step_node(node, manifest, model, emit, run_id))
-        elif node_type == "policy.review":
-            compute_branch = _make_branch_computer(node.get("config") or {})
+        elif node_type == "review.intent":
+            model = _resolve_model(node, default_model_cfg)
             wired = {e["sourceHandle"] for e in outgoing.get(node_id, [])}
-            route_fns[node_id] = _make_route_review(node_id, compute_branch, wired)
-            graph.add_node(node_id, _make_policy_node(node_id, compute_branch, emit, run_id))
+            route_fns[node_id] = make_route_review(wired)
+            graph.add_node(node_id, _make_review_node(node, model, emit, run_id))
         elif node_type == "human.checkpoint":
             routes = {"approve": END, "revise": END, "reject": END}
             routes.update({e["sourceHandle"]: e["target"] for e in outgoing.get(node_id, [])})
@@ -231,7 +205,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         node_type = node["type"]
         outs = outgoing.get(node_id, [])
 
-        if node_type == "policy.review":
+        if node_type == "review.intent":
             mapping = {e["sourceHandle"]: e["target"] for e in outs}
             graph.add_conditional_edges(node_id, route_fns[node_id], mapping)
             continue

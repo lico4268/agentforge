@@ -118,9 +118,7 @@ local:
 execution:
   max_retries: 2
   node_timeout: 120        # 노드 하나당 최대 실행 시간 (초)
-  pass_threshold: 0.85     # 이상이면 자동 통과
-  auto_threshold: 0.6      # 이상이면 자동 처리, 미만이면 human review
-  escalate_tags:           # 이 태그가 있으면 무조건 human review
+  escalate_tags:           # 이 태그가 있으면 자동 통과(accept) 금지 → clarify
     - high-stakes
     - medical
     - legal

@@ -1,6 +1,7 @@
 """
 v0.1 벤치마크 하니스: run_dataset + GSM8K grader + Report
 """
+
 import re
 import uuid
 from collections.abc import Callable
@@ -21,9 +22,9 @@ class Report(BaseModel):
     pass_at_1: float
     avg_tokens: float
     avg_cost: float
-    verify_rate_easy: float    # 쉬운 문항(confidence≥0.85) 중 검증 발동 비율
-    verify_rate_hard: float
-    escalation_rate: float     # batch에서 human→auto 강등 비율
+    refine_rate: float  # 리뷰 판정 중 refine(재작업) 비율
+    clarify_rate: float  # 리뷰 판정 중 clarify(인간 개입) 비율 — batch 강등 포함
+    demotion_rate: float  # batch에서 clarify → accept 강등 비율 (문항당)
 
 
 def gsm8k_grader(answer: str | None, gold: str) -> bool:
@@ -44,11 +45,10 @@ async def run_dataset(
     results = []
     total_tokens = 0
     total_cost = 0.0
-    verify_fired_easy = 0
-    verify_fired_hard = 0
-    easy_count = 0
-    hard_count = 0
-    escalation_count = 0
+    decision_count = 0
+    refine_count = 0
+    clarify_count = 0
+    demotion_count = 0
 
     for item in items:
         emitter = ListEventEmitter()
@@ -70,31 +70,28 @@ async def run_dataset(
         ok = grader(final.get("answer"), item.gold)
         results.append(ok)
 
-        # 이벤트에서 지표 집계
+        # 이벤트에서 지표 집계 — 리뷰 판정은 node_end 이벤트의 policy_decision 필드로 나온다
         for ev in emitter.events:
-            if ev.event_type == "token_usage":
-                total_tokens += ev.payload.get("total_tokens", 0)
-                total_cost += ev.payload.get("cost", 0.0)
-            if ev.event_type == "policy_decision":
-                branch = ev.payload.get("branch", "")
-                conf = final.get("confidence") or 0.0
-                if conf >= 0.85:
-                    easy_count += 1
-                    if branch in ("auto", "human"):
-                        verify_fired_easy += 1
-                else:
-                    hard_count += 1
-                    if branch in ("auto", "human"):
-                        verify_fired_hard += 1
-                if branch == "auto" and "human" in str(ev.payload.get("reason", "")):
-                    escalation_count += 1
+            if ev.token_usage:
+                total_tokens += ev.token_usage.get("total_tokens", 0)
+                total_cost += ev.token_usage.get("cost", 0.0)
+            decision = ev.policy_decision
+            if decision:
+                decision_count += 1
+                branch = decision.get("branch", "")
+                if branch == "refine":
+                    refine_count += 1
+                if branch == "clarify" or decision.get("demoted"):
+                    clarify_count += 1
+                if decision.get("demoted"):
+                    demotion_count += 1
 
     n = len(results)
     return Report(
         pass_at_1=sum(results) / n if n else 0.0,
         avg_tokens=total_tokens / n if n else 0.0,
         avg_cost=total_cost / n if n else 0.0,
-        verify_rate_easy=verify_fired_easy / easy_count if easy_count else 0.0,
-        verify_rate_hard=verify_fired_hard / hard_count if hard_count else 0.0,
-        escalation_rate=escalation_count / n if n else 0.0,
+        refine_rate=refine_count / decision_count if decision_count else 0.0,
+        clarify_rate=clarify_count / decision_count if decision_count else 0.0,
+        demotion_rate=demotion_count / n if n else 0.0,
     )

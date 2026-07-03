@@ -17,9 +17,10 @@ def make_human_checkpoint(
             "summary": state.get("answer") or "",
             "fields": {
                 "task": state.get("task"),
+                "intent": state.get("intent"),
                 "answer": state.get("answer"),
-                "confidence": state.get("confidence"),
-                "verdict": state.get("verdict"),
+                "reviewDelta": state.get("review_delta"),
+                "criteria": state.get("criteria"),
             },
             "actions": ["approve", "revise", "reject"],
         }
@@ -33,15 +34,19 @@ def make_human_checkpoint(
         edits = decision.get("edits", {})
         reason = decision.get("reason", "")
 
-        await emit(make_event(
-            run_id, node_id, "decision_record",
-            output={
-                "decision": action,
-                "reason": reason,
-                "edits": edits,
-                "task_tags": state.get("task_tags", []),
-            },
-        ))
+        await emit(
+            make_event(
+                run_id,
+                node_id,
+                "decision_record",
+                output={
+                    "decision": action,
+                    "reason": reason,
+                    "edits": edits,
+                    "task_tags": state.get("task_tags", []),
+                },
+            )
+        )
 
         updates: dict = {}
         if edits:

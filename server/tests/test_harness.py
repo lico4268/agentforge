@@ -1,4 +1,5 @@
 """harness.gsm8k_grader 단위 테스트 — 순수 함수, 외부 의존성 없음."""
+
 import pytest
 
 from harness import gsm8k_grader
@@ -7,14 +8,14 @@ from harness import gsm8k_grader
 @pytest.mark.parametrize(
     ("answer", "gold", "expected"),
     [
-        ("정답은 42입니다", "42", True),          # 마지막 숫자 일치
-        ("계산 결과 18", "#### 18", True),         # gold에 잡음 숫자 없음
+        ("정답은 42입니다", "42", True),  # 마지막 숫자 일치
+        ("계산 결과 18", "#### 18", True),  # gold에 잡음 숫자 없음
         ("최종 답: 7", "정답 7", True),
-        ("답은 99", "100", False),                 # 불일치
-        ("3.5", "3.5", True),                      # 소수
-        ("", "42", False),                         # 빈 answer
-        (None, "42", False),                       # None answer
-        ("숫자 없음", "42", False),                # answer에 숫자 없음
+        ("답은 99", "100", False),  # 불일치
+        ("3.5", "3.5", True),  # 소수
+        ("", "42", False),  # 빈 answer
+        (None, "42", False),  # None answer
+        ("숫자 없음", "42", False),  # answer에 숫자 없음
     ],
 )
 def test_gsm8k_grader(answer, gold, expected):

@@ -17,8 +17,7 @@ export const CATEGORY_META: Record<
 export const NODE_TYPE_ICONS: Record<string, string> = {
   'planning.decompose': 'psychology',
   'reasoning.cot':      'account_tree',
-  'verification.auto':  'verified',
-  'policy.review':      'policy',
+  'review.intent':      'rule',
   'human.checkpoint':   'person_check',
   'model.binding':      'smart_toy',
   'io.input':           'login',

@@ -3,6 +3,7 @@
 외부 LLM API에 의존하지 않는 빠른 테스트만 둔다 (AGENTS.md §6).
 LLM 호출이 필요한 코드는 목(mock)으로 대체한다.
 """
+
 import sys
 from pathlib import Path
 
