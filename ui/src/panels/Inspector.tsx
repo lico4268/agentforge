@@ -4,6 +4,7 @@ import { useNodeRuntime, useExecutionStore } from '@/execution/useExecutionStore
 import { useRegistry } from '@/registry/RegistryContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { loadModels } from '@/registry/loadModels'
+import { Markdown } from '@/panels/Markdown'
 import type { ConfigField, ModelConfig, ModelSlot } from '@/types'
 
 export function Inspector() {
@@ -339,14 +340,23 @@ function MetricCard({
   )
 }
 
+type ReviewDeltaData = {
+  per_criterion?: { id?: string; verdict?: string; evidence?: string }[]
+  misalignments?: string[]
+  elicit_questions?: string[]
+} | null
+
 type FinalResultData = {
   answer?: unknown
-  confidence?: unknown
-  verdict?: { passed?: boolean; feedback?: string } | null
+  /** output 노드 node_end.output의 리뷰 필드 */
+  review?: ReviewDeltaData
+  /** run_complete 결과의 리뷰 필드 */
+  reviewDelta?: ReviewDeltaData
+  reviewBranch?: string | null
 } | null
 
 /**
- * output 노드가 방출한 node_end.output({answer, verdict})을 우선 사용하고,
+ * output 노드가 방출한 node_end.output({answer, review})을 우선 사용하고,
  * 아직 노드 이벤트가 없으면 run_complete로 받은 전역 runResult로 폴백한다.
  */
 function pickFinalResult(
@@ -384,7 +394,11 @@ function FinalResult({
     )
   }
 
-  const verdict = result.verdict
+  const review = result.review ?? result.reviewDelta
+  const unmetCount =
+    review?.per_criterion?.filter((v) => v.verdict === 'unmet').length ?? 0
+  const misalignments = review?.misalignments ?? []
+  const aligned = unmetCount === 0 && misalignments.length === 0
   const answerText =
     typeof result.answer === 'string'
       ? result.answer
@@ -396,15 +410,15 @@ function FinalResult({
         <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
           Final Result
         </h3>
-        {verdict && typeof verdict.passed === 'boolean' && (
+        {review && (
           <span
             className="rounded px-1.5 py-0.5 font-mono text-[10px]"
             style={{
-              color: verdict.passed ? '#4edea3' : '#ff8a80',
-              background: verdict.passed ? '#4edea31a' : '#ff8a801a',
+              color: aligned ? '#4edea3' : '#ff8a80',
+              background: aligned ? '#4edea31a' : '#ff8a801a',
             }}
           >
-            {verdict.passed ? '✓ pass' : '✗ fail'}
+            {aligned ? '✓ aligned' : `✗ ${unmetCount} unmet`}
           </span>
         )}
       </div>
@@ -421,28 +435,30 @@ function FinalResult({
           </button>
         </div>
         <div className="rounded-md border border-[#4edea3]/40 bg-[#0d1712] p-3">
-          <pre className="m-0 whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-[#dde4dd]">
-            {answerText}
-          </pre>
+          {typeof result.answer === 'string' ? (
+            <Markdown>{answerText}</Markdown>
+          ) : (
+            <pre className="m-0 whitespace-pre-wrap font-mono text-[13px] leading-relaxed text-[#dde4dd]">
+              {answerText}
+            </pre>
+          )}
         </div>
       </div>
 
-      {result.confidence !== undefined && result.confidence !== null && (
+      {result.reviewBranch && (
         <div className="flex items-center gap-2 font-mono text-[11px] text-[#86948a]">
-          <span>Confidence</span>
-          <span className="text-[#bbcabf]">
-            {typeof result.confidence === 'number'
-              ? result.confidence.toFixed(2)
-              : String(result.confidence)}
-          </span>
+          <span>Review branch</span>
+          <span className="text-[#bbcabf]">{result.reviewBranch}</span>
         </div>
       )}
 
-      {verdict?.feedback && (
+      {misalignments.length > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="font-mono text-[11px] text-[#86948a]">Verdict feedback</span>
+          <span className="font-mono text-[11px] text-[#86948a]">Misalignments</span>
           <div className="rounded-md border border-[#3c4a42] bg-[#09100c] p-2 text-[11px] leading-relaxed text-[#bbcabf]">
-            {verdict.feedback}
+            {misalignments.map((m, i) => (
+              <div key={i}>· {m}</div>
+            ))}
           </div>
         </div>
       )}
@@ -452,12 +468,18 @@ function FinalResult({
 
 function IOBlock({ label, value }: { label: string; value: unknown }) {
   if (value === undefined) return null
+
+  // output에 문자열 필드(answer/plan/reasoning 등)가 있으면 markdown 렌더,
+  // 순수 구조체면 JSON 그대로 표시.
+  const stringField = extractStringField(value)
+  const copyText = stringField ?? JSON.stringify(value, null, 2)
+
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <span className="font-mono text-[11px] text-[#86948a]">{label}</span>
         <button
-          onClick={() => navigator.clipboard.writeText(JSON.stringify(value, null, 2))}
+          onClick={() => navigator.clipboard.writeText(copyText)}
           className="text-[#86948a] transition-colors hover:text-[#dde4dd]"
           title="Copy"
         >
@@ -465,12 +487,29 @@ function IOBlock({ label, value }: { label: string; value: unknown }) {
         </button>
       </div>
       <div className="rounded-md border border-[#3c4a42] bg-[#09100c] p-2 overflow-x-auto">
-        <pre className="m-0 font-mono text-[11px] leading-relaxed text-[#dde4dd]">
-          {JSON.stringify(value, null, 2)}
-        </pre>
+        {stringField ? (
+          <Markdown>{stringField}</Markdown>
+        ) : (
+          <pre className="m-0 font-mono text-[11px] leading-relaxed text-[#dde4dd]">
+            {JSON.stringify(value, null, 2)}
+          </pre>
+        )}
       </div>
     </div>
   )
+}
+
+/** output dict에서 대표 문자열 필드를 추출. 없으면 null. */
+function extractStringField(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    for (const key of ['answer', 'plan', 'reasoning', 'summary', 'result']) {
+      const v = obj[key]
+      if (typeof v === 'string' && v.length > 0) return v
+    }
+  }
+  return null
 }
 
 function statusColor(status: string) {
@@ -493,7 +532,7 @@ const PROVIDERS = [
 const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-haiku-4-5-20251001',
   openai:    'gpt-4o',
-  google:    'gemini-2.0-flash',
+  google:    'gemini-3.5-flash',
   local:     'llama3',
 }
 
@@ -518,10 +557,12 @@ function ModelSlotsEditor({
 
   const addSlot = () => {
     if (slots.length >= maxSlots) return
-    const provider = 'anthropic' as const
+    const provider = 'google' as const
+    const providerModels = models?.filter((m) => m.provider === provider) ?? []
+    const firstModel = providerModels.find((m) => m.available)?.id ?? providerModels[0]?.id ?? DEFAULT_MODELS[provider]
     onChange([
       ...slots,
-      { id: nextSlotId(), provider, model: DEFAULT_MODELS[provider], temperature: 0, role: '' },
+      { id: nextSlotId(), provider, model: firstModel, temperature: 0, role: '' },
     ])
   }
 
@@ -578,7 +619,9 @@ function ModelSlotsEditor({
                     value={slot.provider}
                     onChange={(e) => {
                       const provider = e.target.value as ModelSlot['provider']
-                      updateSlot(slot.id, { provider, model: DEFAULT_MODELS[provider] })
+                      const providerModels = models?.filter((m) => m.provider === provider) ?? []
+                      const firstModel = providerModels.find((m) => m.available)?.id ?? providerModels[0]?.id ?? DEFAULT_MODELS[provider]
+                      updateSlot(slot.id, { provider, model: firstModel })
                     }}
                   >
                     {PROVIDERS.map((p) => (

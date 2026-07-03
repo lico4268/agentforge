@@ -21,7 +21,11 @@
 CLAUDE.local.md
 ROADMAP.md
 POLICY_REDESIGN.md
+POLICY_RESEARCH.md
 OPENROUTER_SUBAGENT_SETUP.md
+
+# Workspace (run output files)
+server/workspace/
 
 # Python
 server/.venv/

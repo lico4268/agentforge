@@ -3,15 +3,25 @@ from typing import Any, Protocol
 
 # ─── Event model (frontend-compatible flat shape) ──────────────────────────────
 
+
 class ExecutionEvent:
     """
     프론트 ExecutionEventSchema와 1:1 대응.
     serialize()가 WebSocket으로 나가는 camelCase dict를 반환한다.
     """
+
     __slots__ = (
-        "event_type", "run_id", "node_id", "timestamp",
-        "duration_ms", "input", "output", "token_usage",
-        "policy_decision", "message", "error",
+        "event_type",
+        "run_id",
+        "node_id",
+        "timestamp",
+        "duration_ms",
+        "input",
+        "output",
+        "token_usage",
+        "policy_decision",
+        "message",
+        "error",
     )
 
     def __init__(
@@ -115,6 +125,7 @@ def make_error_event(
 
 # ─── WebSocket emitter ─────────────────────────────────────────────────────────
 
+
 class WSEventEmitter:
     def __init__(self, websocket: Any, run_id: str, history: list[ExecutionEvent]):
         self.ws = websocket
@@ -123,10 +134,16 @@ class WSEventEmitter:
 
     async def __call__(self, event: ExecutionEvent) -> None:
         self.history.append(event)
+        # node_end 이벤트의 output을 워크스페이스에 .md 파일로 영속화
+        if event.event_type == "node_end" and event.output is not None:
+            from workspace import write_node_output
+
+            write_node_output(self.run_id, event.node_id, event.output)
         await self.ws.send_json({"kind": "event", "event": event.to_frontend()})
 
 
 # ─── List emitter (for harness) ────────────────────────────────────────────────
+
 
 class ListEventEmitter:
     def __init__(self) -> None:

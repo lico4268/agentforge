@@ -25,14 +25,15 @@ app.add_middleware(
 
 # ─── 모델 목록 ───────────────────────────────────────────────────────────────────
 
+
 def _load_models_config() -> list[dict]:
     """config.yaml models.list에서 enabled 모델만 반환.
     API 키 미설정 provider는 available=False 표시."""
     key_by_provider = {
         "anthropic": bool(cfg.ANTHROPIC_API_KEY),
-        "openai":    bool(cfg.OPENAI_API_KEY),
-        "google":    bool(cfg.GOOGLE_API_KEY),
-        "local":     True,
+        "openai": bool(cfg.OPENAI_API_KEY),
+        "google": bool(cfg.GOOGLE_API_KEY),
+        "local": True,
     }
 
     result = []
@@ -40,15 +41,17 @@ def _load_models_config() -> list[dict]:
         if not m.get("enabled", True):
             continue
         provider = m.get("provider", "")
-        result.append({
-            "id":          m["id"],
-            "provider":    provider,
-            "label":       m.get("label", m["id"]),
-            "description": m.get("description", ""),
-            "available":   key_by_provider.get(provider, False),
-            "temperature": m.get("temperature", 0.7),
-            "maxTokens":   m.get("max_tokens", 4096),
-        })
+        result.append(
+            {
+                "id": m["id"],
+                "provider": provider,
+                "label": m.get("label", m["id"]),
+                "description": m.get("description", ""),
+                "available": key_by_provider.get(provider, False),
+                "temperature": m.get("temperature", 0.7),
+                "maxTokens": m.get("max_tokens", 4096),
+            }
+        )
     return result
 
 
@@ -58,6 +61,7 @@ ARCH_DIR = Path(__file__).parent / "architectures"
 ARCH_DIR.mkdir(exist_ok=True)
 
 # ─── REST 엔드포인트 ─────────────────────────────────────────────────────────────
+
 
 @app.get("/api/models")
 async def get_models() -> list[dict]:
@@ -98,6 +102,28 @@ async def get_architecture(arch_id: str) -> dict:
     return json.loads(path.read_text())
 
 
+# ─── 워크스페이스 파일 (run output 영속화) ───────────────────────────────────────
+
+
+@app.get("/api/runs/{run_id}/files")
+async def list_run_files(run_id: str) -> list[dict]:
+    """run_id 디렉토리의 노드 output 파일 목록 (camelCase)."""
+    from workspace import list_run_files as _list
+
+    return _list(run_id)
+
+
+@app.get("/api/runs/{run_id}/files/{name}")
+async def read_run_file(run_id: str, name: str) -> dict:
+    """단일 워크스페이스 파일 내용."""
+    from workspace import read_run_file as _read
+
+    result = _read(run_id, name)
+    if result is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    return result
+
+
 # ─── 그래프 디스패처 ─────────────────────────────────────────────────────────────
 
 DEFAULT_MODEL_CFG = {
@@ -118,13 +144,16 @@ def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
     if arch_name == "gsm8k-baseline":
         model = build_model(cfg["provider"], cfg["model"], float(cfg["temperature"]))
         from graphs.baseline import build_baseline
+
         return build_baseline(model=model, emit=emit, run_id=run_id)
     elif arch_name == "gsm8k-treatment":
         model = build_model(cfg["provider"], cfg["model"], float(cfg["temperature"]))
         from graphs.treatment import build_treatment
+
         return build_treatment(model=model, emit=emit, run_id=run_id)
     else:
         from graphs.compile import compile_graph
+
         return compile_graph(architecture, cfg, emit, run_id)
 
 
@@ -169,6 +198,8 @@ async def ws_run(ws: WebSocket):
                         task=input_data.get("task", ""),
                         task_tags=input_data.get("task_tags", []),
                         batch_mode=False,
+                        intent=input_data.get("intent"),
+                        criteria=input_data.get("criteria"),
                     )
                     config = {
                         "configurable": {"thread_id": run_id},
@@ -176,23 +207,29 @@ async def ws_run(ws: WebSocket):
                     }
                     final = await graph.ainvoke(state0, config=config)
 
-                    await ws.send_json({
-                        "kind": "run_complete",
-                        "runId": run_id,
-                        "result": {
-                            "answer": final.get("answer"),
-                            "verdict": final.get("verdict"),
-                            "confidence": final.get("confidence"),
-                        },
-                    })
+                    await ws.send_json(
+                        {
+                            "kind": "run_complete",
+                            "runId": run_id,
+                            "result": {
+                                "answer": final.get("answer"),
+                                "reviewDelta": final.get("review_delta"),
+                                "reviewBranch": final.get("review_branch"),
+                            },
+                        }
+                    )
                 except ValueError as e:
                     logger.warning("run %s rejected: %s", run_id, e)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
                 except Exception as e:
                     logger.exception("run %s failed", run_id)
-                    await ws.send_json({
-                        "kind": "error", "runId": run_id, "message": f"Execution error: {e}",
-                    })
+                    await ws.send_json(
+                        {
+                            "kind": "error",
+                            "runId": run_id,
+                            "message": f"Execution error: {e}",
+                        }
+                    )
 
             elif kind == "resume":
                 run_id = msg.get("runId") or current_run_id
@@ -200,23 +237,31 @@ async def ws_run(ws: WebSocket):
                 graph = active_runs.get(run_id)
 
                 if not graph:
-                    await ws.send_json({
-                        "kind": "error", "runId": run_id, "message": "Run not found",
-                    })
+                    await ws.send_json(
+                        {
+                            "kind": "error",
+                            "runId": run_id,
+                            "message": "Run not found",
+                        }
+                    )
                     continue
 
                 from langgraph.types import Command
+
                 config = {"configurable": {"thread_id": run_id}}
                 try:
                     final = await graph.ainvoke(Command(resume=decision), config=config)
-                    await ws.send_json({
-                        "kind": "run_complete",
-                        "runId": run_id,
-                        "result": {
-                            "answer": final.get("answer"),
-                            "verdict": final.get("verdict"),
-                        },
-                    })
+                    await ws.send_json(
+                        {
+                            "kind": "run_complete",
+                            "runId": run_id,
+                            "result": {
+                                "answer": final.get("answer"),
+                                "reviewDelta": final.get("review_delta"),
+                                "reviewBranch": final.get("review_branch"),
+                            },
+                        }
+                    )
                 except Exception as e:
                     logger.exception("resume of run %s failed", run_id)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})

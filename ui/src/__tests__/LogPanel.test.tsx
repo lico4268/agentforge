@@ -7,6 +7,8 @@ describe('LogPanel', () => {
   it('이벤트가 없으면 안내 문구를 보여준다', () => {
     render(<LogPanel />)
     expect(screen.getByText(/No events yet/i)).toBeInTheDocument()
-    expect(screen.getByText(/Execution Log/i)).toBeInTheDocument()
+    // Log 탭이 기본 활성 탭
+    expect(screen.getByRole('button', { name: /Log/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Files/i })).toBeInTheDocument()
   })
 })
