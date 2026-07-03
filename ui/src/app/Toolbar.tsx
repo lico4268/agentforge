@@ -14,25 +14,16 @@ const ARCH_OPTIONS = [
 
 type ArchOption = (typeof ARCH_OPTIONS)[number]['value']
 
-const PROVIDER_COLOR: Record<string, string> = {
-  anthropic: '#f97316',
-  openai:    '#10b981',
-  google:    '#3b82f6',
-  local:     '#64748b',
-}
-
 export function Toolbar() {
   const transport      = useTransport()
   const toArchitecture = useGraphStore((s) => s.toArchitecture)
   const reset          = useExecutionStore((s) => s.reset)
-  const nodeCount      = useGraphStore((s) => s.nodes.length)
+  const nodes = useGraphStore((s) => s.nodes)
+  const nodeCount = nodes.length
   const runStatus      = useExecutionStore((s) => s.runStatus)
-  const runResult      = useExecutionStore((s) => s.runResult)
-  const runError       = useExecutionStore((s) => s.runError)
 
-  const [task, setTask]         = useState('Janet has 3 ducks and 5 chickens. How many animals does she have?')
   const [archName, setArchName] = useState<ArchOption>('gsm8k-treatment')
-  const [modelId, setModelId]   = useState<string>('claude-haiku-4-5-20251001')
+  const [modelId, setModelId]   = useState<string>('gemini-3.5-flash')
 
   const { data: models, isError: modelsError } = useQuery({
     queryKey: ['models'],
@@ -40,6 +31,9 @@ export function Toolbar() {
     staleTime: 60_000,
     retry: 1,
   })
+
+  const inputSample = nodes.find((n) => n.data.manifestType === 'io.input')?.data.config?.sample
+  const task = typeof inputSample === 'string' ? inputSample.trim() : ''
 
   const selectedModel: ModelConfig | undefined =
     models?.find((m) => m.id === modelId) ?? models?.[0]
@@ -55,7 +49,7 @@ export function Toolbar() {
     transport.send({
       kind: 'run',
       architecture,
-      input: { task: task.trim(), task_tags: [] },
+      input: { task, task_tags: [] },
       model: { provider: selectedModel.provider, model: selectedModel.id, temperature: 0 },
     })
   }
@@ -73,27 +67,8 @@ export function Toolbar() {
           </span>
         </div>
 
-        {/* Task input — takes remaining center space */}
-        <div className="flex flex-1 items-center gap-2 rounded border border-[#3c4a42] bg-[#161d19] px-3 py-1.5 transition-all focus-within:border-[#4edea3] focus-within:shadow-[0_0_0_2px_rgba(78,222,163,0.12)]">
-          <span className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#86948a]">
-            Task
-          </span>
-          <input
-            value={task}
-            onChange={(e) => setTask(e.target.value)}
-            placeholder="Enter task for the agent…"
-            className="w-full bg-transparent text-[13px] text-[#dde4dd] outline-none placeholder:text-[#3c4a42]"
-          />
-          {selectedModel && (
-            <div className="flex shrink-0 items-center gap-1.5 border-l border-[#3c4a42]/60 pl-3">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ background: PROVIDER_COLOR[selectedModel.provider] ?? '#64748b' }}
-              />
-              <span className="font-mono text-[11px] text-[#bbcabf]">{selectedModel.label}</span>
-            </div>
-          )}
-        </div>
+        {/* Spacer */}
+        <div className="flex-1" />
 
         {/* Right controls */}
         <div className="flex shrink-0 items-center gap-2">
@@ -137,6 +112,7 @@ export function Toolbar() {
             onClick={onRun}
             disabled={
               isRunning ||
+              !task ||
               !selectedModel ||
               !selectedModel.available ||
               (archName === 'current' && nodeCount === 0)
@@ -150,24 +126,6 @@ export function Toolbar() {
           </button>
         </div>
       </div>
-
-      {/* Result / error banner */}
-      {runStatus === 'complete' && runResult && (
-        <div className="border-t border-[#003824]/80 bg-[#002113]/60 px-4 py-1.5 font-mono text-[12px] text-[#4edea3]">
-          ✓ {String(runResult.answer ?? '—')}
-          {!!runResult.verdict && (
-            <span className="ml-3 text-[#86948a]">
-              Verified:{' '}
-              {(runResult.verdict as Record<string, unknown>).passed ? '✓ pass' : '✗ fail'}
-            </span>
-          )}
-        </div>
-      )}
-      {runStatus === 'error' && runError && (
-        <div className="border-t border-[#93000a]/80 bg-[#410005]/40 px-4 py-1.5 font-mono text-[12px] text-[#ffb4ab]">
-          ✗ {runError}
-        </div>
-      )}
     </div>
   )
 }
