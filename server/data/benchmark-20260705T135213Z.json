@@ -1,0 +1,31 @@
+{
+  "args": {
+    "items": "data/gsm8k_subset.jsonl",
+    "arch": "both",
+    "provider": "google",
+    "model": "gemini-3.1-flash-lite",
+    "temperature": 0.0,
+    "limit": 0
+  },
+  "num_items": 30,
+  "reports": {
+    "baseline": {
+      "pass_at_1": 0.8,
+      "avg_tokens": 109.23333333333333,
+      "avg_cost": 1.6203333333333335e-05,
+      "refine_rate": 0.0,
+      "clarify_rate": 0.0,
+      "demotion_rate": 0.0,
+      "error_rate": 0.0
+    },
+    "treatment": {
+      "pass_at_1": 0.9,
+      "avg_tokens": 892.2333333333333,
+      "avg_cost": 0.0001828333333333334,
+      "refine_rate": 0.0,
+      "clarify_rate": 0.8666666666666667,
+      "demotion_rate": 0.8666666666666667,
+      "error_rate": 0.0
+    }
+  }
+}
