@@ -135,18 +135,38 @@ def _filter_control_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
     (예: input->reasoning 직결 + input->planning->reasoning) target이 두 번
     트리거된다 (LangGraph의 fan-in은 같은 슈퍼스텝에서 완료되는 병렬 브랜치만
     join하며, 슈퍼스텝이 어긋나면 각각 별도로 발화한다). task 등은 state에서
-    항상 직접 읽으므로 실제 선행 처리 노드가 이미 있는 target에 한해
-    io.input발 edge는 순서 제약으로서 불필요 — 제거한다."""
+    항상 직접 읽으므로 직결 edge는 순서 제약으로서 불필요 — 제거한다.
+
+    단, "같은 target에 다른 source가 있다"만으로 제거하면 안 된다: 그 다른
+    source가 하류 피드백 루프(예: review->reasoning refine)라면 io.input발
+    edge가 target을 깨우는 유일한 경로이기 때문이다. 그래서 직결 edge를 뺀
+    그래프에서 io.input으로부터 target에 여전히 도달 가능할 때만 제거한다."""
+
+    def _reachable(src: str, dst: str, skip: dict) -> bool:
+        adjacency: dict[str, list[str]] = {}
+        for e in edges:
+            if e is skip:
+                continue
+            adjacency.setdefault(e["source"], []).append(e["target"])
+        seen: set[str] = set()
+        stack = [src]
+        while stack:
+            cur = stack.pop()
+            if cur == dst:
+                return True
+            if cur in seen:
+                continue
+            seen.add(cur)
+            stack.extend(adjacency.get(cur, []))
+        return False
+
     nodes_by_id = {n["id"]: n for n in nodes}
-    targets_with_real_source = {
-        e["target"] for e in edges if nodes_by_id.get(e["source"], {}).get("type") != "io.input"
-    }
     return [
         e
         for e in edges
         if not (
             nodes_by_id.get(e["source"], {}).get("type") == "io.input"
-            and e["target"] in targets_with_real_source
+            and _reachable(e["source"], e["target"], skip=e)
         )
     ]
 
