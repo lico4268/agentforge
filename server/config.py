@@ -39,6 +39,7 @@ CORS_ORIGINS: list[str] = _get("server.cors_origins", ["http://localhost:5173"])
 # ── 모델 ─────────────────────────────────────────────────────────────────────────
 DEFAULT_MODEL: str = _get("models.default", "claude-sonnet-4-6")
 MODELS_LIST: list[dict] = _get("models.list", [])
+PRICING: dict[str, dict] = _get("models.pricing", {}) or {}  # USD / 1M tokens {input, output}
 
 # ── 로컬 모델 ─────────────────────────────────────────────────────────────────────
 LOCAL_BASE_URL: str = os.getenv("LOCAL_BASE_URL") or _get(

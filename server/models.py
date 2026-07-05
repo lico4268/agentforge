@@ -52,6 +52,26 @@ class ReviewDelta(BaseModel):
 # ─── Model factory ─────────────────────────────────────────────────────────────
 
 
+def cost_for_usage(model_name: str, input_tokens: int, output_tokens: int) -> float:
+    """config.yaml models.pricing 기준 USD 비용. 단가 미등록 모델은 0.0.
+
+    provider가 붙이는 접두어("models/gemini-...")와 config id가 어긋날 수 있어
+    정확 일치 → 부분 일치 순으로 조회한다.
+    """
+    pricing = config.PRICING.get(model_name)
+    if pricing is None:
+        for key, value in config.PRICING.items():
+            if key in model_name or model_name in key:
+                pricing = value
+                break
+    if not pricing:
+        return 0.0
+    return (
+        input_tokens * float(pricing.get("input", 0)) / 1_000_000
+        + output_tokens * float(pricing.get("output", 0)) / 1_000_000
+    )
+
+
 def build_model(
     provider: str,
     model: str,

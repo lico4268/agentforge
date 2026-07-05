@@ -110,6 +110,18 @@ models:
       temperature: 0.7
       max_tokens: 4096
 
+  # 모델 단가 (USD / 1M tokens). token_usage 이벤트의 cost 계산에 사용.
+  # ※ 추정치 포함 — 실제 청구 단가와 다를 수 있으니 공식 가격표 기준으로 갱신할 것.
+  #   여기 없는 모델은 cost=0으로 집계된다 (토큰 수는 항상 기록됨).
+  pricing:
+    gemini-3.5-flash: { input: 0.30, output: 2.50 }
+    gemini-3.1-flash-lite: { input: 0.10, output: 0.40 }
+    gemini-3.1-pro-preview: { input: 1.25, output: 10.00 }
+    claude-haiku-4-5-20251001: { input: 1.00, output: 5.00 }
+    claude-sonnet-4-6: { input: 3.00, output: 15.00 }
+    gpt-4o-mini: { input: 0.15, output: 0.60 }
+    local-model: { input: 0.0, output: 0.0 }
+
 # ── 로컬 모델 엔드포인트 ─────────────────────────────────────────────────────────
 local:
   base_url: "http://localhost:11434/v1"
