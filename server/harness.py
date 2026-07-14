@@ -27,6 +27,7 @@ class Report(BaseModel):
     clarify_rate: float  # 리뷰 판정 중 clarify(인간 개입) 비율 — batch 강등 포함
     demotion_rate: float  # batch에서 clarify → accept 강등 비율 (문항당)
     error_rate: float  # 문항 실행 중 예외 발생 비율
+    card_match_rate: float  # 매칭 카드 ≥1개인 문항 비율
 
 
 def gsm8k_grader(answer: str | None, gold: str) -> bool:
@@ -56,6 +57,7 @@ async def run_dataset(
     clarify_count = 0
     demotion_count = 0
     error_count = 0
+    card_match_count = 0
     consecutive = 0  # 연속 예외 카운터 — 성공 문항이 나오면 리셋
     abort_threshold = 5
 
@@ -88,6 +90,9 @@ async def run_dataset(
         # 예외 없이 완료한 문항이면 연속 실패 카운터 리셋
         consecutive = 0
 
+        if final.get("matched_cards"):
+            card_match_count += 1
+
         ok = grader(final.get("answer"), item.gold)
         results.append(ok)
 
@@ -116,4 +121,5 @@ async def run_dataset(
         clarify_rate=clarify_count / decision_count if decision_count else 0.0,
         demotion_rate=demotion_count / n if n else 0.0,
         error_rate=error_count / n if n else 0.0,
+        card_match_rate=card_match_count / n if n else 0.0,
     )

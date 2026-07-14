@@ -1,5 +1,6 @@
 """
-gsm8k-treatment: Input → Planning → Reasoning → Review (intent×criteria diff)
+gsm8k-treatment: Input → Classify (판단 카드 매칭) → Planning → Reasoning
+  → Review (intent×criteria diff)
   ├ accept  → Output
   ├ refine  → Reasoning (unmet delta만 피드백으로 재작업)
   └ clarify → Human Checkpoint → approve/revise/reject
@@ -12,6 +13,7 @@ from langgraph.graph import END, StateGraph
 from events import EventEmitter, make_event
 from models import PlanOut, ReasonOut
 from nodes.checkpoint import make_human_checkpoint
+from nodes.classify import make_classify
 from nodes.llm_step import run_llm_step
 from nodes.policy import make_route_review
 from nodes.review import make_review
@@ -28,6 +30,7 @@ Return your final answer and a confidence score between 0 and 1."""
 
 
 def build_treatment(model: BaseChatModel, emit: EventEmitter, run_id: str):
+    classify = make_classify(model=model, emit=emit, run_id=run_id)
     review = make_review(model=model, emit=emit, run_id=run_id)
     route_review = make_route_review()
     human_checkpoint = make_human_checkpoint(emit, run_id)
@@ -81,13 +84,15 @@ def build_treatment(model: BaseChatModel, emit: EventEmitter, run_id: str):
         return {}
 
     graph = StateGraph(AgentState)
+    graph.add_node("classify", classify)
     graph.add_node("planning", planning)
     graph.add_node("reasoning", reasoning)
     graph.add_node("review", review)
     graph.add_node("human_checkpoint", human_checkpoint)
     graph.add_node("output", output_node)
 
-    graph.set_entry_point("planning")
+    graph.set_entry_point("classify")
+    graph.add_edge("classify", "planning")
     graph.add_edge("planning", "reasoning")
     graph.add_edge("reasoning", "review")
 

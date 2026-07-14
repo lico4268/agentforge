@@ -51,6 +51,13 @@ class ReviewDelta(BaseModel):
     reroute_hint: str = ""
 
 
+class ClassifyOut(BaseModel):
+    """classify 노드 출력 — 매칭된 판단 카드 id 목록."""
+
+    card_ids: list[str] = []
+    rationale: str = ""
+
+
 # ─── Model factory ─────────────────────────────────────────────────────────────
 
 

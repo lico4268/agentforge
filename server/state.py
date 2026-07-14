@@ -14,6 +14,7 @@ class AgentState(TypedDict):
     retries: int
     feedback: str | None  # 직전 리뷰의 unmet delta → 재작업 입력
     batch_mode: bool  # True면 clarify → accept 강등 (interrupt 불가 환경)
+    matched_cards: list[str]  # classify가 매칭한 판단 카드 id 목록
 
 
 def initial_state(
@@ -36,4 +37,5 @@ def initial_state(
         retries=0,
         feedback=None,
         batch_mode=batch_mode,
+        matched_cards=[],
     )
