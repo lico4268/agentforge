@@ -1,7 +1,8 @@
 import { memo } from 'react'
 import type { NodeProps } from '@xyflow/react'
 import { useRegistry } from '@/registry/RegistryContext'
-import { useNodeRuntime } from '@/execution/useExecutionStore'
+import { useExecutionStore, useNodeRuntime } from '@/execution/useExecutionStore'
+import { useTransport } from '@/transport/TransportContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import type { NodeRuntimeStatus, Port, ModelSlot } from '@/types'
 import type { RFNodeData } from '@/stores/useGraphStore'
@@ -11,6 +12,9 @@ import { ModelSlotsSection } from './ModelSlots'
 function GenericNodeImpl({ id, data, selected }: NodeProps) {
   const registry = useRegistry()
   const runtime  = useNodeRuntime(id)
+  const transport = useTransport()
+  const runId = useExecutionStore((s) => s.runId)
+  const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
   const manifest = registry.get((data as RFNodeData).manifestType)
 
   if (!manifest) {
@@ -20,6 +24,9 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
       </div>
     )
   }
+
+  const isPendingCheckpoint =
+    manifest.type === 'human.checkpoint' && pendingInterrupt?.nodeId === id && runId
 
   const meta   = CATEGORY_META[manifest.category]
   const status = runtime?.status ?? 'idle'
@@ -97,6 +104,31 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
 
       {/* Output handles — dynamic when model slots are active */}
       <NodeOutputs outputs={dynamicOutputs} color={meta.color} />
+
+      {isPendingCheckpoint && (
+        <div className="flex items-center gap-1.5 border-t border-[#3c4a42]/40 p-2">
+          {(['approve', 'revise', 'reject'] as const).map((action) => (
+            <button
+              key={action}
+              onClick={() =>
+                transport.send({
+                  kind: 'resume',
+                  runId: runId!,
+                  nodeId: id,
+                  decision: { action },
+                })
+              }
+              className="flex-1 rounded px-2 py-1 text-[10px] font-semibold uppercase tracking-wide transition-colors"
+              style={{
+                background: action === 'approve' ? '#4edea333' : action === 'reject' ? '#ff8a8033' : '#ffd18033',
+                color: action === 'approve' ? '#4edea3' : action === 'reject' ? '#ff8a80' : '#ffd180',
+              }}
+            >
+              {action}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -157,6 +157,41 @@ def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
         return compile_graph(architecture, cfg, emit, run_id)
 
 
+async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None:
+    """graph.ainvoke() 결과가 interrupt로 인한 일시정지인지, 정상 완료인지 구분해서 보낸다.
+
+    LangGraph는 interrupt() 호출 시 예외 없이 final state에 "__interrupt__" 키를 채워
+    반환한다 — 이를 확인하지 않으면 일시정지를 완료로 오인해 run_complete(answer=null)을
+    보내게 되고, 프론트는 그래프가 실제로는 대기 중인데도 실행이 끝난 것으로 표시한다.
+    """
+    if final.get("__interrupt__"):
+        last_interrupt = next(
+            (e for e in reversed(history) if e.event_type == "interrupt"),
+            None,
+        )
+        await ws.send_json(
+            {
+                "kind": "interrupt",
+                "runId": run_id,
+                "nodeId": last_interrupt.node_id if last_interrupt else "",
+                "payload": last_interrupt.output if last_interrupt else {},
+            }
+        )
+        return
+
+    await ws.send_json(
+        {
+            "kind": "run_complete",
+            "runId": run_id,
+            "result": {
+                "answer": final.get("answer"),
+                "reviewDelta": final.get("review_delta"),
+                "reviewBranch": final.get("review_branch"),
+            },
+        }
+    )
+
+
 # ─── WebSocket 실행 핸들러 ────────────────────────────────────────────────────────
 
 # run_id → 누적 이벤트 (재접속 시 재전송용)
@@ -206,18 +241,7 @@ async def ws_run(ws: WebSocket):
                         "recursion_limit": cfg.MAX_RETRIES * 10 + 20,
                     }
                     final = await graph.ainvoke(state0, config=config)
-
-                    await ws.send_json(
-                        {
-                            "kind": "run_complete",
-                            "runId": run_id,
-                            "result": {
-                                "answer": final.get("answer"),
-                                "reviewDelta": final.get("review_delta"),
-                                "reviewBranch": final.get("review_branch"),
-                            },
-                        }
-                    )
+                    await _send_run_outcome(ws, run_id, final, history)
                 except ValueError as e:
                     logger.warning("run %s rejected: %s", run_id, e)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
@@ -251,17 +275,8 @@ async def ws_run(ws: WebSocket):
                 config = {"configurable": {"thread_id": run_id}}
                 try:
                     final = await graph.ainvoke(Command(resume=decision), config=config)
-                    await ws.send_json(
-                        {
-                            "kind": "run_complete",
-                            "runId": run_id,
-                            "result": {
-                                "answer": final.get("answer"),
-                                "reviewDelta": final.get("review_delta"),
-                                "reviewBranch": final.get("review_branch"),
-                            },
-                        }
-                    )
+                    resume_history = run_history.get(run_id) or []
+                    await _send_run_outcome(ws, run_id, final, resume_history)
                 except Exception as e:
                     logger.exception("resume of run %s failed", run_id)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})

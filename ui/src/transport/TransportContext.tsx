@@ -23,6 +23,7 @@ export function TransportProvider({ children }: { children: ReactNode }) {
   const transportRef = useRef<Transport>(createTransport())
   const applyEvent = useExecutionStore((s) => s.applyEvent)
   const setRunState = useExecutionStore((s) => s.setRunState)
+  const setInterrupt = useExecutionStore((s) => s.setInterrupt)
   useEffect(() => {
     const transport = transportRef.current
     transport.connect().catch(console.error)
@@ -34,6 +35,8 @@ export function TransportProvider({ children }: { children: ReactNode }) {
         setRunState({ runId: msg.runId, status: 'running', result: null })
       } else if (msg.kind === 'run_complete') {
         setRunState({ runId: msg.runId, status: 'complete', result: msg.result })
+      } else if (msg.kind === 'interrupt') {
+        setInterrupt(msg.runId, msg.nodeId, msg.payload)
       } else if (msg.kind === 'error') {
         setRunState({ runId: msg.runId ?? null, status: 'error', result: null, error: msg.message })
       }
@@ -43,7 +46,7 @@ export function TransportProvider({ children }: { children: ReactNode }) {
       unsub()
       transport.disconnect()
     }
-  }, [applyEvent, setRunState])
+  }, [applyEvent, setRunState, setInterrupt])
 
   return (
     <TransportContext.Provider value={transportRef.current}>

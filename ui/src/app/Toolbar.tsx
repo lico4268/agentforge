@@ -38,7 +38,7 @@ export function Toolbar() {
   const selectedModel: ModelConfig | undefined =
     models?.find((m) => m.id === modelId) ?? models?.[0]
 
-  const isRunning = runStatus === 'running'
+  const isRunning = runStatus === 'running' || runStatus === 'paused'
 
   const onRun = () => {
     if (!selectedModel) return
@@ -122,7 +122,7 @@ export function Toolbar() {
             <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: "'FILL' 1" }}>
               play_arrow
             </span>
-            {isRunning ? 'Running…' : 'Run'}
+            {runStatus === 'paused' ? 'Waiting for review…' : isRunning ? 'Running…' : 'Run'}
           </button>
         </div>
       </div>
