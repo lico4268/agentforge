@@ -7,35 +7,57 @@ const PROVIDER_ICONS: Record<string, string> = {
   local:     'computer',
 }
 
+/** 슬롯 설정 요약 — 캔버스 노드에 한 줄로 표시. 비면 "inherits defaults". */
+function slotSummary(slot: ModelSlot): string {
+  const parts: string[] = [`temp ${slot.temperature}`]
+  if (slot.maxTokens !== undefined) parts.push(`max ${slot.maxTokens}`)
+  else parts.push('max inherit')
+  return parts.join(' · ')
+}
+
 function FilledSlot({ slot, accent }: { slot: ModelSlot; accent: string }) {
   return (
     <div
-      className="flex items-center gap-2 rounded-md px-2.5 py-2"
+      className="flex flex-col gap-0.5 rounded-md px-2.5 py-1.5"
       style={{ background: `${accent}10`, border: `1px solid ${accent}35` }}
     >
-      <span
-        className="material-symbols-outlined shrink-0 rounded-full p-1"
-        style={{
-          fontSize: 12,
-          color: accent,
-          background: `${accent}20`,
-          fontVariationSettings: "'FILL' 1",
-        }}
-      >
-        {PROVIDER_ICONS[slot.provider] ?? 'smart_toy'}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-[11px] font-semibold text-[#dde4dd]">{slot.model}</span>
-        {slot.role && (
-          <span className="truncate font-mono text-[9px] text-[#86948a]">{slot.role}</span>
-        )}
+      <div className="flex items-center gap-2">
+        <span
+          className="material-symbols-outlined shrink-0 rounded-full p-1"
+          style={{
+            fontSize: 12,
+            color: accent,
+            background: `${accent}20`,
+            fontVariationSettings: "'FILL' 1",
+          }}
+        >
+          {PROVIDER_ICONS[slot.provider] ?? 'smart_toy'}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-1 truncate text-[11px] font-semibold text-[#dde4dd]">
+            {slot.model}
+            {slot.fallback && (
+              <span
+                className="material-symbols-outlined"
+                style={{ fontSize: 11, color: '#ffd180' }}
+                title={`fallback: ${slot.fallback.model}`}
+              >
+                swap_horiz
+              </span>
+            )}
+          </span>
+          {slot.role && (
+            <span className="truncate font-mono text-[9px] text-[#86948a]">{slot.role}</span>
+          )}
+        </div>
+        <span
+          className="material-symbols-outlined shrink-0"
+          style={{ fontSize: 13, color: '#4edea3', fontVariationSettings: "'FILL' 1" }}
+        >
+          check_circle
+        </span>
       </div>
-      <span
-        className="material-symbols-outlined shrink-0"
-        style={{ fontSize: 13, color: '#4edea3', fontVariationSettings: "'FILL' 1" }}
-      >
-        check_circle
-      </span>
+      <span className="pl-6 font-mono text-[8px] text-[#5a665d]">{slotSummary(slot)}</span>
     </div>
   )
 }

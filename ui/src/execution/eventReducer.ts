@@ -40,6 +40,20 @@ export function reduceEvent(
     case 'error':
       return { ...base, status: 'failed', lastError: event.error ?? base.lastError }
 
+    case 'log': {
+      // token_usage 이벤트(log)로 토큰·모델·재시도·fallback 관측치를 누적.
+      // node_end는 tokenUsage를 싣지 않으므로 여기가 실제 수집 지점이다.
+      const tu = event.tokenUsage
+      if (!tu) return base
+      return {
+        ...base,
+        totalTokens: base.totalTokens + (tu.prompt + tu.completion),
+        lastModel: tu.model ?? base.lastModel,
+        lastAttempt: tu.attempt ?? base.lastAttempt,
+        fallbackUsed: tu.fallbackUsed ?? base.fallbackUsed,
+      }
+    }
+
     default:
       return base
   }

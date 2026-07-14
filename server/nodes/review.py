@@ -9,7 +9,7 @@ from langchain_core.language_models import BaseChatModel
 
 from config import ESCALATE_TAGS, MAX_RETRIES
 from events import EventEmitter, make_event
-from models import ReviewDelta
+from models import CallPolicy, ReviewDelta
 from nodes.llm_step import run_llm_step
 from nodes.policy import compute_review_branch
 from state import AgentState
@@ -53,6 +53,7 @@ def make_review(
     max_retries: int = MAX_RETRIES,
     escalate_tags: set[str] | None = None,
     seed_criteria: list[dict] | None = None,
+    call_policy: CallPolicy | None = None,
 ):
     escalate = ESCALATE_TAGS if escalate_tags is None else escalate_tags
 
@@ -79,6 +80,7 @@ def make_review(
             model=model,
             emit=emit,
             run_id=run_id,
+            call_policy=call_policy,
         )
 
         probe = {**probe, "review_delta": delta}  # type: ignore[typeddict-item]

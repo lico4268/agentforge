@@ -47,7 +47,7 @@ async def fake_llm_step(state, *, node_id, **kwargs):
 
 
 def _patch_model(monkeypatch):
-    monkeypatch.setattr(compile_mod, "build_model", lambda provider, model, temperature: None)
+    monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
 
 
 async def test_compile_no_nodes_raises():

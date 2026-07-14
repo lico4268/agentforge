@@ -13,7 +13,7 @@ from langgraph.graph import END, START, StateGraph
 import config
 from events import EventEmitter, make_event
 from manifests import BUILTIN_MANIFESTS
-from models import Criterion, PlanOut, ReasonOut, build_model
+from models import CallPolicy, Criterion, ModelSettings, PlanOut, ReasonOut, build_model
 from nodes.checkpoint import make_human_checkpoint
 from nodes.llm_step import run_llm_step
 from nodes.policy import make_route_review
@@ -72,18 +72,99 @@ def _make_passthrough_node(
 
 
 def _resolve_model(node: dict, default_model_cfg: dict):
+    """slot override → 모델 기본값(config.yaml) → 전역 기본값 순으로 해석해
+    (BaseChatModel, CallPolicy) 반환. modelSlots[0]만 실행 모델로 사용 (현재 제약).
+    """
     slots = (node.get("config") or {}).get("modelSlots") or []
-    if slots:
-        slot = slots[0]
-        return build_model(slot["provider"], slot["model"], float(slot.get("temperature", 0)))
-    return build_model(
-        default_model_cfg["provider"],
-        default_model_cfg["model"],
-        float(default_model_cfg["temperature"]),
+    slot = slots[0] if slots else None
+    if slot:
+        settings, policy = _settings_from_slot(slot)
+    else:
+        settings, policy = _settings_from_default(default_model_cfg)
+    return build_model(settings), policy
+
+
+def _coalesce(*vals):
+    """첫 non-None 값. (주의: 0/False 도 유효값이므로 None 검사만 한다.)"""
+    for v in vals:
+        if v is not None:
+            return v
+    return None
+
+
+def _coerce_int(*vals) -> int | None:
+    for v in vals:
+        if v is None:
+            continue
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _coerce_float(*vals) -> float | None:
+    for v in vals:
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _fallback_settings(fb: dict | None) -> ModelSettings | None:
+    if not fb or not fb.get("model"):
+        return None
+    return ModelSettings(
+        provider=fb.get("provider", "google"),
+        model=fb["model"],
+        temperature=float(_coerce_float(fb.get("temperature"), 0.0) or 0.0),
     )
 
 
-def _make_llm_step_node(node: dict, manifest: dict, model, emit: EventEmitter, run_id: str):
+def _settings_from_slot(slot: dict) -> tuple[ModelSettings, CallPolicy]:
+    provider = slot["provider"]
+    model = slot["model"]
+    md = config.model_defaults(model)
+    settings = ModelSettings(
+        provider=provider,
+        model=model,
+        temperature=float(_coerce_float(slot.get("temperature"), md.get("temperature"), 0.0)),
+        max_tokens=_coerce_int(slot.get("maxTokens"), md.get("max_tokens")),
+        top_p=_coerce_float(slot.get("topP"), md.get("top_p")),
+        stop=[s for s in (slot.get("stopSequences") or []) if s] or None,
+        seed=_coerce_int(slot.get("seed")),
+    )
+    policy = CallPolicy(
+        timeout_seconds=float(_coerce_float(slot.get("timeoutSeconds"), config.NODE_TIMEOUT)),
+        retry_count=int(_coerce_int(slot.get("retryCount"), config.LLM_RETRY_COUNT)),
+        fallback=_fallback_settings(slot.get("fallback")),
+    )
+    return settings, policy
+
+
+def _settings_from_default(cfg: dict) -> tuple[ModelSettings, CallPolicy]:
+    provider = cfg["provider"]
+    model = cfg["model"]
+    md = config.model_defaults(model)
+    settings = ModelSettings(
+        provider=provider,
+        model=model,
+        temperature=float(_coerce_float(cfg.get("temperature"), md.get("temperature"), 0.0)),
+        max_tokens=md.get("max_tokens"),
+        top_p=md.get("top_p"),
+        stop=None,
+        seed=None,
+    )
+    policy = CallPolicy(timeout_seconds=config.NODE_TIMEOUT, retry_count=config.LLM_RETRY_COUNT)
+    return settings, policy
+
+
+def _make_llm_step_node(
+    node: dict, manifest: dict, model, policy: CallPolicy, emit: EventEmitter, run_id: str
+):
     node_id = node["id"]
     node_type = node["type"]
     spec = LLM_STEP_TABLE[node_type]
@@ -103,6 +184,7 @@ def _make_llm_step_node(node: dict, manifest: dict, model, emit: EventEmitter, r
             model=model,
             emit=emit,
             run_id=run_id,
+            call_policy=policy,
         )
         updates = spec["to_updates"](result, state)
         await emit(make_event(run_id, node_id, "node_end", output=spec["to_event_output"](result)))
@@ -111,7 +193,7 @@ def _make_llm_step_node(node: dict, manifest: dict, model, emit: EventEmitter, r
     return step
 
 
-def _make_review_node(node: dict, model, emit: EventEmitter, run_id: str):
+def _make_review_node(node: dict, model, policy: CallPolicy, emit: EventEmitter, run_id: str):
     node_cfg = node.get("config") or {}
     seed_criteria = [
         Criterion(id=f"cfg-{i + 1}", text=text).model_dump()
@@ -126,6 +208,7 @@ def _make_review_node(node: dict, model, emit: EventEmitter, run_id: str):
         max_retries=int(node_cfg.get("maxRetries", config.MAX_RETRIES)),
         escalate_tags=set(node_cfg.get("escalateTags") or config.ESCALATE_TAGS),
         seed_criteria=seed_criteria,
+        call_policy=policy,
     )
 
 
@@ -202,13 +285,15 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                 _make_passthrough_node(node_id, node_type, node.get("config") or {}, emit, run_id),
             )
         elif manifest.get("runtime") == "llm_step":
-            model = _resolve_model(node, default_model_cfg)
-            graph.add_node(node_id, _make_llm_step_node(node, manifest, model, emit, run_id))
+            model, policy = _resolve_model(node, default_model_cfg)
+            graph.add_node(
+                node_id, _make_llm_step_node(node, manifest, model, policy, emit, run_id)
+            )
         elif node_type == "review.intent":
-            model = _resolve_model(node, default_model_cfg)
+            model, policy = _resolve_model(node, default_model_cfg)
             wired = {e["sourceHandle"] for e in outgoing.get(node_id, [])}
             route_fns[node_id] = make_route_review(wired)
-            graph.add_node(node_id, _make_review_node(node, model, emit, run_id))
+            graph.add_node(node_id, _make_review_node(node, model, policy, emit, run_id))
         elif node_type == "human.checkpoint":
             routes = {"approve": END, "revise": END, "reject": END}
             routes.update({e["sourceHandle"]: e["target"] for e in outgoing.get(node_id, [])})

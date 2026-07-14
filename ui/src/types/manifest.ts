@@ -55,12 +55,28 @@ export type ConfigField = z.infer<typeof ConfigFieldSchema>
 const RUNTIMES = ['llm_step', 'policy', 'review', 'checkpoint', 'model', 'io'] as const
 
 /** A model slot embedded inside a node (replaces the external model.binding connection). */
+export const FallbackModelSchema = z.object({
+  provider: z.enum(['anthropic', 'openai', 'google', 'local']),
+  model: z.string(),
+  temperature: z.number().optional(),
+})
+export type FallbackModel = z.infer<typeof FallbackModelSchema>
+
 export const ModelSlotSchema = z.object({
   id: z.string(),
   provider: z.enum(['anthropic', 'openai', 'google', 'local']),
   model: z.string(),
-  temperature: z.number().default(0),
   role: z.string().default(''),
+  /** 생성 설정 — 값이 없으면 모델 기본값(config.yaml) 상속. */
+  temperature: z.number().default(0),
+  maxTokens: z.number().optional(),
+  topP: z.number().optional(),
+  stopSequences: z.array(z.string()).optional(),
+  seed: z.number().optional(),
+  /** 호출 정책 — 값이 없으면 전역 기본값 상속. */
+  timeoutSeconds: z.number().optional(),
+  retryCount: z.number().optional(),
+  fallback: FallbackModelSchema.nullable().optional(),
 })
 export type ModelSlot = z.infer<typeof ModelSlotSchema>
 

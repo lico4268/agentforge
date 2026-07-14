@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { useGraphStore } from '@/stores/useGraphStore'
 import { useNodeRuntime, useExecutionStore } from '@/execution/useExecutionStore'
 import { useRegistry } from '@/registry/RegistryContext'
@@ -177,6 +178,25 @@ export function Inspector() {
                 accent={statusColor(runtime.status)}
               />
             </div>
+            {(runtime.lastModel || runtime.lastAttempt || runtime.fallbackUsed) && (
+              <div className="flex flex-wrap gap-1.5">
+                {runtime.lastModel && (
+                  <span className="rounded border border-[#3c4a42] bg-[#242c27] px-2 py-0.5 font-mono text-[10px] text-[#bbcabf]">
+                    model: {runtime.lastModel}
+                  </span>
+                )}
+                {runtime.lastAttempt !== undefined && runtime.lastAttempt > 0 && (
+                  <span className="rounded border border-[#ffd180]/30 bg-[#242c27] px-2 py-0.5 font-mono text-[10px] text-[#ffd180]">
+                    retries: {runtime.lastAttempt}
+                  </span>
+                )}
+                {runtime.fallbackUsed && (
+                  <span className="rounded border border-[#ff8a80]/30 bg-[#242c27] px-2 py-0.5 font-mono text-[10px] text-[#ff8a80]">
+                    fallback used
+                  </span>
+                )}
+              </div>
+            )}
             {runtime.policyDecision && (
               <div className="rounded border border-[#3c4a42] bg-[#242c27] px-3 py-2 text-[11px]">
                 <span className="text-[#86948a]">Policy: </span>
@@ -561,6 +581,133 @@ const DEFAULT_MODELS: Record<string, string> = {
 let slotSeq = 0
 const nextSlotId = () => `slot-${Date.now().toString(36)}-${slotSeq++}`
 
+const SLOT_INPUT =
+  'w-full rounded-md border border-[#3c4a42] bg-[#09100c] px-2 py-1.5 text-[11px] font-mono text-[#dde4dd] outline-none appearance-none focus:border-[#4edea3]'
+
+// config.yaml execution 기본값 미러 — UI 표시용 (실제 해석은 백엔드에서)
+const GLOBAL_NODE_TIMEOUT = 120
+const GLOBAL_RETRY_DEFAULT = 1
+
+function CollapsibleSection({ title, accent, children }: { title: string; accent: string; children: ReactNode }) {
+  return (
+    <details className="rounded-md border border-[#3c4a42]/60 bg-[#0c1310]">
+      <summary className="flex cursor-pointer list-none select-none items-center gap-1.5 px-2.5 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-[#86948a] [&::-webkit-details-marker]:hidden">
+        <span className="material-symbols-outlined" style={{ fontSize: 12, color: accent }}>chevron_right</span>
+        {title}
+      </summary>
+      <div className="flex flex-col gap-2 p-2.5 pt-1">{children}</div>
+    </details>
+  )
+}
+
+/** "상속 또는 override" 숫자 입력 — 비우면 모델/전역 기본값 상속, ↺ 로 되돌림. */
+function InheritNumber({
+  label, value, defaultLabel, min, max, step, onChange, description,
+}: {
+  label: string
+  value: number | undefined
+  defaultLabel: string
+  min?: number; max?: number; step?: number
+  onChange: (v: number | undefined) => void
+  description?: string
+}) {
+  const isInherit = value === undefined || value === null
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] text-[#86948a]">{label}</span>
+      <div className="relative">
+        <input
+          type="number"
+          className={SLOT_INPUT + (isInherit ? ' text-[#5a665d]' : '')}
+          min={min} max={max} step={step}
+          placeholder={isInherit ? `Inherit (${defaultLabel})` : ''}
+          value={isInherit ? '' : value}
+          onChange={(e) => onChange(e.target.value === '' ? undefined : Number(e.target.value))}
+        />
+        {!isInherit && (
+          <button
+            type="button"
+            onClick={() => onChange(undefined)}
+            title="상속으로 되돌림"
+            className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded text-[#86948a] hover:text-[#4edea3]"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>restart_alt</span>
+          </button>
+        )}
+      </div>
+      {isInherit && description && (
+        <span className="font-mono text-[9px] text-[#3c4a42]">{description}</span>
+      )}
+    </label>
+  )
+}
+
+function FallbackEditor({
+  value, models, onChange,
+}: {
+  value: ModelSlot['fallback']
+  models?: ModelConfig[]
+  onChange: (v: ModelSlot['fallback']) => void
+}) {
+  const enabled = !!value
+  const provider = value?.provider ?? 'openai'
+  const providerModels = models?.filter((m) => m.provider === provider) ?? []
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) =>
+            onChange(e.target.checked ? { provider: 'openai', model: DEFAULT_MODELS['openai'] } : undefined)
+          }
+          className="h-3.5 w-3.5 rounded border-[#3c4a42] bg-[#09100c] accent-[#4edea3]"
+        />
+        <span className="text-[10px] text-[#86948a]">Fallback model 사용</span>
+      </label>
+      {enabled && value && (
+        <div className="flex flex-col gap-1.5 pl-5">
+          <div className="relative">
+            <select
+              className={SLOT_INPUT + ' pr-6'}
+              value={provider}
+              onChange={(e) => {
+                const p = e.target.value as ModelSlot['provider']
+                const pm = models?.filter((m) => m.provider === p) ?? []
+                const fm = pm.find((m) => m.available)?.id ?? pm[0]?.id ?? DEFAULT_MODELS[p]
+                onChange({ provider: p, model: fm })
+              }}
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1.5 text-[#86948a]" style={{ fontSize: 14 }}>unfold_more</span>
+          </div>
+          <div className="relative">
+            <select
+              className={SLOT_INPUT + ' pr-6'}
+              value={value.model}
+              onChange={(e) => onChange({ ...value, model: e.target.value })}
+              disabled={!models}
+            >
+              {providerModels.length === 0 && models && (
+                <option value={value.model}>{value.model}</option>
+              )}
+              {providerModels.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.available}>
+                  {m.label}{!m.available ? ' (no key)' : ''}
+                </option>
+              ))}
+            </select>
+            <span className="material-symbols-outlined pointer-events-none absolute right-1.5 top-1.5 text-[#86948a]" style={{ fontSize: 14 }}>unfold_more</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ModelSlotsEditor({
   slots,
   maxSlots,
@@ -574,9 +721,6 @@ function ModelSlotsEditor({
   onChange: (slots: ModelSlot[]) => void
   accent: string
 }) {
-  const selectCls =
-    'w-full rounded-md border border-[#3c4a42] bg-[#09100c] px-2 py-1.5 text-[11px] font-mono text-[#dde4dd] outline-none appearance-none focus:border-[#4edea3]'
-
   const addSlot = () => {
     if (slots.length >= maxSlots) return
     const provider = 'google' as const
@@ -607,6 +751,7 @@ function ModelSlotsEditor({
       <div className="flex flex-col gap-3">
         {slots.map((slot, idx) => {
           const providerModels = models?.filter((m) => m.provider === slot.provider) ?? []
+          const modelCfg = models?.find((m) => m.id === slot.model)
           return (
             <div
               key={slot.id}
@@ -622,11 +767,12 @@ function ModelSlotsEditor({
                 </button>
               </div>
 
+              {/* ── Identity ── */}
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] text-[#86948a]">Role</span>
                 <input
                   type="text"
-                  className={selectCls}
+                  className={SLOT_INPUT}
                   placeholder="e.g. Primary Reasoning"
                   value={slot.role}
                   onChange={(e) => updateSlot(slot.id, { role: e.target.value })}
@@ -637,7 +783,7 @@ function ModelSlotsEditor({
                 <span className="text-[10px] text-[#86948a]">Provider</span>
                 <div className="relative">
                   <select
-                    className={selectCls + ' pr-6'}
+                    className={SLOT_INPUT + ' pr-6'}
                     value={slot.provider}
                     onChange={(e) => {
                       const provider = e.target.value as ModelSlot['provider']
@@ -658,7 +804,7 @@ function ModelSlotsEditor({
                 <span className="text-[10px] text-[#86948a]">Model</span>
                 <div className="relative">
                   <select
-                    className={selectCls + ' pr-6'}
+                    className={SLOT_INPUT + ' pr-6'}
                     value={slot.model}
                     onChange={(e) => updateSlot(slot.id, { model: e.target.value })}
                     disabled={!models}
@@ -677,11 +823,12 @@ function ModelSlotsEditor({
                 </div>
               </label>
 
+              {/* ── Generation ── */}
               <label className="flex flex-col gap-1">
                 <span className="text-[10px] text-[#86948a]">Temperature</span>
                 <input
                   type="number"
-                  className={selectCls}
+                  className={SLOT_INPUT}
                   min={0}
                   max={2}
                   step={0.1}
@@ -689,6 +836,117 @@ function ModelSlotsEditor({
                   onChange={(e) => updateSlot(slot.id, { temperature: Number(e.target.value) })}
                 />
               </label>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] text-[#86948a]">Max output tokens</span>
+                <div className="flex gap-1">
+                  {([
+                    ['Short', 512],
+                    ['Default', undefined],
+                    ['Long', 8192],
+                  ] as const).map(([lbl, val]) => {
+                    const active =
+                      val === undefined ? slot.maxTokens === undefined : slot.maxTokens === val
+                    return (
+                      <button
+                        key={lbl}
+                        type="button"
+                        onClick={() => updateSlot(slot.id, { maxTokens: val })}
+                        className={
+                          'flex-1 rounded border px-1.5 py-1 font-mono text-[10px] transition-colors ' +
+                          (active
+                            ? 'border-[#4edea3]/60 bg-[#4edea3]/10 text-[#4edea3]'
+                            : 'border-[#3c4a42] text-[#86948a] hover:border-[#4edea3]/40')
+                        }
+                      >
+                        {lbl}
+                      </button>
+                    )
+                  })}
+                </div>
+                <InheritNumber
+                  label="또는 직접 입력"
+                  value={slot.maxTokens}
+                  defaultLabel={modelCfg?.maxTokens ? String(modelCfg.maxTokens) : 'model default'}
+                  min={1}
+                  step={1}
+                  onChange={(v) => updateSlot(slot.id, { maxTokens: v })}
+                  description="비우면 모델 기본값(config.yaml) 상속"
+                />
+              </div>
+
+              {/* ── Advanced (생성) ── */}
+              <CollapsibleSection title="Advanced" accent={accent}>
+                <InheritNumber
+                  label="Top P"
+                  value={slot.topP}
+                  defaultLabel="model default"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onChange={(v) => updateSlot(slot.id, { topP: v })}
+                  description="일반적으로 Temperature 또는 Top P 중 하나만 조절"
+                />
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-[#86948a]">Stop sequences</span>
+                  <textarea
+                    className={SLOT_INPUT + ' resize-y'}
+                    rows={2}
+                    placeholder="한 줄에 하나"
+                    value={(slot.stopSequences ?? []).join('\n')}
+                    onChange={(e) =>
+                      updateSlot(slot.id, {
+                        stopSequences: e.target.value
+                          .split('\n')
+                          .map((s) => s.trim())
+                          .filter((s) => s.length > 0),
+                      })
+                    }
+                  />
+                  <span className="font-mono text-[9px] text-[#3c4a42]">
+                    이 문자열이 나오면 생성 중단. 빈 줄은 무시됨.
+                  </span>
+                </label>
+                {(slot.provider === 'openai' || slot.provider === 'local') && (
+                  <InheritNumber
+                    label="Seed"
+                    value={slot.seed}
+                    defaultLabel="—"
+                    step={1}
+                    onChange={(v) => updateSlot(slot.id, { seed: v })}
+                    description="재현성 보조 — 완전 결정론을 보장하지는 않음"
+                  />
+                )}
+              </CollapsibleSection>
+
+              {/* ── Reliability (운영) ── */}
+              <CollapsibleSection title="Reliability" accent={accent}>
+                <InheritNumber
+                  label="Timeout (초)"
+                  value={slot.timeoutSeconds}
+                  defaultLabel={`${GLOBAL_NODE_TIMEOUT}s`}
+                  min={1}
+                  max={600}
+                  step={1}
+                  onChange={(v) => updateSlot(slot.id, { timeoutSeconds: v })}
+                  description="이 노드 LLM 호출의 최대 대기 시간"
+                />
+                <InheritNumber
+                  label="Retry count"
+                  value={slot.retryCount}
+                  defaultLabel={String(GLOBAL_RETRY_DEFAULT)}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onChange={(v) => updateSlot(slot.id, { retryCount: v })}
+                  description="타임아웃/일시오류/출력검증 실패 시 추가 재시도"
+                />
+                <FallbackEditor
+                  value={slot.fallback}
+                  models={models}
+                  onChange={(v) => updateSlot(slot.id, { fallback: v ?? undefined })}
+                />
+              </CollapsibleSection>
             </div>
           )
         })}

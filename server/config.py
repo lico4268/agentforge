@@ -49,7 +49,30 @@ LOCAL_BASE_URL: str = os.getenv("LOCAL_BASE_URL") or _get(
 # ── 실행 엔진 ─────────────────────────────────────────────────────────────────────
 MAX_RETRIES: int = int(_get("execution.max_retries", 2))
 NODE_TIMEOUT: int = int(_get("execution.node_timeout", 120))
+LLM_RETRY_COUNT: int = int(_get("execution.llm_retry_count", 1))
 ESCALATE_TAGS: set[str] = set(_get("execution.escalate_tags", ["high-stakes", "medical", "legal"]))
+
+
+# ── 모델 기본값 조회 ───────────────────────────────────────────────────────────────
+def model_defaults(model_id: str) -> dict:
+    """config.yaml models.list에서 해당 모델의 기본값 dict 반환.
+
+    노드가 override하지 않은 설정(temperature/max_tokens/top_p)이 상속하는 토양.
+    없는 모델이면 빈 dict. 키는 내부 snake_case (max_tokens 등).
+    """
+    for m in MODELS_LIST:
+        if m.get("id") == model_id:
+            return {
+                k: v
+                for k, v in {
+                    "temperature": m.get("temperature"),
+                    "max_tokens": m.get("max_tokens"),
+                    "top_p": m.get("top_p"),
+                }.items()
+                if v is not None
+            }
+    return {}
+
 
 # ── UI 기본값 ─────────────────────────────────────────────────────────────────────
 UI_THEME: str = _get("ui.theme", "dark")

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from graphs.baseline import build_baseline  # noqa: E402
 from graphs.treatment import build_treatment  # noqa: E402
 from harness import Item, Report, run_dataset  # noqa: E402
-from models import build_model  # noqa: E402
+from models import ModelSettings, build_model  # noqa: E402
 
 
 def load_items(path: str, limit: int = 0) -> list[Item]:
@@ -75,7 +75,9 @@ def main() -> None:
     args = parser.parse_args()
 
     items = load_items(args.items, args.limit)
-    model = build_model(provider=args.provider, model=args.model, temperature=args.temperature)
+    model = build_model(
+        ModelSettings(provider=args.provider, model=args.model, temperature=args.temperature)
+    )
 
     builders = {}
     if args.arch in ("baseline", "both"):

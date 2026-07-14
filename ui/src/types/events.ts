@@ -26,6 +26,12 @@ export const EXECUTION_EVENT_TYPES = [
 export const TokenUsageSchema = z.object({
   prompt: z.number(),
   completion: z.number(),
+  /** 실제 사용된 모델명 (관측용) */
+  model: z.string().optional(),
+  /** 성공한 시도의 인덱스 (0=첫 시도) — 재시도 횟수 표시 */
+  attempt: z.number().optional(),
+  /** fallback 모델로 처리됐는지 */
+  fallbackUsed: z.boolean().optional(),
 })
 export type TokenUsage = z.infer<typeof TokenUsageSchema>
 
@@ -84,6 +90,12 @@ export type NodeRuntime = {
   lastOutput?: unknown
   policyDecision?: PolicyDecision
   lastError?: ExecutionError
+  /** 마지막 성공 호출의 모델명 (관측용) */
+  lastModel?: string
+  /** 마지막 성공 호출의 시도 인덱스 (0=첫 시도) — 재시도 표시 */
+  lastAttempt?: number
+  /** 마지막 호출이 fallback 모델로 처리됐는지 */
+  fallbackUsed?: boolean
 }
 
 export const EMPTY_RUNTIME: NodeRuntime = {

@@ -10,7 +10,7 @@ import config as cfg
 from events import WSEventEmitter
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
-from models import build_model
+from models import ModelSettings, build_model
 from state import initial_state
 
 setup_logging()
@@ -133,28 +133,40 @@ DEFAULT_MODEL_CFG = {
 }
 
 
+def _model_settings(c: dict) -> ModelSettings:
+    """Toolbar 모델 선택 → ModelSettings. 모델 기본값(config.yaml)에서 max_tokens/top_p 상속."""
+    md = cfg.model_defaults(c["model"])
+    return ModelSettings(
+        provider=c["provider"],
+        model=c["model"],
+        temperature=float(c.get("temperature", 0.0) or 0.0),
+        max_tokens=md.get("max_tokens"),
+        top_p=md.get("top_p"),
+    )
+
+
 def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
     """
     v0.1: 'gsm8k-baseline'/'gsm8k-treatment' 이름은 고정 그래프 빌더에 디스패치.
     v0.3: 그 외는 compile_graph(architecture)로 캔버스를 직접 컴파일 (§8 seam).
     """
     arch_name = (architecture.get("metadata") or {}).get("name", "")
-    cfg = {**DEFAULT_MODEL_CFG, **model_cfg}
+    merged = {**DEFAULT_MODEL_CFG, **model_cfg}
 
     if arch_name == "gsm8k-baseline":
-        model = build_model(cfg["provider"], cfg["model"], float(cfg["temperature"]))
+        model = build_model(_model_settings(merged))
         from graphs.baseline import build_baseline
 
         return build_baseline(model=model, emit=emit, run_id=run_id)
     elif arch_name == "gsm8k-treatment":
-        model = build_model(cfg["provider"], cfg["model"], float(cfg["temperature"]))
+        model = build_model(_model_settings(merged))
         from graphs.treatment import build_treatment
 
         return build_treatment(model=model, emit=emit, run_id=run_id)
     else:
         from graphs.compile import compile_graph
 
-        return compile_graph(architecture, cfg, emit, run_id)
+        return compile_graph(architecture, merged, emit, run_id)
 
 
 async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None:
