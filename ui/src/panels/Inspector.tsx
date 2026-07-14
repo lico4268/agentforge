@@ -276,6 +276,28 @@ function Field({
             <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
           )}
         </>
+      ) : field.type === 'string[]' ? (
+        <>
+          <textarea
+            className={inputCls + ' resize-y'}
+            rows={3}
+            value={Array.isArray(value) ? value.join('\n') : ''}
+            placeholder={field.placeholder}
+            onChange={(e) =>
+              onChange(
+                e.target.value
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter((line) => line.length > 0),
+              )
+            }
+          />
+          {field.description && (
+            <span className="font-mono text-[10px] text-[#86948a]">
+              한 줄에 하나씩 입력. {field.description}
+            </span>
+          )}
+        </>
       ) : field.type === 'boolean' ? (
         <div className="flex items-center gap-2">
           <input
