@@ -179,6 +179,10 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
         )
         return
 
+    # 그래프가 더 이상 일시정지되지 않았으니 resume 대상일 필요가 없다 —
+    # active_runs에 남겨두면 그래프 인스턴스가 무한정 쌓인다.
+    active_runs.pop(run_id, None)
+
     await ws.send_json(
         {
             "kind": "run_complete",
@@ -193,6 +197,9 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
 
 
 # ─── WebSocket 실행 핸들러 ────────────────────────────────────────────────────────
+
+# run_history에 보관할 최대 run 수 — 초과 시 가장 오래된 run부터 제거(무한 성장 방지)
+MAX_RUN_HISTORY = 50
 
 # run_id → 누적 이벤트 (재접속 시 재전송용)
 run_history: dict[str, list] = {}
@@ -221,6 +228,10 @@ async def ws_run(ws: WebSocket):
                 current_run_id = run_id
                 history: list = []
                 run_history[run_id] = history
+                while len(run_history) > MAX_RUN_HISTORY:
+                    oldest_id = next(iter(run_history))
+                    del run_history[oldest_id]
+                    active_runs.pop(oldest_id, None)
 
                 emitter = WSEventEmitter(ws, run_id, history)
                 await ws.send_json({"kind": "run_started", "runId": run_id})
@@ -243,9 +254,11 @@ async def ws_run(ws: WebSocket):
                     final = await graph.ainvoke(state0, config=config)
                     await _send_run_outcome(ws, run_id, final, history)
                 except ValueError as e:
+                    active_runs.pop(run_id, None)
                     logger.warning("run %s rejected: %s", run_id, e)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
                 except Exception as e:
+                    active_runs.pop(run_id, None)
                     logger.exception("run %s failed", run_id)
                     await ws.send_json(
                         {
@@ -272,12 +285,16 @@ async def ws_run(ws: WebSocket):
 
                 from langgraph.types import Command
 
-                config = {"configurable": {"thread_id": run_id}}
+                config = {
+                    "configurable": {"thread_id": run_id},
+                    "recursion_limit": cfg.MAX_RETRIES * 10 + 20,
+                }
                 try:
                     final = await graph.ainvoke(Command(resume=decision), config=config)
                     resume_history = run_history.get(run_id) or []
                     await _send_run_outcome(ws, run_id, final, resume_history)
                 except Exception as e:
+                    active_runs.pop(run_id, None)
                     logger.exception("resume of run %s failed", run_id)
                     await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
 

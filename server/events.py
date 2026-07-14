@@ -75,14 +75,16 @@ class ExecutionEvent:
         return d
 
     def model_dump(self) -> dict:
-        """harness용 snake_case dict (내부 직렬화)."""
+        """harness용 snake_case dict (내부 직렬화). to_frontend()와 필드 대칭 유지."""
         return {
             "event_type": self.event_type,
             "run_id": self.run_id,
             "node_id": self.node_id,
             "timestamp": self.timestamp,
             "duration_ms": self.duration_ms,
+            "input": self.input,
             "output": self.output,
+            "token_usage": self.token_usage,
             "policy_decision": self.policy_decision,
             "message": self.message,
             "error": self.error,
