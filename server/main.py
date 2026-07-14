@@ -127,8 +127,8 @@ async def read_run_file(run_id: str, name: str) -> dict:
 # ─── 그래프 디스패처 ─────────────────────────────────────────────────────────────
 
 DEFAULT_MODEL_CFG = {
-    "provider": "anthropic",
-    "model": "claude-haiku-4-5-20251001",
+    "provider": "google",
+    "model": "gemini-3.1-flash-lite",
     "temperature": 0.0,
 }
 
