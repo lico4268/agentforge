@@ -30,5 +30,6 @@ AgentForge 캔버스를 수직 파이프라인 편집기에서 방사형 실행 
 
 - `PLAN.md`: 단계별 구현 계획과 수용 기준
 - `LOOP_CONTROL_UX_PLAN.md`: 현재 루프 UX의 단일 계획 — Loop Anchor, Loops panel, Loop Lens, LoopPolicy
+- `LOOP_CONTROL_IMPLEMENTATION.md`: 첫 Canvas 구현의 실제 동작, 파일 경계, 검증 결과와 다음 단계
 - `LOOP_ENGINEERING_RESEARCH.md`: 루프 제어·runtime 설계의 조사 자료 (시각 UI 제안은 최신 계획을 우선한다)
 - `DECISIONS.md`: 제품/기술 결정 및 결정 대기 항목
