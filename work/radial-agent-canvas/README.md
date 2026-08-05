@@ -14,8 +14,8 @@ AgentForge 캔버스를 수직 파이프라인 편집기에서 방사형 실행 
 
 - 방사형 canvas, 포트 가시성, cycle candidate 탐지까지는 구현돼 있다.
 - 자동 `LoopScope` 축소/컨테이너, Tier 3 outer lane은 이전 실험 구현이다. 새 기본 UX에서는 사용하지 않으며, 원래 노드와 정방향 edge를 항상 보존한다.
-- 현재 활성 계획은 `LOOP_CONTROL_UX_PLAN.md`다. Loop Anchor, Loops panel, Loop Lens, 명시적 LoopPolicy 계약 순으로 재구성한다.
-- 기존 구현의 자동 축소를 새 계획에 맞춰 격리한 뒤, policy/runtime 계약을 별도 작업으로 진행한다.
+- 현재 활성 계획은 `LOOP_CONTROL_UX_PLAN.md`다. 첫 Canvas 단계(Loop Anchor, Loops panel, Candidate Lens)는 구현됐고, 명시적 LoopPolicy 계약과 runtime 관측성을 다음 작업으로 분리한다.
+- 기존 자동 축소·outer lane은 기본 Canvas 경로에서 격리됐다. legacy 파일은 Debug/제거 결정을 위한 참고로만 남아 있다.
 - 기준선: 현재 수직 카드형 `GenericNode`와 상/하 port
 - 완료 범위: Slice 0 — 계약 고정 및 기준선 검증
 - 완료 범위: Slice 1 — classic/agent 이중 renderer와 Inspector checkpoint 액션

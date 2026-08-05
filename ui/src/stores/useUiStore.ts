@@ -17,11 +17,14 @@ type UiState = {
    * users must be able to understand the original execution graph before
    * opting into a derived loop projection. */
   rawExecutionView: boolean
+  /** Transient canvas-only highlight used to pair Loop Anchor endpoints. */
+  hoveredLoopCandidateId: string | null
   togglePanel: (key: keyof UiState['panels']) => void
   setCanvasNodeMode: (mode: CanvasNodeMode) => void
   toggleConnectionPorts: () => void
   toggleLoopScopeExpanded: (id: string) => void
   toggleRawExecutionView: () => void
+  setHoveredLoopCandidateId: (id: string | null) => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -30,6 +33,7 @@ export const useUiStore = create<UiState>((set) => ({
   showConnectionPorts: false,
   expandedLoopScopeIds: new Set(),
   rawExecutionView: true,
+  hoveredLoopCandidateId: null,
   togglePanel: (key) =>
     set((s) => ({ panels: { ...s.panels, [key]: !s.panels[key] } })),
   setCanvasNodeMode: (canvasNodeMode) => set({ canvasNodeMode }),
@@ -42,4 +46,5 @@ export const useUiStore = create<UiState>((set) => ({
       return { expandedLoopScopeIds: next }
     }),
   toggleRawExecutionView: () => set((s) => ({ rawExecutionView: !s.rawExecutionView })),
+  setHoveredLoopCandidateId: (hoveredLoopCandidateId) => set({ hoveredLoopCandidateId }),
 }))

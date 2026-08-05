@@ -3,26 +3,29 @@ import type { NodeProps } from '@xyflow/react'
 import { useExecutionStore, useNodeRuntime } from '@/execution/useExecutionStore'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { useRegistry } from '@/registry/RegistryContext'
+import { useGraphStore } from '@/stores/useGraphStore'
 import { useUiStore } from '@/stores/useUiStore'
 import type { ModelSlot, NodeRuntimeStatus } from '@/types'
 import type { RFNodeData } from '@/stores/useGraphStore'
+import type { LoopAnchor as LoopAnchorData } from '@/canvas/loops/loopAnchors'
+import { LoopAnchor } from './LoopAnchor'
 import { RadialNodePorts } from './RadialNodePorts'
 
 /** Loop-scope annotations `Canvas.tsx` stamps onto a member node's `data`
  * while its scope is expanded — never persisted (`toArchitecture` reads
  * straight from the graph store, not from this projected view). */
 type LoopAnnotatedData = RFNodeData & {
-  loopReentry?: boolean
-  loopScopeCollapseAffordance?: string
+  loopAnchors?: LoopAnchorData[]
 }
 
 function AgentNodeImpl({ id, data, selected }: NodeProps) {
   const registry = useRegistry()
   const runtime = useNodeRuntime(id)
   const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
-  const toggleLoopScopeExpanded = useUiStore((s) => s.toggleLoopScopeExpanded)
+  const selectedNodeId = useGraphStore((s) => s.selectedNodeId)
+  const hoveredLoopCandidateId = useUiStore((s) => s.hoveredLoopCandidateId)
   const manifest = registry.get((data as RFNodeData).manifestType)
-  const { loopReentry, loopScopeCollapseAffordance } = data as LoopAnnotatedData
+  const { loopAnchors = [] } = data as LoopAnnotatedData
 
   if (!manifest) {
     return (
@@ -40,6 +43,9 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
   const isPendingCheckpoint =
     manifest.type === 'human.checkpoint' && pendingInterrupt?.nodeId === id
   const borderColor = selected ? meta.color : statusColor(status, meta.color)
+  const highlightedLoop = loopAnchors.some((anchor) =>
+    anchor.candidateId === selectedNodeId || anchor.candidateId === hoveredLoopCandidateId,
+  )
 
   return (
     <div
@@ -51,6 +57,8 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
             ? `0 0 0 1px ${meta.color}88, 0 0 18px ${meta.color}44`
             : selected
               ? `0 0 0 1px ${meta.color}66`
+              : highlightedLoop
+                ? '0 0 0 2px #7c3aed77, 0 0 18px #7c3aed33'
               : undefined,
       }}
       aria-label={`${manifest.label} agent node`}
@@ -79,28 +87,14 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
           aria-label="Review decision required in Inspector"
         />
       )}
-      {loopReentry && (
-        <span
-          className="absolute bottom-2 left-2 flex h-4 w-4 items-center justify-center rounded-full border border-[#161d19] bg-[#4edea3] text-[9px] font-bold text-[#0e1511]"
-          title="Re-entry point — control returns here from within the loop"
-          aria-label="Loop re-entry point"
-        >
-          ↩
-        </span>
-      )}
-      {loopScopeCollapseAffordance && (
-        <button
-          type="button"
-          className="nodrag absolute -top-2 left-1/2 -translate-x-1/2 rounded-full border border-[#3c4a42] bg-[#0e1511] px-1.5 py-0.5 text-[8px] font-semibold text-[#86948a] hover:text-[#dde4dd]"
-          onClick={(e) => {
-            e.stopPropagation()
-            toggleLoopScopeExpanded(loopScopeCollapseAffordance)
-          }}
-          title="Collapse this loop scope back into a single node"
-        >
-          collapse ↺
-        </button>
-      )}
+      {loopAnchors.map((anchor, index) => (
+        <LoopAnchor
+          key={`${anchor.candidateId}:${anchor.role}`}
+          anchor={anchor}
+          index={index}
+          selected={selectedNodeId === anchor.candidateId}
+        />
+      ))}
     </div>
   )
 }

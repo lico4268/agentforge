@@ -120,12 +120,18 @@ type LoopPolicy = {
 
 ## 구현 순서
 
-1. **기존 표현의 격리** — 자동 Loop Scope projection/컨테이너와 outer lane을 기본 경로에서 제거하고, 필요하면 Debug 전용으로 제한한다. 원래 노드와 정방향 edge는 항상 렌더한다.
-2. **정책 없는 Candidate 표시** — 기존 SCC/사이클 탐지는 후보 목록과 `↻ L?` Anchor를 만드는 read model로만 사용한다.
-3. **Loop Anchor 컴포넌트** — anchor 배치, overflow 집계, hover/focus pairing, zoom 단계, 접근성을 구현한다.
-4. **Loops panel + Lens** — policy 선택, 후보에서 policy 만들기, 국소 경로 표시를 구현한다.
+1. **기존 표현의 격리** — 자동 Loop Scope projection/컨테이너와 outer lane을 기본 경로에서 제거하고, 필요하면 Debug 전용으로 제한한다. 원래 노드와 정방향 edge는 항상 렌더한다. **완료: 기본 Canvas 경로에서 제거.**
+2. **정책 없는 Candidate 표시** — 기존 SCC/사이클 탐지는 후보 목록과 `↻ L?` Anchor를 만드는 read model로만 사용한다. **완료: 안정된 `L1` ID와 Candidate 목록을 구현.**
+3. **Loop Anchor 컴포넌트** — anchor 배치, overflow 집계, hover/focus pairing, zoom 단계, 접근성을 구현한다. **진행 중: source/re-entry Anchor, pairing highlight, keyboard 선택 구현. overflow/zoom 축소는 후속.**
+4. **Loops panel + Lens** — policy 선택, 후보에서 policy 만들기, 국소 경로 표시를 구현한다. **진행 중: Candidate 목록과 read-only Lens 구현. 정책 생성은 다음 계약 단계.**
 5. **정책 계약과 컴파일** — Architecture/서버의 명시적 `LoopPolicy`, conditional route, per-loop state counter를 설계하고 함께 구현한다.
 6. **Runtime 관측성** — `loopPolicyId`, iteration, guard/budget 사용량, last feedback/progress, exit reason을 event로 보내고 UI에 연결한다.
+
+### 현재 UI 구현 범위
+
+- Agent Canvas는 실제 노드를 그대로 렌더하고, `refine`·`retry`·`revise`·`rework`·`reject`처럼 의미가 확인된 return edge만 숨긴다. 같은 관계는 노드 테두리의 source/re-entry Anchor가 대신 표시한다.
+- 우측 `Loops N` 패널은 감지된 후보를 표시하고, 선택하면 Inspector에 Candidate Lens와 감지된 transition을 연다.
+- Candidate는 아직 실행 설정이 아니다. `maxIterations`, 예산, stuck, runtime iteration을 입력하거나 표시하지 않으며, 값은 LoopPolicy/runtime 계약 구현 뒤에만 연결한다.
 
 ## 수용 기준
 
