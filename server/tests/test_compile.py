@@ -138,6 +138,41 @@ async def test_reasoning_direct_no_planning(monkeypatch):
     assert final["answer"] == "4"
 
 
+async def test_node_positions_do_not_change_compiled_execution(monkeypatch):
+    """캔버스 좌표는 표현 전용이며 컴파일된 실행 순서에 영향을 주지 않는다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    base_nodes = [
+        _node("input", "io.input", {"sample": "2+2"}),
+        _node("reasoning", "reasoning.cot"),
+        _node("output", "io.output"),
+    ]
+    edges = [_edge("input", "reasoning", "task"), _edge("reasoning", "output", "answer")]
+    radial_nodes = [
+        {**node, "position": {"x": index * 320 - 160, "y": index * index * 90}}
+        for index, node in enumerate(base_nodes)
+    ]
+    emitters = [ListEventEmitter(), ListEventEmitter()]
+
+    finals = []
+    for arch_nodes, emitter, thread_id in zip(
+        (base_nodes, radial_nodes), emitters, ("vertical", "radial"), strict=True
+    ):
+        graph = compile_mod.compile_graph(
+            _arch(arch_nodes, edges), DEFAULT_MODEL_CFG, emitter, "run-positions"
+        )
+        finals.append(
+            await graph.ainvoke(initial_state(""), {"configurable": {"thread_id": thread_id}})
+        )
+
+    assert [final["answer"] for final in finals] == ["4", "4"]
+    event_nodes = [
+        [event.node_id for event in emitter.events if event.event_type == "node_start"]
+        for emitter in emitters
+    ]
+    assert event_nodes == [["input", "reasoning", "output"]] * 2
+
+
 async def test_review_refine_loop_then_accept(monkeypatch):
     """review의 refine 핸들→reasoning 루프 후 accept 핸들→output."""
     _patch_model(monkeypatch)

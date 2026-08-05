@@ -6,6 +6,9 @@ import { useRegistry } from '@/registry/RegistryContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { loadModels } from '@/registry/loadModels'
 import { Markdown } from '@/panels/Markdown'
+import { CheckpointActions } from '@/canvas/nodes/CheckpointActions'
+import { buildLoopScopes } from '@/canvas/loops/loopScopes'
+import { LoopScopeInspector } from '@/panels/LoopScopeInspector'
 import type { ConfigField, ModelConfig, ModelSlot } from '@/types'
 
 export function Inspector() {
@@ -19,6 +22,11 @@ export function Inspector() {
   const runtime = useNodeRuntime(selectedId ?? '')
   const runResult = useExecutionStore((s) => s.runResult)
   const runStatus = useExecutionStore((s) => s.runStatus)
+  const runId = useExecutionStore((s) => s.runId)
+  const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
+  const selectedLoopScope = selectedId?.startsWith('loop:')
+    ? buildLoopScopes(allNodes.map((candidate) => candidate.id), edges).find((scope) => scope.id === selectedId)
+    : undefined
 
   const { data: models } = useQuery({
     queryKey: ['models'],
@@ -26,6 +34,10 @@ export function Inspector() {
     staleTime: 60_000,
     retry: 1,
   })
+
+  if (selectedLoopScope) {
+    return <LoopScopeInspector scope={selectedLoopScope} nodes={allNodes} edges={edges} />
+  }
 
   if (!node) {
     return (
@@ -45,6 +57,8 @@ export function Inspector() {
   const config = node.data.config
   const setField = (key: string, value: unknown) =>
     updateNodeConfig(node.id, { ...config, [key]: value })
+  const isPendingCheckpoint =
+    manifest.type === 'human.checkpoint' && pendingInterrupt?.nodeId === node.id && runId
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#161d19]/80 backdrop-blur-xl">
@@ -88,6 +102,24 @@ export function Inspector() {
             result={pickFinalResult(runtime?.lastOutput, runResult)}
             runStatus={runStatus}
           />
+        )}
+
+        {isPendingCheckpoint && (
+          <section className="flex flex-col gap-3 rounded-lg border border-[#ffd180]/30 bg-[#ffd180]/5 p-3">
+            <div>
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#ffd180]">
+                Review decision required
+              </h3>
+              <p className="mt-1 text-[11px] text-[#bbcabf]">
+                Resume this paused checkpoint with a decision.
+              </p>
+            </div>
+            <CheckpointActions
+              nodeId={node.id}
+              runId={runId!}
+              actions={pendingInterrupt?.payload.actions}
+            />
+          </section>
         )}
 
         {/* MODEL SLOTS section */}

@@ -29,6 +29,11 @@ type GraphState = {
   nodes: RFNode[]
   edges: Edge[]
   selectedNodeId: string | null
+  lastLayoutPositions: Record<string, { x: number; y: number }> | null
+  /** Node the last `Arrange radially` was centered on — a UI-only hint so
+   * port geometry can rotate toward the graph's hub/rim direction. Not part
+   * of the persisted Architecture. */
+  radialCenterId: string | null
 
   onNodesChange: (changes: NodeChange<RFNode>[]) => void
   onEdgesChange: (changes: EdgeChange[]) => void
@@ -38,6 +43,8 @@ type GraphState = {
   updateNodeConfig: (id: string, config: Record<string, unknown>) => void
   select: (id: string | null) => void
   removeEdge: (edgeId: string) => void
+  applyNodePositions: (positions: Record<string, { x: number; y: number }>, centerId?: string) => void
+  undoLastLayout: () => void
 
   loadArchitecture: (arch: Architecture) => void
   toArchitecture: (name: string) => Architecture
@@ -50,6 +57,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodeId: null,
+  lastLayoutPositions: null,
+  radialCenterId: null,
 
   onNodesChange: (changes) =>
     set({ nodes: applyNodeChanges(changes, get().nodes) }),
@@ -82,6 +91,33 @@ export const useGraphStore = create<GraphState>((set, get) => ({
   removeEdge: (edgeId) =>
     set((s) => ({ edges: s.edges.filter((e) => e.id !== edgeId) })),
 
+  applyNodePositions: (positions, centerId) =>
+    set((s) => ({
+      lastLayoutPositions: Object.fromEntries(
+        s.nodes.map((node) => [node.id, node.position]),
+      ),
+      nodes: s.nodes.map((node) =>
+        positions[node.id] ? { ...node, position: positions[node.id] } : node,
+      ),
+      radialCenterId: centerId ?? s.radialCenterId,
+    })),
+
+  undoLastLayout: () =>
+    set((s) => {
+      if (!s.lastLayoutPositions) return s
+      return {
+        nodes: s.nodes.map((node) =>
+          s.lastLayoutPositions?.[node.id]
+            ? { ...node, position: s.lastLayoutPositions[node.id] }
+            : node,
+        ),
+        lastLayoutPositions: null,
+        // pre-arrange positions weren't necessarily centered on anything, so
+        // there's no meaningful center to restore.
+        radialCenterId: null,
+      }
+    }),
+
   loadArchitecture: (arch) =>
     set({
       nodes: arch.nodes.map((n: GraphNode) => ({
@@ -98,6 +134,8 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         targetHandle: e.targetHandle,
       })),
       selectedNodeId: null,
+      lastLayoutPositions: null,
+      radialCenterId: null,
     }),
 
   toArchitecture: (name) => {

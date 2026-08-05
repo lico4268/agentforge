@@ -15,12 +15,12 @@ export const STARTER_ARCHITECTURE: Architecture = {
     createdAt: new Date().toISOString(),
   },
   nodes: [
-    { id: 'input',             type: 'io.input',           position: { x: 400, y: 0   }, config: { sample: 'Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?' } },
-    { id: 'planning',          type: 'planning.decompose',  position: { x: 400, y: 260 }, config: { modelSlots: [{ id: 'slot-planning', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
-    { id: 'reasoning',         type: 'reasoning.cot',       position: { x: 400, y: 520 }, config: { modelSlots: [{ id: 'slot-reasoning', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
-    { id: 'review',            type: 'review.intent',       position: { x: 400, y: 780 }, config: { criteria: [], maxRetries: 2, modelSlots: [{ id: 'slot-review', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
-    { id: 'human_checkpoint',  type: 'human.checkpoint',    position: { x: 800, y: 1080 }, config: {} },
-    { id: 'output',            type: 'io.output',           position: { x: 400, y: 1340 }, config: {} },
+    { id: 'input',             type: 'io.input',           position: { x: 96,  y: 88  }, config: { sample: 'Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?' } },
+    { id: 'planning',          type: 'planning.decompose',  position: { x: 272, y: 220 }, config: { modelSlots: [{ id: 'slot-planning', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
+    { id: 'reasoning',         type: 'reasoning.cot',       position: { x: 472, y: 356 }, config: { modelSlots: [{ id: 'slot-reasoning', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
+    { id: 'review',            type: 'review.intent',       position: { x: 690, y: 300 }, config: { criteria: [], maxRetries: 2, modelSlots: [{ id: 'slot-review', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
+    { id: 'human_checkpoint',  type: 'human.checkpoint',    position: { x: 748, y: 520 }, config: {} },
+    { id: 'output',            type: 'io.output',           position: { x: 522, y: 616 }, config: {} },
   ],
   edges: [
     { id: 'e1', source: 'input',            sourceHandle: 'task',    target: 'planning',         targetHandle: 'task'   },

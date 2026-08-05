@@ -83,11 +83,9 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
     runtime: 'llm_step',
     category: 'cognitive',
     label: 'Planning',
-    description: 'task를 정렬된 단계(plan)로 분해.',
-    inputs: [
-      { id: 'task',  label: 'Task',  dataType: 'text',  required: true  },
-      { id: 'model', label: 'Model', dataType: 'model', required: false },
-    ],
+    description: 'task를 단계로 분해.',
+    maxModelSlots: 2,
+    inputs: [{ id: 'task', label: 'Task', dataType: 'text', required: true }],
     outputs: [{ id: 'plan', label: 'Plan', dataType: 'plan' }],
     config: [
       {
@@ -101,6 +99,12 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
           { label: 'Multi-step', value: 'multistep'  },
         ],
       },
+      {
+        key: 'systemPrompt',
+        label: 'System prompt',
+        type: 'text',
+        default: 'Decompose the task into ordered steps and return as JSON.',
+      },
     ],
     defaults: {
       systemPrompt: 'Decompose the task into ordered steps and return as JSON.',
@@ -113,11 +117,11 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
     runtime: 'llm_step',
     category: 'cognitive',
     label: 'Reasoning',
-    description: 'Chain-of-thought 추론. answer와 confidence를 반환.',
+    description: 'Chain-of-thought 추론.',
+    maxModelSlots: 2,
     inputs: [
-      { id: 'task',  label: 'Task',  dataType: 'text',  required: true  },
-      { id: 'plan',  label: 'Plan',  dataType: 'plan',  required: false },
-      { id: 'model', label: 'Model', dataType: 'model', required: false },
+      { id: 'task', label: 'Task', dataType: 'text', required: true },
+      { id: 'plan', label: 'Plan', dataType: 'plan', required: false },
     ],
     outputs: [
       { id: 'answer',     label: 'Answer',     dataType: 'text'   },
@@ -133,6 +137,12 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
           { label: 'Chain of thought', value: 'chain_of_thought' },
           { label: 'Direct',           value: 'direct'           },
         ],
+      },
+      {
+        key: 'systemPrompt',
+        label: 'System prompt',
+        type: 'text',
+        default: 'Solve the task step by step. Return your answer and confidence (0-1).',
       },
     ],
     defaults: {
