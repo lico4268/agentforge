@@ -54,8 +54,10 @@ def make_review(
     escalate_tags: set[str] | None = None,
     seed_criteria: list[dict] | None = None,
     call_policy: CallPolicy | None = None,
+    loop_policy_ids: list[str] | None = None,
 ):
     escalate = ESCALATE_TAGS if escalate_tags is None else escalate_tags
+    policy_ids = loop_policy_ids or []
 
     async def review(state: AgentState) -> dict:
         await emit(make_event(run_id, node_id, "node_start"))
@@ -66,6 +68,7 @@ def make_review(
         criteria = list(merged.values())
 
         probe: AgentState = {**state, "criteria": criteria}  # type: ignore[typeddict-item]
+        usage: dict = {}
         delta = await run_llm_step(
             probe,
             node_id=node_id,
@@ -81,6 +84,7 @@ def make_review(
             emit=emit,
             run_id=run_id,
             call_policy=call_policy,
+            usage_sink=usage,
         )
 
         probe = {**probe, "review_delta": delta}  # type: ignore[typeddict-item]
@@ -97,6 +101,18 @@ def make_review(
         if branch == "refine":
             updates["feedback"] = _format_feedback(delta, criteria)
             updates["retries"] = (state.get("retries") or 0) + 1
+
+        if policy_ids:
+            unmet_count = sum(
+                1 for v in delta.get("per_criterion") or [] if v.get("verdict") == "unmet"
+            )
+            contribution: dict = {"progress_history": [float(unmet_count)]}
+            if usage:
+                contribution["total_tokens"] = usage.get("prompt", 0) + usage.get("completion", 0)
+                contribution["total_cost_usd"] = usage.get("cost", 0.0)
+            if updates.get("feedback") is not None:
+                contribution["last_feedback"] = updates["feedback"]
+            updates["loop_runtime"] = {pid: contribution for pid in policy_ids}
 
         unmet = sum(1 for v in delta.get("per_criterion") or [] if v.get("verdict") == "unmet")
         reason = f"{unmet} unmet, {len(delta.get('misalignments') or [])} misaligned → {branch}"

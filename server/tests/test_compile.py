@@ -449,6 +449,64 @@ async def test_loop_policy_on_exhaustion_fail_raises(monkeypatch):
         )
 
 
+async def test_loop_policy_max_tokens_trips_to_exit(monkeypatch):
+    """루프 멤버 노드가 보고한 토큰이 누적돼 maxTokens 가드를 트립시킨다."""
+    _patch_model(monkeypatch)
+
+    async def reasoning_with_usage(state, *, node_id, usage_sink=None, **kwargs):
+        if usage_sink is not None:
+            usage_sink["prompt"] = 400
+            usage_sink["completion"] = 200
+            usage_sink["cost"] = 0.02
+        return {"answer": "4", "confidence": 0.9}
+
+    async def review_always_unmet(state, *, node_id, usage_sink=None, **kwargs):
+        return _delta([{"id": "c1", "verdict": "unmet", "evidence": "부족"}])
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", reasoning_with_usage)
+    monkeypatch.setattr(review_mod, "run_llm_step", review_always_unmet)
+
+    emitter = ListEventEmitter()
+    refine_edge = _edge("review", "reasoning", "refine")
+    accept_edge = _edge("review", "output", "accept")
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent", {"maxRetries": 10}),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            refine_edge,
+            accept_edge,
+        ],
+    )
+    arch["loopPolicies"] = [
+        _loop_policy(
+            feedbackEdgeIds=[refine_edge["id"]],
+            memberNodeIds=["reasoning", "review"],
+            exitEdgeIds=[accept_edge["id"]],
+            guard={"maxTokens": 1000},
+        )
+    ]
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    criteria = [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}]
+    final = await graph.ainvoke(
+        initial_state("", criteria=criteria, intent="정확한 계산"),
+        {"configurable": {"thread_id": "t-loop-tokens"}},
+    )
+
+    # reasoning이 매 패스 600토큰(400+200)씩 보고 — 2번째 refine 진입 시 1200 > 1000으로 트립.
+    assert final["answer"] == "4"
+    guard_events = [
+        e for e in emitter.events if e.node_id == "__loop_guard__loop-1" and e.loop_runtime
+    ]
+    assert guard_events[-1].loop_runtime["exitReason"] == "budget"
+    assert guard_events[-1].loop_runtime["tokens"] >= 1000
+
+
 async def test_loop_policy_on_human_checkpoint_feedback_edge_reaches_guard_via_dynamic_goto(
     monkeypatch,
 ):
@@ -511,3 +569,63 @@ async def test_loop_policy_on_human_checkpoint_feedback_edge_reaches_guard_via_d
     ]
     assert [e.loop_runtime["iteration"] for e in guard_events] == [1, 2]
     assert guard_events[-1].loop_runtime["exitReason"] == "maxIterations"
+
+
+async def test_loop_policy_stuck_trips_to_exit(monkeypatch):
+    """review가 보고하는 unmet 개수가 stuck window 동안 개선되지 않으면 stuck으로 트립된다."""
+
+    def _patch_model(monkeypatch):
+        monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
+
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", lambda *a, **kw: {"answer": "4", "confidence": 0.9} if kw.get("node_id") == "reasoning" else {})
+
+    async def review_always_two_unmet(state, *, node_id, usage_sink=None, **kwargs):
+        return _delta(
+            [
+                {"id": "c1", "verdict": "unmet", "evidence": "부족"},
+                {"id": "c2", "verdict": "unmet", "evidence": "부족"},
+            ]
+        )
+
+    monkeypatch.setattr(review_mod, "run_llm_step", review_always_two_unmet)
+    emitter = ListEventEmitter()
+    refine_edge = _edge("review", "reasoning", "refine")
+    accept_edge = _edge("review", "output", "accept")
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent", {"maxRetries": 10}),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            refine_edge,
+            accept_edge,
+        ],
+    )
+    arch["loopPolicies"] = [
+        _loop_policy(
+            feedbackEdgeIds=[refine_edge["id"]],
+            memberNodeIds=["reasoning", "review"],
+            exitEdgeIds=[accept_edge["id"]],
+            guard={"stuck": {"window": 2, "threshold": 1}},
+        )
+    ]
+    criteria = [
+        {"id": "c1", "text": "정답 포함", "severity": "must_pass"},
+        {"id": "c2", "text": "풀이 포함", "severity": "must_pass"},
+    ]
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    final = await graph.ainvoke(
+        initial_state("", criteria=criteria, intent="정확한 계산"),
+        {"configurable": {"thread_id": "t-loop-stuck"}},
+    )
+
+    assert final["answer"] == "4"
+    guard_events = [
+        e for e in emitter.events if e.node_id == "__loop_guard__loop-1" and e.loop_runtime
+    ]
+    assert guard_events[-1].loop_runtime["exitReason"] == "stuck"
