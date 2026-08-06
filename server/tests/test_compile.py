@@ -625,3 +625,49 @@ async def test_loop_policy_stuck_trips_to_exit(monkeypatch):
         e for e in emitter.events if e.node_id == "__loop_guard__loop-1" and e.loop_runtime
     ]
     assert guard_events[-1].loop_runtime["exitReason"] == "stuck"
+
+
+async def test_architecture_without_loop_policies_key_behaves_unchanged(monkeypatch):
+    """loopPolicies 키 자체가 없는(기존 저장 파일 형태) Architecture는 예전 그대로 동작한다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    calls = {"review": 0}
+
+    async def fake_review_llm_step(state, *, node_id, **kwargs):
+        calls["review"] += 1
+        if calls["review"] == 1:
+            return _delta([{"id": "c1", "verdict": "unmet", "evidence": "부족"}])
+        return _delta([{"id": "c1", "verdict": "met", "evidence": "ok"}])
+
+    monkeypatch.setattr(review_mod, "run_llm_step", fake_review_llm_step)
+    emitter = ListEventEmitter()
+    # loopPolicies 키를 아예 넣지 않는다 — architecture.get("loopPolicies") or [] 폴백 경로 검증.
+    arch = {
+        "version": "1",
+        "metadata": {"name": "legacy"},
+        "nodes": [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("output", "io.output"),
+        ],
+        "edges": [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            _edge("review", "reasoning", "refine"),
+            _edge("review", "output", "accept"),
+        ],
+    }
+    assert "loopPolicies" not in arch
+
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    criteria = [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}]
+    final = await graph.ainvoke(
+        initial_state("", criteria=criteria, intent="정확한 계산"),
+        {"configurable": {"thread_id": "t-legacy"}},
+    )
+
+    assert final["review_branch"] == "accept"
+    assert final["retries"] == 1
+    # 가드 노드가 전혀 등록되지 않았으므로 __loop_guard__ 이벤트도 없다.
+    assert not any(e.node_id.startswith("__loop_guard__") for e in emitter.events)
