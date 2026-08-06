@@ -43,6 +43,7 @@ async def run_llm_step(
     emit: EventEmitter,
     run_id: str,
     call_policy: CallPolicy | None = None,
+    usage_sink: dict | None = None,
 ) -> dict:
     policy = call_policy or _default_policy()
     timeout = float(policy.timeout_seconds or config.NODE_TIMEOUT)
@@ -84,6 +85,7 @@ async def run_llm_step(
                 model_name=used_model_name,
                 attempt=attempt,
                 fallback_used=False,
+                usage_sink=usage_sink,
             )
             return result.model_dump()
         except Exception as err:  # noqa: BLE001 — 광범위 재시도 대상
@@ -131,6 +133,7 @@ async def run_llm_step(
                 model_name=used_model_name,
                 attempt=0,
                 fallback_used=True,
+                usage_sink=usage_sink,
             )
             return result.model_dump()
         except Exception as err:  # noqa: BLE001
@@ -154,6 +157,7 @@ async def _emit_token_usage(
     model_name: str = "",
     attempt: int = 0,
     fallback_used: bool = False,
+    usage_sink: dict | None = None,
 ) -> None:
     """수집된 usage를 'log' 이벤트의 token_usage로 방출.
 
@@ -171,6 +175,10 @@ async def _emit_token_usage(
         cost += cost_for_usage(name, in_tok, out_tok)
     if prompt == 0 and completion == 0:
         return
+    if usage_sink is not None:
+        usage_sink["prompt"] = prompt
+        usage_sink["completion"] = completion
+        usage_sink["cost"] = cost
     await emit(
         make_event(
             run_id,

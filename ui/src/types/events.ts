@@ -53,6 +53,32 @@ export const ExecutionErrorSchema = z.object({
 })
 export type ExecutionError = z.infer<typeof ExecutionErrorSchema>
 
+export const LOOP_RUNTIME_EXIT_REASONS = [
+  'success',
+  'maxIterations',
+  'budget',
+  'stuck',
+  'escalated',
+  'failed',
+] as const
+
+/** Per-pass snapshot from a compiler-inserted loop guard node — see
+ * docs/superpowers/specs/2026-08-06-loop-policy-design.md §7. Keyed by
+ * loopPolicyId, not nodeId — the guard node's id is synthetic and has no
+ * canvas representation. */
+export const LoopRuntimeSchema = z.object({
+  loopPolicyId: z.string(),
+  iteration: z.number(),
+  maxIterations: z.number().optional(),
+  tokens: z.number().optional(),
+  costUsd: z.number().optional(),
+  durationMs: z.number().optional(),
+  lastFeedback: z.string().optional(),
+  progress: z.enum(['converging', 'plateauing', 'stuck']).optional(),
+  exitReason: z.enum(LOOP_RUNTIME_EXIT_REASONS).optional(),
+})
+export type LoopRuntime = z.infer<typeof LoopRuntimeSchema>
+
 export const ExecutionEventSchema = z.object({
   eventType: z.enum(EXECUTION_EVENT_TYPES),
   runId: z.string(),
@@ -67,6 +93,7 @@ export const ExecutionEventSchema = z.object({
   output: z.unknown().optional(),
   tokenUsage: TokenUsageSchema.optional(),
   policyDecision: PolicyDecisionSchema.optional(),
+  loopRuntime: LoopRuntimeSchema.optional(),
   message: z.string().optional(),
   error: ExecutionErrorSchema.optional(),
   timestamp: z.string(),

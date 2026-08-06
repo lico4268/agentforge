@@ -157,6 +157,41 @@ async def test_fallback_success_after_primary_failure(monkeypatch):
     assert any("fallback" in e.message for e in logs)
 
 
+async def test_emit_token_usage_populates_usage_sink():
+    """usage_cb.usage_metadata가 있으면 usage_sink에 prompt/completion/cost를 채운다."""
+
+    class FakeUsageCallback:
+        usage_metadata = {"claude-3": {"input_tokens": 100, "output_tokens": 50}}
+
+    emit = ListEventEmitter()
+    usage: dict = {}
+    await llm_mod._emit_token_usage(
+        FakeUsageCallback(),
+        emit=emit,
+        run_id="r",
+        node_id="n",
+        model_name="claude-3",
+        usage_sink=usage,
+    )
+    assert usage["prompt"] == 100
+    assert usage["completion"] == 50
+    assert usage["cost"] >= 0
+    assert any(e.event_type == "log" and e.token_usage for e in emit.events)
+
+
+async def test_emit_token_usage_without_sink_still_emits_log():
+    """usage_sink가 None이어도 기존 log 이벤트 방출은 그대로 유지된다(회귀)."""
+
+    class FakeUsageCallback:
+        usage_metadata = {"claude-3": {"input_tokens": 10, "output_tokens": 5}}
+
+    emit = ListEventEmitter()
+    await llm_mod._emit_token_usage(
+        FakeUsageCallback(), emit=emit, run_id="r", node_id="n", model_name="claude-3"
+    )
+    assert any(e.event_type == "log" and e.token_usage for e in emit.events)
+
+
 async def test_fallback_failure_emits_error(monkeypatch):
     """주+fallback 모두 실패하면 error 이벤트 + 예외 재발산."""
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)

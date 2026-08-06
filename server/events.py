@@ -20,6 +20,7 @@ class ExecutionEvent:
         "output",
         "token_usage",
         "policy_decision",
+        "loop_runtime",
         "message",
         "error",
     )
@@ -35,6 +36,7 @@ class ExecutionEvent:
         output: Any = None,
         token_usage: dict | None = None,
         policy_decision: dict | None = None,
+        loop_runtime: dict | None = None,
         message: str | None = None,
         error: dict | None = None,
     ) -> None:
@@ -47,6 +49,7 @@ class ExecutionEvent:
         self.output = output
         self.token_usage = token_usage
         self.policy_decision = policy_decision
+        self.loop_runtime = loop_runtime
         self.message = message
         self.error = error
 
@@ -68,6 +71,8 @@ class ExecutionEvent:
             d["tokenUsage"] = self.token_usage
         if self.policy_decision is not None:
             d["policyDecision"] = self.policy_decision
+        if self.loop_runtime is not None:
+            d["loopRuntime"] = self.loop_runtime
         if self.message is not None:
             d["message"] = self.message
         if self.error is not None:
@@ -86,6 +91,7 @@ class ExecutionEvent:
             "output": self.output,
             "token_usage": self.token_usage,
             "policy_decision": self.policy_decision,
+            "loop_runtime": self.loop_runtime,
             "message": self.message,
             "error": self.error,
         }

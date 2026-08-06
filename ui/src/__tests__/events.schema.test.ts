@@ -52,4 +52,33 @@ describe('ExecutionEventSchema', () => {
     }
     expect(() => ExecutionEventSchema.parse(bad)).toThrow()
   })
+
+  it('loopRuntime 필드를 보존한다', () => {
+    const payload = {
+      eventType: 'node_end',
+      runId: 'run-1',
+      nodeId: '__loop_guard__loop-1',
+      timestamp: new Date().toISOString(),
+      loopRuntime: {
+        loopPolicyId: 'loop-1',
+        iteration: 2,
+        maxIterations: 5,
+        exitReason: 'maxIterations',
+      },
+    }
+    const parsed = ExecutionEventSchema.parse(payload)
+    expect(parsed.loopRuntime?.loopPolicyId).toBe('loop-1')
+    expect(parsed.loopRuntime?.exitReason).toBe('maxIterations')
+  })
+
+  it('loopRuntime 없이도 이벤트를 통과시킨다(옵션 필드)', () => {
+    const payload = {
+      eventType: 'node_start',
+      runId: 'run-1',
+      nodeId: 'reasoning',
+      timestamp: new Date().toISOString(),
+    }
+    const parsed = ExecutionEventSchema.parse(payload)
+    expect(parsed.loopRuntime).toBeUndefined()
+  })
 })

@@ -26,6 +26,39 @@ export const GraphEdgeSchema = z.object({
 })
 export type GraphEdge = z.infer<typeof GraphEdgeSchema>
 
+export const LoopPolicyGuardSchema = z.object({
+  maxIterations: z.number().optional(),
+  maxTokens: z.number().optional(),
+  maxCostUsd: z.number().optional(),
+  maxDurationSec: z.number().optional(),
+  stuck: z
+    .object({
+      window: z.number(),
+      threshold: z.number().optional(),
+    })
+    .optional(),
+})
+export type LoopPolicyGuard = z.infer<typeof LoopPolicyGuardSchema>
+
+export const LOOP_POLICY_KINDS = ['evaluatorOptimizer', 'critiqueRevise', 'humanReview'] as const
+export const LOOP_POLICY_EXHAUSTION_ACTIONS = ['exit', 'escalate', 'fail'] as const
+
+/**
+ * Executable loop configuration, distinct from a detected cycle (`LoopCandidate`
+ * in `canvas/loops/loopCandidates.ts`). `kind` is descriptive only — the compiler
+ * never branches on it. See docs/superpowers/specs/2026-08-06-loop-policy-design.md.
+ */
+export const LoopPolicySchema = z.object({
+  id: z.string(),
+  kind: z.enum(LOOP_POLICY_KINDS),
+  feedbackEdgeIds: z.array(z.string()),
+  memberNodeIds: z.array(z.string()),
+  exitEdgeIds: z.array(z.string()),
+  guard: LoopPolicyGuardSchema,
+  onExhaustion: z.enum(LOOP_POLICY_EXHAUSTION_ACTIONS),
+})
+export type LoopPolicy = z.infer<typeof LoopPolicySchema>
+
 export const ArchitectureSchema = z.object({
   version: z.string().default('0.1'),
   metadata: z.object({
@@ -35,5 +68,6 @@ export const ArchitectureSchema = z.object({
   }),
   nodes: z.array(GraphNodeSchema).default([]),
   edges: z.array(GraphEdgeSchema).default([]),
+  loopPolicies: z.array(LoopPolicySchema).default([]),
 })
 export type Architecture = z.infer<typeof ArchitectureSchema>
