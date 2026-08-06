@@ -53,3 +53,6 @@ npm-debug.log*
 # Docs / Refer
 refer_data/
 .gstack/
+
+# Git worktrees (subagent-driven-development scratch workspaces)
+.worktrees/
