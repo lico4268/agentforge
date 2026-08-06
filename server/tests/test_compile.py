@@ -1,6 +1,7 @@
 """graphs/compile.py 단위 테스트 — Architecture → StateGraph 컴파일. LLM은 목(AGENTS.md §6)."""
 
 import pytest
+from langgraph.types import Command
 
 import graphs.compile as compile_mod
 import nodes.review as review_mod
@@ -446,3 +447,67 @@ async def test_loop_policy_on_exhaustion_fail_raises(monkeypatch):
             initial_state("", criteria=criteria, intent="정확한 계산"),
             {"configurable": {"thread_id": "t-loop-fail"}},
         )
+
+
+async def test_loop_policy_on_human_checkpoint_feedback_edge_reaches_guard_via_dynamic_goto(
+    monkeypatch,
+):
+    """human.checkpoint의 revise 피드백 엣지에 붙은 LoopPolicy가 실제로 동작한다.
+
+    review.intent 경로는 guard가 add_conditional_edges의 선언된 branch mapping을 통해
+    도달되지만, human.checkpoint는 edge-wiring 루프에서 완전히 스킵되고
+    make_human_checkpoint()이 Command(goto=routes[action])으로만 분기한다 — 즉 guard
+    노드는 정적 edge도, 선언된 branch mapping도 전혀 없이 오직 동적 goto만으로
+    도달된다. LangGraph가 (지금은 하지 않는) goto 타깃 reachability 검증을 추가하는
+    업그레이드가 오면 이 경로만 조용히 깨질 수 있어, 실제 interrupt/resume 사이클로
+    도달·동작을 증명해 둔다.
+    """
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    emitter = ListEventEmitter()
+    revise_edge = _edge("checkpoint", "reasoning", "revise")
+    approve_edge = _edge("checkpoint", "output", "approve")
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("checkpoint", "human.checkpoint"),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "checkpoint", "answer"),
+            revise_edge,
+            approve_edge,
+        ],
+    )
+    arch["loopPolicies"] = [
+        _loop_policy(
+            feedbackEdgeIds=[revise_edge["id"]],
+            memberNodeIds=["reasoning", "checkpoint"],
+            exitEdgeIds=[approve_edge["id"]],
+            guard={"maxIterations": 1},
+        )
+    ]
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    config = {"configurable": {"thread_id": "t-loop-checkpoint"}}
+
+    first = await graph.ainvoke(initial_state(""), config)
+    assert first.get("__interrupt__")  # checkpoint에서 일시정지
+
+    # 1차 revise: guard의 첫 iteration(1)은 maxIterations=1 미달 → continue → reasoning
+    # 재실행 → checkpoint가 다시 일시정지한다. dynamic goto만으로 guard에 도달했다는 증거.
+    second = await graph.ainvoke(Command(resume={"action": "revise"}), config)
+    assert second.get("__interrupt__")
+
+    # 2차 revise: guard의 iteration(2)이 maxIterations=1을 트립 → exitEdgeIds(output)로
+    # 강제 이탈 → 그래프가 완주한다(더 이상 interrupt 없음).
+    final = await graph.ainvoke(Command(resume={"action": "revise"}), config)
+    assert not final.get("__interrupt__")
+    assert final["answer"] == "4"
+
+    guard_events = [
+        e for e in emitter.events if e.node_id == "__loop_guard__loop-1" and e.loop_runtime
+    ]
+    assert [e.loop_runtime["iteration"] for e in guard_events] == [1, 2]
+    assert guard_events[-1].loop_runtime["exitReason"] == "maxIterations"
