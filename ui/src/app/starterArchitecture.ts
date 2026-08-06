@@ -32,4 +32,5 @@ export const STARTER_ARCHITECTURE: Architecture = {
     { id: 'e7', source: 'review',           sourceHandle: 'clarify', target: 'human_checkpoint', targetHandle: 'review' },
     { id: 'e8', source: 'human_checkpoint', sourceHandle: 'approve', target: 'output',           targetHandle: 'result' },
   ],
+  loopPolicies: [],
 }

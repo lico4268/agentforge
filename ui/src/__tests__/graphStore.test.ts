@@ -32,6 +32,17 @@ const architecture: Architecture = {
       targetHandle: 'answer',
     },
   ],
+  loopPolicies: [
+    {
+      id: 'loop-1',
+      kind: 'critiqueRevise' as const,
+      feedbackEdgeIds: ['planning-to-review'],
+      memberNodeIds: ['planning', 'review'],
+      exitEdgeIds: ['planning-to-review'],
+      guard: { maxIterations: 3 },
+      onExhaustion: 'exit' as const,
+    },
+  ],
 }
 
 describe('useGraphStore architecture serialization', () => {
@@ -49,6 +60,12 @@ describe('useGraphStore architecture serialization', () => {
     const result = useGraphStore.getState().toArchitecture('serialized')
 
     expect(result.edges).toEqual(architecture.edges)
+  })
+
+  it('preserves loop policies through load and serialize', () => {
+    const result = useGraphStore.getState().toArchitecture('serialized')
+
+    expect(result.loopPolicies).toEqual(architecture.loopPolicies)
   })
 
   it('restores positions from before the latest layout without changing topology', () => {
