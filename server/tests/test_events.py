@@ -1,6 +1,6 @@
 """ExecutionEvent / make_error_event 표준 실패 이벤트 검증."""
 
-from events import make_error_event
+from events import make_error_event, make_event
 
 
 def test_make_error_event_shape():
@@ -31,3 +31,24 @@ def test_to_frontend_includes_error_camelcase():
 
     ok = make_event("run-1", "reasoning", "node_start")
     assert "error" not in ok.to_frontend()
+
+
+def test_to_frontend_includes_loop_runtime_camelcase():
+    ev = make_event(
+        "run-1",
+        "__loop_guard__loop-1",
+        "node_end",
+        loop_runtime={"loopPolicyId": "loop-1", "iteration": 2, "exitReason": "maxIterations"},
+    )
+    payload = ev.to_frontend()
+
+    assert payload["loopRuntime"] == {
+        "loopPolicyId": "loop-1",
+        "iteration": 2,
+        "exitReason": "maxIterations",
+    }
+
+
+def test_to_frontend_omits_loop_runtime_when_absent():
+    ev = make_event("run-1", "reasoning", "node_start")
+    assert "loopRuntime" not in ev.to_frontend()
