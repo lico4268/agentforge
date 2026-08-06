@@ -166,7 +166,13 @@ def _settings_from_default(cfg: dict) -> tuple[ModelSettings, CallPolicy]:
 
 
 def _make_llm_step_node(
-    node: dict, manifest: dict, model, policy: CallPolicy, emit: EventEmitter, run_id: str
+    node: dict,
+    manifest: dict,
+    model,
+    policy: CallPolicy,
+    emit: EventEmitter,
+    run_id: str,
+    loop_policy_ids: list[str] | None = None,
 ):
     node_id = node["id"]
     node_type = node["type"]
@@ -175,9 +181,11 @@ def _make_llm_step_node(
         "defaults", {}
     ).get("systemPrompt", "")
     input_keys = [(p["id"], p["label"]) for p in manifest["inputs"]] + spec["extra_inputs"]
+    policy_ids = loop_policy_ids or []
 
     async def step(state: AgentState) -> dict:
         await emit(make_event(run_id, node_id, "node_start"))
+        usage: dict = {}
         result = await run_llm_step(
             state,
             node_id=node_id,
@@ -188,15 +196,31 @@ def _make_llm_step_node(
             emit=emit,
             run_id=run_id,
             call_policy=policy,
+            usage_sink=usage,
         )
         updates = spec["to_updates"](result, state)
+        if policy_ids and usage:
+            updates["loop_runtime"] = {
+                pid: {
+                    "total_tokens": usage.get("prompt", 0) + usage.get("completion", 0),
+                    "total_cost_usd": usage.get("cost", 0.0),
+                }
+                for pid in policy_ids
+            }
         await emit(make_event(run_id, node_id, "node_end", output=spec["to_event_output"](result)))
         return updates
 
     return step
 
 
-def _make_review_node(node: dict, model, policy: CallPolicy, emit: EventEmitter, run_id: str):
+def _make_review_node(
+    node: dict,
+    model,
+    policy: CallPolicy,
+    emit: EventEmitter,
+    run_id: str,
+    loop_policy_ids: list[str] | None = None,
+):
     node_cfg = node.get("config") or {}
     seed_criteria = [
         Criterion(id=f"cfg-{i + 1}", text=text).model_dump()
@@ -212,6 +236,7 @@ def _make_review_node(node: dict, model, policy: CallPolicy, emit: EventEmitter,
         escalate_tags=set(node_cfg.get("escalateTags") or config.ESCALATE_TAGS),
         seed_criteria=seed_criteria,
         call_policy=policy,
+        loop_policy_ids=loop_policy_ids,
     )
 
 
@@ -427,13 +452,19 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         elif manifest.get("runtime") == "llm_step":
             model, policy = _resolve_model(node, default_model_cfg)
             graph.add_node(
-                node_id, _make_llm_step_node(node, manifest, model, policy, emit, run_id)
+                node_id,
+                _make_llm_step_node(
+                    node, manifest, model, policy, emit, run_id, node_to_policies.get(node_id)
+                ),
             )
         elif node_type == "review.intent":
             model, policy = _resolve_model(node, default_model_cfg)
             wired = {e["sourceHandle"] for e in outgoing.get(node_id, [])}
             route_fns[node_id] = make_route_review(wired)
-            graph.add_node(node_id, _make_review_node(node, model, policy, emit, run_id))
+            graph.add_node(
+                node_id,
+                _make_review_node(node, model, policy, emit, run_id, node_to_policies.get(node_id)),
+            )
         elif node_type == "human.checkpoint":
             routes = {"approve": END, "revise": END, "reject": END}
             routes.update(

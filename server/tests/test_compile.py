@@ -573,12 +573,8 @@ async def test_loop_policy_on_human_checkpoint_feedback_edge_reaches_guard_via_d
 
 async def test_loop_policy_stuck_trips_to_exit(monkeypatch):
     """review가 보고하는 unmet 개수가 stuck window 동안 개선되지 않으면 stuck으로 트립된다."""
-
-    def _patch_model(monkeypatch):
-        monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
-
     _patch_model(monkeypatch)
-    monkeypatch.setattr(compile_mod, "run_llm_step", lambda *a, **kw: {"answer": "4", "confidence": 0.9} if kw.get("node_id") == "reasoning" else {})
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
 
     async def review_always_two_unmet(state, *, node_id, usage_sink=None, **kwargs):
         return _delta(
