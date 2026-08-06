@@ -38,6 +38,20 @@ def _delta(per_criterion=None, misalignments=None):
     }
 
 
+def _loop_policy(**overrides) -> dict:
+    base = {
+        "id": "loop-1",
+        "kind": "critiqueRevise",
+        "feedbackEdgeIds": [],
+        "memberNodeIds": [],
+        "exitEdgeIds": [],
+        "guard": {},
+        "onExhaustion": "exit",
+    }
+    base.update(overrides)
+    return base
+
+
 async def fake_llm_step(state, *, node_id, **kwargs):
     if node_id == "planning":
         return {"steps": ["s1"]}
@@ -280,3 +294,155 @@ async def test_model_binding_ignored_in_flow(monkeypatch):
     graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
     final = await graph.ainvoke(initial_state(""), {"configurable": {"thread_id": "t5"}})
     assert final["answer"] == "4"
+
+
+async def test_loop_policy_unknown_feedback_edge_raises(monkeypatch):
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [_node("reasoning", "reasoning.cot"), _node("review", "review.intent")],
+        [_edge("reasoning", "review", "answer"), _edge("review", "reasoning", "refine")],
+    )
+    arch["loopPolicies"] = [_loop_policy(feedbackEdgeIds=["missing-edge"])]
+    with pytest.raises(ValueError, match="unknown feedbackEdgeId"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_loop_policy_feedback_edge_wrong_source_type_raises(monkeypatch):
+    _patch_model(monkeypatch)
+    plain_edge = _edge("reasoning", "review", "answer")
+    arch = _arch(
+        [_node("reasoning", "reasoning.cot"), _node("review", "review.intent")],
+        [plain_edge, _edge("review", "reasoning", "refine")],
+    )
+    arch["loopPolicies"] = [_loop_policy(feedbackEdgeIds=[plain_edge["id"]])]
+    with pytest.raises(ValueError, match="does not support loop guards"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_loop_policy_mismatched_feedback_targets_raises(monkeypatch):
+    _patch_model(monkeypatch)
+    refine_edge = _edge("review", "reasoning", "refine")
+    other_edge = _edge("review", "output", "clarify")
+    arch = _arch(
+        [
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("output", "io.output"),
+        ],
+        [_edge("reasoning", "review", "answer"), refine_edge, other_edge],
+    )
+    arch["loopPolicies"] = [_loop_policy(feedbackEdgeIds=[refine_edge["id"], other_edge["id"]])]
+    with pytest.raises(ValueError, match="single re-entry"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_loop_policy_exit_without_exit_edges_raises(monkeypatch):
+    _patch_model(monkeypatch)
+    refine_edge = _edge("review", "reasoning", "refine")
+    arch = _arch(
+        [_node("reasoning", "reasoning.cot"), _node("review", "review.intent")],
+        [_edge("reasoning", "review", "answer"), refine_edge],
+    )
+    arch["loopPolicies"] = [
+        _loop_policy(
+            feedbackEdgeIds=[refine_edge["id"]],
+            memberNodeIds=["reasoning", "review"],
+            exitEdgeIds=[],
+            onExhaustion="exit",
+        )
+    ]
+    with pytest.raises(ValueError, match="requires a non-empty exitEdgeIds"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_loop_policy_max_iterations_trips_to_exit(monkeypatch):
+    """LoopPolicy.guard.maxIterations 트립 시 review->refine 루프가 exitEdgeIds로 빠진다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+
+    async def always_unmet(state, *, node_id, **kwargs):
+        return _delta([{"id": "c1", "verdict": "unmet", "evidence": "부족"}])
+
+    monkeypatch.setattr(review_mod, "run_llm_step", always_unmet)
+    emitter = ListEventEmitter()
+    refine_edge = _edge("review", "reasoning", "refine")
+    accept_edge = _edge("review", "output", "accept")
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent", {"maxRetries": 10}),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            refine_edge,
+            accept_edge,
+        ],
+    )
+    arch["loopPolicies"] = [
+        _loop_policy(
+            feedbackEdgeIds=[refine_edge["id"]],
+            memberNodeIds=["reasoning", "review"],
+            exitEdgeIds=[accept_edge["id"]],
+            guard={"maxIterations": 2},
+        )
+    ]
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    criteria = [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}]
+    final = await graph.ainvoke(
+        initial_state("", criteria=criteria, intent="정확한 계산"),
+        {"configurable": {"thread_id": "t-loop-1"}},
+    )
+
+    # review 자체 maxRetries=10이라 review는 계속 refine을 원하지만, LoopPolicy의
+    # maxIterations=2가 먼저 트립돼 3번째 refine 시도에서 output으로 강제 이탈한다.
+    assert final["answer"] == "4"
+    guard_events = [
+        e for e in emitter.events if e.node_id == "__loop_guard__loop-1" and e.loop_runtime
+    ]
+    assert [e.loop_runtime["iteration"] for e in guard_events] == [1, 2, 3]
+    assert guard_events[-1].loop_runtime["exitReason"] == "maxIterations"
+
+
+async def test_loop_policy_on_exhaustion_fail_raises(monkeypatch):
+    """onExhaustion='fail'이 트립되면 런타임 예외가 발생한다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+
+    async def always_unmet(state, *, node_id, **kwargs):
+        return _delta([{"id": "c1", "verdict": "unmet", "evidence": "부족"}])
+
+    monkeypatch.setattr(review_mod, "run_llm_step", always_unmet)
+    emitter = ListEventEmitter()
+    refine_edge = _edge("review", "reasoning", "refine")
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent", {"maxRetries": 10}),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            refine_edge,
+            _edge("review", "output", "accept"),
+        ],
+    )
+    arch["loopPolicies"] = [
+        _loop_policy(
+            feedbackEdgeIds=[refine_edge["id"]],
+            memberNodeIds=["reasoning", "review"],
+            guard={"maxIterations": 1},
+            onExhaustion="fail",
+        )
+    ]
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    criteria = [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}]
+    with pytest.raises(RuntimeError, match="onExhaustion='fail'"):
+        await graph.ainvoke(
+            initial_state("", criteria=criteria, intent="정확한 계산"),
+            {"configurable": {"thread_id": "t-loop-fail"}},
+        )
