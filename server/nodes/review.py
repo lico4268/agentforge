@@ -102,19 +102,17 @@ def make_review(
             updates["feedback"] = _format_feedback(delta, criteria)
             updates["retries"] = (state.get("retries") or 0) + 1
 
+        unmet = sum(1 for v in delta.get("per_criterion") or [] if v.get("verdict") == "unmet")
+
         if policy_ids:
-            unmet_count = sum(
-                1 for v in delta.get("per_criterion") or [] if v.get("verdict") == "unmet"
-            )
-            contribution: dict = {"progress_history": [float(unmet_count)]}
+            contribution: dict = {"progress_history": [float(unmet)]}
             if usage:
                 contribution["total_tokens"] = usage.get("prompt", 0) + usage.get("completion", 0)
                 contribution["total_cost_usd"] = usage.get("cost", 0.0)
             if updates.get("feedback") is not None:
                 contribution["last_feedback"] = updates["feedback"]
-            updates["loop_runtime"] = {pid: contribution for pid in policy_ids}
+            updates["loop_runtime"] = {pid: dict(contribution) for pid in policy_ids}
 
-        unmet = sum(1 for v in delta.get("per_criterion") or [] if v.get("verdict") == "unmet")
         reason = f"{unmet} unmet, {len(delta.get('misalignments') or [])} misaligned → {branch}"
         if raw_branch != branch:
             reason += f" (batch demoted from {raw_branch})"

@@ -70,6 +70,20 @@ def test_stuck_trips_when_progress_history_plateaus():
     assert result == {"should_continue": False, "exit_reason": "stuck"}
 
 
+def test_stuck_trips_on_flat_plateau_with_omitted_threshold():
+    """threshold 생략(합법 설정)에서 완전 정체(improvement==0)도 stuck으로 잡혀야 한다.
+    threshold 기본값이 0인 채로 `improvement < threshold`였다면 0 < 0 == False라
+    이 케이스를 놓쳤을 것 — `<=`로 고쳐 이 회귀를 방지한다."""
+    policy = _policy(stuck={"window": 3})
+    runtime = {
+        **empty_loop_runtime(),
+        "iteration": 3,
+        "progress_history": [4.0, 4.0, 4.0],
+    }
+    result = evaluate_loop_guard(policy, runtime)
+    assert result == {"should_continue": False, "exit_reason": "stuck"}
+
+
 def test_stuck_does_not_trip_before_window_is_full():
     policy = _policy(stuck={"window": 3, "threshold": 1})
     runtime = {**empty_loop_runtime(), "iteration": 2, "progress_history": [4.0, 4.0]}

@@ -296,11 +296,21 @@ def _prepare_loop_policies(
     node_to_policies: dict[str, list[str]] = {}
 
     for policy in loop_policies:
-        policy_id = policy["id"]
+        policy_id = policy.get("id")
+        if not policy_id:
+            raise ValueError("LoopPolicy is missing required field 'id'")
+
+        on_exhaustion = policy.get("onExhaustion")
+        if on_exhaustion not in ("exit", "escalate", "fail"):
+            raise ValueError(
+                f"LoopPolicy {policy_id!r} has invalid onExhaustion {on_exhaustion!r} "
+                "(must be 'exit', 'escalate', or 'fail')"
+            )
+
         guard_node_id = f"__loop_guard__{policy_id}"
 
         feedback_edges = []
-        for edge_id in policy["feedbackEdgeIds"]:
+        for edge_id in policy.get("feedbackEdgeIds") or []:
             edge = edges_by_id.get(edge_id)
             if edge is None:
                 raise ValueError(
@@ -324,24 +334,25 @@ def _prepare_loop_policies(
         continue_target = targets.pop()
 
         exit_target: str | None = None
-        if policy["exitEdgeIds"]:
-            exit_edge_id = policy["exitEdgeIds"][0]
+        exit_edge_ids = policy.get("exitEdgeIds") or []
+        if exit_edge_ids:
+            exit_edge_id = exit_edge_ids[0]
             exit_edge = edges_by_id.get(exit_edge_id)
             if exit_edge is None:
                 raise ValueError(
                     f"LoopPolicy {policy_id!r} references unknown exitEdgeId {exit_edge_id!r}"
                 )
             exit_target = exit_edge["target"]
-        if policy["onExhaustion"] in ("exit", "escalate") and exit_target is None:
+        if on_exhaustion in ("exit", "escalate") and exit_target is None:
             raise ValueError(
-                f"LoopPolicy {policy_id!r} onExhaustion={policy['onExhaustion']!r} "
+                f"LoopPolicy {policy_id!r} onExhaustion={on_exhaustion!r} "
                 "requires a non-empty exitEdgeIds"
             )
 
         for edge in feedback_edges:
             edge_target_override[edge["id"]] = guard_node_id
 
-        for member_id in policy["memberNodeIds"]:
+        for member_id in policy.get("memberNodeIds") or []:
             node_to_policies.setdefault(member_id, []).append(policy_id)
 
         guard_specs.append(
@@ -358,13 +369,13 @@ def _prepare_loop_policies(
 
 def _make_loop_guard_node(
     policy: dict,
+    guard_node_id: str,
     continue_target: str,
     exit_target: str | None,
     emit: EventEmitter,
     run_id: str,
 ):
     policy_id = policy["id"]
-    guard_node_id = f"__loop_guard__{policy_id}"
     on_exhaustion = policy["onExhaustion"]
     max_iterations = (policy.get("guard") or {}).get("maxIterations")
 
@@ -433,7 +444,12 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         graph.add_node(
             spec["guard_node_id"],
             _make_loop_guard_node(
-                spec["policy"], spec["continue_target"], spec["exit_target"], emit, run_id
+                spec["policy"],
+                spec["guard_node_id"],
+                spec["continue_target"],
+                spec["exit_target"],
+                emit,
+                run_id,
             ),
         )
 

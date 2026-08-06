@@ -356,6 +356,53 @@ async def test_loop_policy_exit_without_exit_edges_raises(monkeypatch):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
 
 
+async def test_loop_policy_invalid_on_exhaustion_raises(monkeypatch):
+    _patch_model(monkeypatch)
+    refine_edge = _edge("review", "reasoning", "refine")
+    exit_edge = _edge("review", "output", "clarify")
+    arch = _arch(
+        [
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("output", "io.output"),
+        ],
+        [_edge("reasoning", "review", "answer"), refine_edge, exit_edge],
+    )
+    arch["loopPolicies"] = [
+        _loop_policy(
+            feedbackEdgeIds=[refine_edge["id"]],
+            memberNodeIds=["reasoning", "review"],
+            exitEdgeIds=[exit_edge["id"]],
+            onExhaustion="not_a_real_value",
+        )
+    ]
+    with pytest.raises(ValueError, match="invalid onExhaustion"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_loop_policy_missing_id_raises(monkeypatch):
+    _patch_model(monkeypatch)
+    refine_edge = _edge("review", "reasoning", "refine")
+    exit_edge = _edge("review", "output", "clarify")
+    arch = _arch(
+        [
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("output", "io.output"),
+        ],
+        [_edge("reasoning", "review", "answer"), refine_edge, exit_edge],
+    )
+    policy = _loop_policy(
+        feedbackEdgeIds=[refine_edge["id"]],
+        memberNodeIds=["reasoning", "review"],
+        exitEdgeIds=[exit_edge["id"]],
+    )
+    del policy["id"]
+    arch["loopPolicies"] = [policy]
+    with pytest.raises(ValueError, match="missing required field 'id'"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
 async def test_loop_policy_max_iterations_trips_to_exit(monkeypatch):
     """LoopPolicy.guard.maxIterations 트립 시 review->refine 루프가 exitEdgeIds로 빠진다."""
     _patch_model(monkeypatch)

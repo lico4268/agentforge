@@ -60,7 +60,7 @@ def _is_stuck(progress_history: list[float], stuck_cfg: dict) -> bool:
         return False
     recent = progress_history[-window:]
     improvement = recent[0] - recent[-1]
-    return improvement < threshold
+    return improvement <= threshold
 
 
 def next_runtime(prior: LoopRuntimeState | None) -> LoopRuntimeState:

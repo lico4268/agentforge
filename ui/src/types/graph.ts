@@ -45,7 +45,7 @@ export const LOOP_POLICY_EXHAUSTION_ACTIONS = ['exit', 'escalate', 'fail'] as co
 
 /**
  * Executable loop configuration, distinct from a detected cycle (`LoopCandidate`
- * in `canvas/loops/loopAnchors.ts`). `kind` is descriptive only — the compiler
+ * in `canvas/loops/loopCandidates.ts`). `kind` is descriptive only — the compiler
  * never branches on it. See docs/superpowers/specs/2026-08-06-loop-policy-design.md.
  */
 export const LoopPolicySchema = z.object({

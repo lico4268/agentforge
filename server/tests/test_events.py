@@ -27,8 +27,6 @@ def test_to_frontend_includes_error_camelcase():
     assert payload["eventType"] == "error"
     assert payload["error"]["type"] == "KeyError"
     # 실패 외 이벤트에는 error 키가 없어야 한다.
-    from events import make_event
-
     ok = make_event("run-1", "reasoning", "node_start")
     assert "error" not in ok.to_frontend()
 
