@@ -159,6 +159,6 @@ loopRuntime?: {
 
 ## 알려진 후속 작업 (구현 단계로 이관)
 
-- `run_llm_step`의 반환 시그니처 변경이 `baseline.py`/`treatment.py`/`compile.py` 세 호출부 전부에 영향 — 캔버스 전용 기능이지만 공유 헬퍼라 변경 범위 확인 필요.
+- `run_llm_step`이 토큰/비용을 반환값에 어떻게 노출할지(반환 시그니처 변경 vs out-parameter 등)는 구현 단계에서 확정한다. out-parameter 방식을 쓰면 `baseline.py`/`treatment.py`는 전혀 건드리지 않아도 된다 — 계획 수립 시 이 방향으로 확정됨(`docs/superpowers/plans/` 참고).
 - `loop_runtime` 병합 reducer의 정확한 구현(LangGraph `Annotated` 리듀서 문법).
 - `recursion_limit`(`cfg.MAX_RETRIES * 10 + 20`) 공식을 정책 `maxIterations` 합계 + 가드 hop을 반영해 재검토.
