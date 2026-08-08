@@ -3,7 +3,9 @@
 
 단위 테스트만 통과하고 실제로는 한 번도 실행되지 않은 채 머지된 8/6 사고를 막는
 장치다 — 여기가 깨지면 브라우저에서 Run 버튼을 눌렀을 때 깨진다는 뜻이다.
-아키텍처 모양은 ui/src/app/starterArchitecture.ts와 1:1로 유지한다.
+토폴로지(노드 id, 엣지 id, 엣지 배선, loop.guard config)는 ui/src/app/starterArchitecture.ts와
+1:1로 유지한다 — 단, io.input.config.sample은 여기선 짧은 "2+2"로 의도적으로 다르고
+(TS 쪽은 실제 Natalia 문장제), modelSlots는 LLM을 목으로 대체하므로 생략돼 있다.
 """
 
 from fastapi.testclient import TestClient
@@ -139,6 +141,12 @@ def _delta(per_criterion):
     }
 
 
+async def fake_llm_step(state, *, node_id, **kwargs):
+    if node_id == "planning":
+        return {"steps": ["s1"]}
+    return {"answer": "4", "confidence": 0.9}
+
+
 def _drain(ws) -> tuple[list[dict], dict]:
     events: list[dict] = []
     while True:
@@ -154,11 +162,6 @@ def _drain(ws) -> tuple[list[dict], dict]:
 def test_starter_graph_runs_end_to_end_over_the_websocket(monkeypatch, tmp_path):
     monkeypatch.setattr(workspace_mod, "WORKSPACE_DIR", tmp_path)
     monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
-
-    async def fake_llm_step(state, *, node_id, **kwargs):
-        if node_id == "planning":
-            return {"steps": ["s1"]}
-        return {"answer": "4", "confidence": 0.9}
 
     calls = {"review": 0}
 
@@ -201,11 +204,6 @@ def test_starter_graph_exits_through_the_guard_when_iterations_run_out(monkeypat
     """review가 끝없이 refine을 원해도 maxIterations=3이 exit 포트로 강제 이탈시킨다."""
     monkeypatch.setattr(workspace_mod, "WORKSPACE_DIR", tmp_path)
     monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
-
-    async def fake_llm_step(state, *, node_id, **kwargs):
-        if node_id == "planning":
-            return {"steps": ["s1"]}
-        return {"answer": "4", "confidence": 0.9}
 
     async def always_unmet(state, *, node_id, **kwargs):
         return _delta([{"id": "c1", "verdict": "unmet", "evidence": "부족"}])
