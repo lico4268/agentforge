@@ -34,17 +34,19 @@ def test_to_frontend_includes_error_camelcase():
 def test_to_frontend_includes_loop_runtime_camelcase():
     ev = make_event(
         "run-1",
-        "__loop_guard__loop-1",
+        "loop_guard",
         "node_end",
-        loop_runtime={"loopPolicyId": "loop-1", "iteration": 2, "exitReason": "maxIterations"},
+        loop_runtime={"loopNodeId": "loop_guard", "iteration": 2, "exitReason": "maxIterations"},
     )
     payload = ev.to_frontend()
 
     assert payload["loopRuntime"] == {
-        "loopPolicyId": "loop-1",
+        "loopNodeId": "loop_guard",
         "iteration": 2,
         "exitReason": "maxIterations",
     }
+    # 가드 이벤트의 nodeId가 곧 loopNodeId — 프론트는 일반 노드와 같은 방식으로 소비한다.
+    assert payload["nodeId"] == payload["loopRuntime"]["loopNodeId"]
 
 
 def test_to_frontend_omits_loop_runtime_when_absent():

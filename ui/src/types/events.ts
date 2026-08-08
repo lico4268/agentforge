@@ -62,19 +62,18 @@ export const LOOP_RUNTIME_EXIT_REASONS = [
   'failed',
 ] as const
 
-/** Per-pass snapshot from a compiler-inserted loop guard node — see
- * docs/superpowers/specs/2026-08-06-loop-policy-design.md §7. Keyed by
- * loopPolicyId, not nodeId — the guard node's id is synthetic and has no
- * canvas representation. */
+/** Per-pass snapshot emitted by a `loop.guard` canvas node — see
+ * docs/superpowers/specs/2026-08-07-loop-node-design.md §8. `loopNodeId` is the
+ * real canvas node id, identical to the event's own `nodeId`, so consumers can
+ * treat guard events exactly like any other node's events. */
 export const LoopRuntimeSchema = z.object({
-  loopPolicyId: z.string(),
+  loopNodeId: z.string(),
   iteration: z.number(),
   maxIterations: z.number().optional(),
   tokens: z.number().optional(),
   costUsd: z.number().optional(),
   durationMs: z.number().optional(),
   lastFeedback: z.string().optional(),
-  progress: z.enum(['converging', 'plateauing', 'stuck']).optional(),
   exitReason: z.enum(LOOP_RUNTIME_EXIT_REASONS).optional(),
 })
 export type LoopRuntime = z.infer<typeof LoopRuntimeSchema>

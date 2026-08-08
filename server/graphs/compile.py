@@ -388,7 +388,7 @@ def _make_loop_guard_node(
         update = {"iteration": runtime["iteration"], "started_at": runtime["started_at"]}
 
         loop_runtime_event: dict = {
-            "loopPolicyId": policy_id,
+            "loopNodeId": policy_id,
             "iteration": runtime["iteration"],
             "tokens": runtime["total_tokens"],
             "costUsd": runtime["total_cost_usd"],

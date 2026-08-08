@@ -53,22 +53,33 @@ describe('ExecutionEventSchema', () => {
     expect(() => ExecutionEventSchema.parse(bad)).toThrow()
   })
 
-  it('loopRuntime 필드를 보존한다', () => {
+  it('loopRuntime 필드를 보존한다 (loopNodeId = 실제 캔버스 노드 id)', () => {
     const payload = {
       eventType: 'node_end',
       runId: 'run-1',
-      nodeId: '__loop_guard__loop-1',
+      nodeId: 'loop_guard',
       timestamp: new Date().toISOString(),
       loopRuntime: {
-        loopPolicyId: 'loop-1',
+        loopNodeId: 'loop_guard',
         iteration: 2,
         maxIterations: 5,
         exitReason: 'maxIterations',
       },
     }
     const parsed = ExecutionEventSchema.parse(payload)
-    expect(parsed.loopRuntime?.loopPolicyId).toBe('loop-1')
+    expect(parsed.loopRuntime?.loopNodeId).toBe('loop_guard')
     expect(parsed.loopRuntime?.exitReason).toBe('maxIterations')
+  })
+
+  it('loopPolicyId만 담긴 구(舊) 페이로드는 거부한다', () => {
+    const legacy = {
+      eventType: 'node_end',
+      runId: 'run-1',
+      nodeId: '__loop_guard__loop-1',
+      timestamp: new Date().toISOString(),
+      loopRuntime: { loopPolicyId: 'loop-1', iteration: 1 },
+    }
+    expect(() => ExecutionEventSchema.parse(legacy)).toThrow()
   })
 
   it('loopRuntime 없이도 이벤트를 통과시킨다(옵션 필드)', () => {
