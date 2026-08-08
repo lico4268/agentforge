@@ -774,3 +774,59 @@ def test_loop_policy_from_config_omits_stuck_threshold_when_unset():
         {"guard": guard},
         {**empty_loop_runtime(), "iteration": 3, "progress_history": [4.0, 4.0, 4.0]},
     ) == {"should_continue": False, "exit_reason": "stuck"}
+
+
+def _outgoing(edges: list[dict]) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {}
+    for e in edges:
+        out.setdefault(e["source"], []).append(e)
+    return out
+
+
+def test_derive_loop_members_returns_only_the_refine_loop_body():
+    """스타터 그래프 모양: input/output/checkpoint처럼 가드로 되돌아오지 않는 노드는
+    예산 귀속 대상이 아니다."""
+    edges = [
+        _edge("input", "reasoning", "task"),
+        _edge("reasoning", "review", "answer"),
+        _edge("review", "guard", "refine", "in"),
+        _edge("review", "output", "accept", "result"),
+        _edge("review", "checkpoint", "clarify", "review"),
+        _edge("guard", "reasoning", "loopBack", "task"),
+        _edge("guard", "output", "exit", "result"),
+        _edge("checkpoint", "output", "approve", "result"),
+    ]
+    members = compile_mod._derive_loop_members("guard", "reasoning", _outgoing(edges))
+    assert members == {"reasoning", "review"}
+
+
+def test_derive_loop_members_covers_a_three_node_body():
+    edges = [
+        _edge("reasoning", "critic", "answer"),
+        _edge("critic", "review", "critique"),
+        _edge("review", "guard", "refine", "in"),
+        _edge("guard", "reasoning", "loopBack", "task"),
+    ]
+    assert compile_mod._derive_loop_members("guard", "reasoning", _outgoing(edges)) == {
+        "reasoning",
+        "critic",
+        "review",
+    }
+
+
+def test_derive_loop_members_is_empty_without_a_loop_back_target():
+    assert compile_mod._derive_loop_members("guard", None, {}) == set()
+
+
+def test_derive_loop_members_excludes_a_dead_end_branch_inside_the_loop_body():
+    """루프 안에서 갈라져 나가지만 가드로 되돌아오지 않는 가지는 제외된다."""
+    edges = [
+        _edge("reasoning", "review", "answer"),
+        _edge("review", "guard", "refine", "in"),
+        _edge("review", "sink", "accept", "result"),
+        _edge("guard", "reasoning", "loopBack", "task"),
+    ]
+    assert compile_mod._derive_loop_members("guard", "reasoning", _outgoing(edges)) == {
+        "reasoning",
+        "review",
+    }

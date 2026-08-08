@@ -367,6 +367,45 @@ def _prepare_loop_policies(
     return edge_target_override, guard_specs, node_to_policies
 
 
+def _derive_loop_members(
+    loop_node_id: str, continue_target: str | None, outgoing: dict[str, list[dict]]
+) -> set[str]:
+    """loopBack 타깃에서 출발해 다시 그 loop.guard 노드로 돌아오는 노드 집합 = 루프 본체.
+
+    8/6 sidecar 설계의 사용자 선언 memberNodeIds를 그래프 도달 가능성으로 유도하는
+    것으로 대체한다(설계 §3d). 토큰/비용 예산을 어떤 노드에 귀속시킬지 결정한다.
+    """
+    if continue_target is None:
+        return set()
+
+    # 전방: continue_target에서 도달 가능한 노드 (가드 자신은 경계이므로 넘지 않는다)
+    forward: set[str] = set()
+    stack = [continue_target]
+    while stack:
+        current = stack.pop()
+        if current == loop_node_id or current in forward:
+            continue
+        forward.add(current)
+        stack.extend(e["target"] for e in outgoing.get(current, []))
+
+    # 후방: 가드로 되돌아올 수 있는 노드
+    reverse: dict[str, list[str]] = {}
+    for source, edge_list in outgoing.items():
+        for e in edge_list:
+            reverse.setdefault(e["target"], []).append(source)
+
+    backward: set[str] = set()
+    stack = [loop_node_id]
+    while stack:
+        current = stack.pop()
+        if current in backward:
+            continue
+        backward.add(current)
+        stack.extend(reverse.get(current, []))
+
+    return forward & backward
+
+
 _SCALAR_GUARD_KEYS = ("maxIterations", "maxTokens", "maxCostUsd", "maxDurationSec")
 
 
