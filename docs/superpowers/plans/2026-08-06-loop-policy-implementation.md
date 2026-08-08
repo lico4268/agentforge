@@ -2,6 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **⚠️ Superseded:** this plan (the sidecar `LoopPolicy` model) was fully replaced by
+> `docs/superpowers/plans/2026-08-07-loop-node-implementation.md` — see that plan instead.
+
 **Goal:** Make `LoopPolicy` a persisted, executable contract — stored on `Architecture`, migrated safely from policy-less graphs, enforced by `compile_graph` through a shared synthetic guard node, and reported over WebSocket events — per `docs/superpowers/specs/2026-08-06-loop-policy-design.md`.
 
 **Architecture:** A `LoopPolicy` array lives on `Architecture` (frontend Zod schema, backend reads it as an untyped dict field like `nodes`/`edges`). At compile time, `compile_graph` validates each policy and splices a synthetic `__loop_guard__<id>` node into the graph between a feedback edge's source and its original target, using LangGraph's `Command(goto=...)` pattern. The guard reads/writes a new `AgentState.loop_runtime` field (a custom-reducer dict keyed by policy id) to track iteration/token/cost/duration/stuck signals, independent of the node types it wraps. Token/cost data reaches `loop_runtime` via a new optional `usage_sink` out-parameter on `run_llm_step`, so `baseline.py`/`treatment.py` (which never pass it) are completely unaffected.

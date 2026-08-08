@@ -2,6 +2,8 @@
 
 - **작성일**: 2026-08-06
 - **상태**: 설계 승인됨 — 구현 계획(writing-plans) 대기
+- **⚠️ 대체됨**: 이 설계(sidecar `LoopPolicy` 모델)는 `docs/superpowers/specs/2026-08-07-loop-node-design.md`로
+  전면 대체됐다 — 최신 설계는 그 문서를 참고할 것.
 - **작업 스트림**: `work/radial-agent-canvas/` (Loop Control UI) — `HANDOFF.md` Remaining Work #1의 후속
 - **관련 문서**: `work/radial-agent-canvas/LOOP_CONTROL_UX_PLAN.md`, `LOOP_ENGINEERING_RESEARCH.md`, `DECISIONS.md`(결정 대기 #6, #7)
 

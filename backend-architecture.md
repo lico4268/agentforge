@@ -355,6 +355,7 @@ Architecture(dict)를 실행 가능한 `CompiledGraph`로 만든다. 노드 매�
 | `runtime == "llm_step"` (`planning.decompose`/`reasoning.cot`) | `LLM_STEP_TABLE` 스펙(output_model·state 업데이트 매핑)으로 `run_llm_step` 노드 생성 |
 | `review.intent` | `make_review` 재사용 — 노드 config의 `criteria`/`maxRetries`/`escalateTags` 반영 |
 | `human.checkpoint` | `make_human_checkpoint` + outgoing 핸들 기반 routes |
+| `loop.guard` | `_make_loop_guard_node` — `Command(goto=...)` 자가 라우팅 (§7.4a) |
 
 엣지는 `architecture.edges`로 자동 배선: incoming 없는 노드 → `START`, outgoing 없는 노드 → `END`.
 `review.intent`는 `add_conditional_edges` + `make_route_review(wired)` — 연결된 핸들로만 라우팅하고
@@ -364,6 +365,21 @@ Architecture(dict)를 실행 가능한 `CompiledGraph`로 만든다. 노드 매�
 
 **한계 (2026-07-03)**: llm_step은 `LLM_STEP_TABLE` 등록 타입만 지원(미등록 type은 `ValueError`),
 모델은 `modelSlots[0]`만 해석. 전용 단위 테스트(`test_compile.py`)는 아직 없다.
+
+#### 7.4a `loop.guard` — 1급 루프 제어 노드 (2026-08-07, 커밋 `0d3f73e`~`b3c86ca`)
+
+`loop.guard`는 sidecar `LoopPolicy`(2026-08-06 설계, 대체됨)를 대체하는 1급 캔버스 노드다.
+`Feedback` 입력 1개, `Loop back`/`Exit` 출력 2개를 가지며 config는 5축 가드
+(`maxIterations`/`maxTokens`/`maxCostUsd`/`maxDurationSec`/`stuckWindow`+`stuckThreshold`)와
+탈진 시 동작(`onExhaustion`: `exit`/`escalate`/`fail`)로 구성된다. `human.checkpoint`처럼 plain
+edge 배선 없이 `Command(goto=...)`로 스스로 라우팅하며, 재진입/탈출 타깃은 `loopBack`/`exit`
+outgoing 엣지에서 직접 읽는다(`_handle_targets`) — 각 포트는 outgoing edge가 정확히 1개여야
+하고 어기면 컴파일 에러다. 컴파일러는 Tarjan SCC(`_tarjan_scc`)로 그래프의 cycle을 찾되, 먼저
+모든 `loop.guard` 노드의 outgoing edge를 프루닝한 뒤 크기 2 이상인 컴포넌트가 남으면
+(`_validate_gated_cycles`) `ValueError`를 던진다 — **가드 없이 그린 feedback cycle은 이제 컴파일
+에러**다(과거엔 조용히 무한 루프 위험을 안고 실행됐다). 토큰/비용 예산이 귀속될 루프 본체는
+사용자 선언이 아니라 `loopBack` 타깃에서 도달 가능한 노드 집합을 그래프 도달 가능성으로 유도한다
+(`_derive_loop_members`). 상세 설계는 `docs/superpowers/specs/2026-08-07-loop-node-design.md`.
 
 ---
 
