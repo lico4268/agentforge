@@ -367,6 +367,26 @@ def _prepare_loop_policies(
     return edge_target_override, guard_specs, node_to_policies
 
 
+_SCALAR_GUARD_KEYS = ("maxIterations", "maxTokens", "maxCostUsd", "maxDurationSec")
+
+
+def _loop_policy_from_config(node: dict) -> dict:
+    """loop.guard 노드의 평평한 config를 evaluate_loop_guard가 기대하는 중첩 dict로 재조립.
+
+    이 어댑터가 있어서 nodes/loop_guard.py(순수 가드 평가 코어)는 캔버스 노드
+    계약을 전혀 모른 채 그대로 재사용된다. stuckThreshold가 비어 있으면 키 자체를
+    넣지 않는다 — None을 넣으면 _is_stuck의 float(None)이 TypeError가 된다.
+    """
+    cfg = node.get("config") or {}
+    guard: dict = {key: cfg[key] for key in _SCALAR_GUARD_KEYS if cfg.get(key) is not None}
+    if cfg.get("stuckWindow") is not None:
+        stuck: dict = {"window": cfg["stuckWindow"]}
+        if cfg.get("stuckThreshold") is not None:
+            stuck["threshold"] = cfg["stuckThreshold"]
+        guard["stuck"] = stuck
+    return {"id": node["id"], "onExhaustion": cfg.get("onExhaustion", "exit"), "guard": guard}
+
+
 def _make_loop_guard_node(
     policy: dict,
     guard_node_id: str,

@@ -6,7 +6,8 @@ from langgraph.types import Command
 import graphs.compile as compile_mod
 import nodes.review as review_mod
 from events import ListEventEmitter
-from state import initial_state
+from nodes.loop_guard import evaluate_loop_guard
+from state import empty_loop_runtime, initial_state
 
 DEFAULT_MODEL_CFG = {"provider": "anthropic", "model": "claude-3", "temperature": 0}
 
@@ -718,3 +719,58 @@ async def test_architecture_without_loop_policies_key_behaves_unchanged(monkeypa
     assert final["retries"] == 1
     # 가드 노드가 전혀 등록되지 않았으므로 __loop_guard__ 이벤트도 없다.
     assert not any(e.node_id.startswith("__loop_guard__") for e in emitter.events)
+
+
+def test_loop_policy_from_config_nests_the_four_scalar_axes():
+    node = _node(
+        "guard",
+        "loop.guard",
+        {
+            "kind": "critiqueRevise",
+            "maxIterations": 3,
+            "maxTokens": 1000,
+            "maxCostUsd": 0.5,
+            "maxDurationSec": 60,
+            "onExhaustion": "escalate",
+        },
+    )
+    assert compile_mod._loop_policy_from_config(node) == {
+        "id": "guard",
+        "onExhaustion": "escalate",
+        "guard": {
+            "maxIterations": 3,
+            "maxTokens": 1000,
+            "maxCostUsd": 0.5,
+            "maxDurationSec": 60,
+        },
+    }
+
+
+def test_loop_policy_from_config_defaults_to_exit_with_an_empty_guard():
+    assert compile_mod._loop_policy_from_config(_node("guard", "loop.guard", {})) == {
+        "id": "guard",
+        "onExhaustion": "exit",
+        "guard": {},
+    }
+
+
+def test_loop_policy_from_config_nests_stuck_window_and_threshold():
+    node = _node("guard", "loop.guard", {"stuckWindow": 3, "stuckThreshold": 1})
+    assert compile_mod._loop_policy_from_config(node)["guard"] == {
+        "stuck": {"window": 3, "threshold": 1}
+    }
+
+
+def test_loop_policy_from_config_omits_stuck_threshold_when_unset():
+    """threshold를 None으로 채워 넣으면 loop_guard._is_stuck의 float(None)이 TypeError를
+    낸다 — 미설정이면 키 자체를 빼서 그쪽 기본값(0)이 살아나야 한다.
+    (loop_guard.py는 무변경 대상이므로 이 어댑터가 계약을 맞춰줘야 한다.)"""
+    guard = compile_mod._loop_policy_from_config(_node("guard", "loop.guard", {"stuckWindow": 3}))[
+        "guard"
+    ]
+
+    assert guard == {"stuck": {"window": 3}}
+    assert evaluate_loop_guard(
+        {"guard": guard},
+        {**empty_loop_runtime(), "iteration": 3, "progress_history": [4.0, 4.0, 4.0]},
+    ) == {"should_continue": False, "exit_reason": "stuck"}
