@@ -7,8 +7,6 @@ import { CATEGORY_META } from '@/lib/categoryStyle'
 import { loadModels } from '@/registry/loadModels'
 import { Markdown } from '@/panels/Markdown'
 import { CheckpointActions } from '@/canvas/nodes/CheckpointActions'
-import { buildLoopCandidateViews } from '@/canvas/loops/loopAnchors'
-import { LoopCandidateInspector } from '@/panels/LoopCandidateInspector'
 import type { ConfigField, ModelConfig, ModelSlot } from '@/types'
 
 export function Inspector() {
@@ -24,9 +22,6 @@ export function Inspector() {
   const runStatus = useExecutionStore((s) => s.runStatus)
   const runId = useExecutionStore((s) => s.runId)
   const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
-  const selectedLoopCandidate = selectedId?.startsWith('loop:')
-    ? buildLoopCandidateViews(allNodes.map((candidate) => candidate.id), edges).find((candidate) => candidate.id === selectedId)
-    : undefined
 
   const { data: models } = useQuery({
     queryKey: ['models'],
@@ -34,10 +29,6 @@ export function Inspector() {
     staleTime: 60_000,
     retry: 1,
   })
-
-  if (selectedLoopCandidate) {
-    return <LoopCandidateInspector candidate={selectedLoopCandidate} nodes={allNodes} edges={edges} />
-  }
 
   if (!node) {
     return (

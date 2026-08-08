@@ -22,16 +22,6 @@ import { AgentEdge } from './edges/AgentEdge'
 import { radialLayout } from './layout/radialLayout'
 import { prefersReducedMotion, viewportTransitionDuration } from './viewport'
 import { DRAG_MIME } from './dragTypes'
-import { LoopControlPanel } from './LoopControlPanel'
-import {
-  buildLoopAnchorsByNodeId,
-  buildLoopCandidateViews,
-  candidateReturnEdgeIds,
-  type LoopAnchor,
-} from './loops/loopAnchors'
-import type { RFNodeData } from '@/stores/useGraphStore'
-
-type LoopAnnotatedNodeData = RFNodeData & { loopAnchors?: LoopAnchor[] }
 
 /**
  * The canvas. `nodeTypes` is built from the registry — every manifest type maps
@@ -99,46 +89,12 @@ export function Canvas() {
     return map
   }, [canvasNodeMode, registry])
   const edgeTypes: EdgeTypes = useMemo(() => ({ agent: AgentEdge }), [])
-  const loopCandidates = useMemo(
-    () => buildLoopCandidateViews(nodes.map((node) => node.id), edges),
-    [nodes, edges],
-  )
-  const loopAnchorsByNodeId = useMemo(
-    () => buildLoopAnchorsByNodeId(loopCandidates, edges),
-    [edges, loopCandidates],
-  )
-  const candidateReturnEdges = useMemo(
-    () => candidateReturnEdgeIds(loopCandidates),
-    [loopCandidates],
-  )
-  const displayNodes = useMemo(
-    () => canvasNodeMode === 'agent'
-      ? nodes.map((node) => {
-          const loopAnchors = loopAnchorsByNodeId.get(node.id)
-          if (!loopAnchors?.length) return node
-          return { ...node, data: { ...node.data, loopAnchors } as LoopAnnotatedNodeData }
-        })
-      : nodes,
-    [canvasNodeMode, loopAnchorsByNodeId, nodes],
-  )
-  const labelByNodeId = useMemo(
-    () => new Map(nodes.map((node) => [
-      node.id,
-      registry.get(node.data.manifestType)?.label ?? node.id,
-    ])),
-    [nodes, registry],
-  )
   const renderedEdges = useMemo(
     () =>
       canvasNodeMode === 'agent'
-        ? edges
-            .filter((edge) => !candidateReturnEdges.has(edge.id))
-            .map((edge) => ({
-            ...edge,
-            type: 'agent',
-          }))
+        ? edges.map((edge) => ({ ...edge, type: 'agent' }))
         : edges,
-    [candidateReturnEdges, canvasNodeMode, edges],
+    [canvasNodeMode, edges],
   )
 
   const onDragOver = useCallback((e: DragEvent) => {
@@ -172,7 +128,7 @@ export function Canvas() {
   return (
     <div className="h-full w-full bg-[#0e1511]">
       <ReactFlow
-        nodes={displayNodes}
+        nodes={nodes}
         edges={renderedEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -229,14 +185,6 @@ export function Canvas() {
               </span>
               연결 편집모드
             </button>
-          )}
-          {canvasNodeMode === 'agent' && (
-            <LoopControlPanel
-              candidates={loopCandidates}
-              selectedCandidateId={selectedNodeId?.startsWith('loop:') ? selectedNodeId : null}
-              labelByNodeId={labelByNodeId}
-              onSelect={select}
-            />
           )}
         </Panel>
         <Panel position="top-left" className="!m-3">

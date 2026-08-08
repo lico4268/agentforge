@@ -3,29 +3,15 @@ import type { NodeProps } from '@xyflow/react'
 import { useExecutionStore, useNodeRuntime } from '@/execution/useExecutionStore'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { useRegistry } from '@/registry/RegistryContext'
-import { useGraphStore } from '@/stores/useGraphStore'
-import { useUiStore } from '@/stores/useUiStore'
 import type { ModelSlot, NodeRuntimeStatus } from '@/types'
 import type { RFNodeData } from '@/stores/useGraphStore'
-import type { LoopAnchor as LoopAnchorData } from '@/canvas/loops/loopAnchors'
-import { LoopAnchor } from './LoopAnchor'
 import { RadialNodePorts } from './RadialNodePorts'
-
-/** Loop-scope annotations `Canvas.tsx` stamps onto a member node's `data`
- * while its scope is expanded — never persisted (`toArchitecture` reads
- * straight from the graph store, not from this projected view). */
-type LoopAnnotatedData = RFNodeData & {
-  loopAnchors?: LoopAnchorData[]
-}
 
 function AgentNodeImpl({ id, data, selected }: NodeProps) {
   const registry = useRegistry()
   const runtime = useNodeRuntime(id)
   const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
-  const selectedNodeId = useGraphStore((s) => s.selectedNodeId)
-  const hoveredLoopCandidateId = useUiStore((s) => s.hoveredLoopCandidateId)
   const manifest = registry.get((data as RFNodeData).manifestType)
-  const { loopAnchors = [] } = data as LoopAnnotatedData
 
   if (!manifest) {
     return (
@@ -43,9 +29,6 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
   const isPendingCheckpoint =
     manifest.type === 'human.checkpoint' && pendingInterrupt?.nodeId === id
   const borderColor = selected ? meta.color : statusColor(status, meta.color)
-  const highlightedLoop = loopAnchors.some((anchor) =>
-    anchor.candidateId === selectedNodeId || anchor.candidateId === hoveredLoopCandidateId,
-  )
 
   return (
     <div
@@ -57,8 +40,6 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
             ? `0 0 0 1px ${meta.color}88, 0 0 18px ${meta.color}44`
             : selected
               ? `0 0 0 1px ${meta.color}66`
-              : highlightedLoop
-                ? '0 0 0 2px #7c3aed77, 0 0 18px #7c3aed33'
               : undefined,
       }}
       aria-label={`${manifest.label} agent node`}
@@ -87,14 +68,6 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
           aria-label="Review decision required in Inspector"
         />
       )}
-      {loopAnchors.map((anchor, index) => (
-        <LoopAnchor
-          key={`${anchor.candidateId}:${anchor.role}`}
-          anchor={anchor}
-          index={index}
-          selected={selectedNodeId === anchor.candidateId}
-        />
-      ))}
     </div>
   )
 }
