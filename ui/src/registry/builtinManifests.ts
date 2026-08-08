@@ -1,4 +1,20 @@
-import type { NodeManifest } from '@/types'
+import {
+  LOOP_POLICY_EXHAUSTION_ACTIONS,
+  LOOP_POLICY_KINDS,
+  type NodeManifest,
+} from '@/types'
+
+const LOOP_KIND_LABELS: Record<(typeof LOOP_POLICY_KINDS)[number], string> = {
+  evaluatorOptimizer: 'Evaluator-Optimizer',
+  critiqueRevise: 'Critique-Revise',
+  humanReview: 'Human Review',
+}
+
+const LOOP_EXHAUSTION_LABELS: Record<(typeof LOOP_POLICY_EXHAUSTION_ACTIONS)[number], string> = {
+  exit: 'Exit',
+  escalate: 'Escalate',
+  fail: 'Fail',
+}
 
 /**
  * Bundled fallback node set — used when the backend /api/nodes is unreachable.
@@ -194,6 +210,47 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
         reroute_hint: 'string',
       },
     },
+  },
+
+  // ── Policy / Loop ──────────────────────────────────────────────────────────
+
+  {
+    type: 'loop.guard',
+    runtime: 'loop_guard',
+    category: 'policy',
+    label: 'Loop',
+    description: '루프 재진입/탈출 지점과 5축 가드를 정의.',
+    inputs: [{ id: 'in', label: 'Feedback', dataType: 'any', required: true }],
+    outputs: [
+      { id: 'loopBack', label: 'Loop back', dataType: 'any' },
+      { id: 'exit',     label: 'Exit',      dataType: 'any' },
+    ],
+    config: [
+      {
+        key: 'kind',
+        label: 'Kind',
+        type: 'select',
+        default: 'critiqueRevise',
+        options: LOOP_POLICY_KINDS.map((value) => ({ label: LOOP_KIND_LABELS[value], value })),
+        description: '서술 전용 — 컴파일러 라우팅/가드 판정에는 쓰이지 않는다.',
+      },
+      { key: 'maxIterations',  label: 'Max iterations',     type: 'number' },
+      { key: 'maxTokens',      label: 'Max tokens',         type: 'number' },
+      { key: 'maxCostUsd',     label: 'Max cost (USD)',     type: 'number' },
+      { key: 'maxDurationSec', label: 'Max duration (sec)', type: 'number' },
+      { key: 'stuckWindow',    label: 'Stuck window',       type: 'number' },
+      { key: 'stuckThreshold', label: 'Stuck threshold',    type: 'number' },
+      {
+        key: 'onExhaustion',
+        label: 'On exhaustion',
+        type: 'select',
+        default: 'exit',
+        options: LOOP_POLICY_EXHAUSTION_ACTIONS.map((value) => ({
+          label: LOOP_EXHAUSTION_LABELS[value],
+          value,
+        })),
+      },
+    ],
   },
 
   // ── Human ──────────────────────────────────────────────────────────────────
