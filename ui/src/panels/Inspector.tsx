@@ -46,8 +46,16 @@ export function Inspector() {
 
   const meta = CATEGORY_META[manifest.category]
   const config = node.data.config
-  const setField = (key: string, value: unknown) =>
+  const setField = (key: string, value: unknown) => {
+    // undefined는 "이 축을 unset으로 되돌린다"는 명시적 신호다 — 키를 값 undefined로
+    // 남기면 로컬 객체엔 남아있어 `?? default` 판정이 헷갈릴 수 있으니 아예 지운다.
+    if (value === undefined) {
+      const { [key]: _omit, ...rest } = config
+      updateNodeConfig(node.id, rest)
+      return
+    }
     updateNodeConfig(node.id, { ...config, [key]: value })
+  }
   const isPendingCheckpoint =
     manifest.type === 'human.checkpoint' && pendingInterrupt?.nodeId === node.id && runId
 
@@ -358,8 +366,14 @@ function Field({
           <input
             type="number"
             className={inputCls}
-            value={Number(value ?? 0)}
-            onChange={(e) => onChange(Number(e.target.value))}
+            // unset(undefined/null)은 빈 입력으로 보여준다 — manifest에 default가 없는
+            // 필드(예: loop.guard의 6개 가드 축)를 0으로 잘못 표시하지 않기 위함.
+            value={value === undefined || value === null ? '' : Number(value)}
+            onChange={(e) =>
+              // 비워서 지우면 unset으로 되돌린다(0을 쓰는 게 아니라 키 자체를 제거) —
+              // 실제 0 입력은 여전히 유효한 값(예: maxIterations: 0)으로 남는다.
+              onChange(e.target.value === '' ? undefined : Number(e.target.value))
+            }
           />
           {field.description && (
             <span className="font-mono text-[10px] text-[#86948a]">{field.description}</span>
