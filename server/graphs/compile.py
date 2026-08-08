@@ -529,7 +529,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             )
         elif node_type == "review.intent":
             model, policy = _resolve_model(node, default_model_cfg)
-            wired = {e["sourceHandle"] for e in outgoing.get(node_id, [])}
+            wired = set(_handle_targets(outgoing, node_id))
             route_fns[node_id] = make_route_review(wired)
             graph.add_node(
                 node_id,
