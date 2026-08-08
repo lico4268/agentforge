@@ -26,38 +26,14 @@ export const GraphEdgeSchema = z.object({
 })
 export type GraphEdge = z.infer<typeof GraphEdgeSchema>
 
-export const LoopPolicyGuardSchema = z.object({
-  maxIterations: z.number().optional(),
-  maxTokens: z.number().optional(),
-  maxCostUsd: z.number().optional(),
-  maxDurationSec: z.number().optional(),
-  stuck: z
-    .object({
-      window: z.number(),
-      threshold: z.number().optional(),
-    })
-    .optional(),
-})
-export type LoopPolicyGuard = z.infer<typeof LoopPolicyGuardSchema>
-
+/**
+ * Loop 노드(`loop.guard`) manifest의 `kind` / `onExhaustion` select 옵션 소스.
+ * guard 모양과는 무관한 순수 문자열 목록이다 — 노드 config 자체는 다른 노드 타입과
+ * 마찬가지로 `GraphNodeSchema.config`(타입 검증 없는 record)에 담긴다.
+ * See docs/superpowers/specs/2026-08-07-loop-node-design.md §2.
+ */
 export const LOOP_POLICY_KINDS = ['evaluatorOptimizer', 'critiqueRevise', 'humanReview'] as const
 export const LOOP_POLICY_EXHAUSTION_ACTIONS = ['exit', 'escalate', 'fail'] as const
-
-/**
- * Executable loop configuration, distinct from a detected cycle (`LoopCandidate`
- * in `canvas/loops/loopCandidates.ts`). `kind` is descriptive only — the compiler
- * never branches on it. See docs/superpowers/specs/2026-08-06-loop-policy-design.md.
- */
-export const LoopPolicySchema = z.object({
-  id: z.string(),
-  kind: z.enum(LOOP_POLICY_KINDS),
-  feedbackEdgeIds: z.array(z.string()),
-  memberNodeIds: z.array(z.string()),
-  exitEdgeIds: z.array(z.string()),
-  guard: LoopPolicyGuardSchema,
-  onExhaustion: z.enum(LOOP_POLICY_EXHAUSTION_ACTIONS),
-})
-export type LoopPolicy = z.infer<typeof LoopPolicySchema>
 
 export const ArchitectureSchema = z.object({
   version: z.string().default('0.1'),
@@ -68,6 +44,5 @@ export const ArchitectureSchema = z.object({
   }),
   nodes: z.array(GraphNodeSchema).default([]),
   edges: z.array(GraphEdgeSchema).default([]),
-  loopPolicies: z.array(LoopPolicySchema).default([]),
 })
 export type Architecture = z.infer<typeof ArchitectureSchema>

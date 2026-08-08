@@ -9,7 +9,7 @@ import {
   type NodeChange,
   type EdgeChange,
 } from '@xyflow/react'
-import type { Architecture, GraphNode, LoopPolicy } from '@/types'
+import type { Architecture, GraphNode } from '@/types'
 
 /**
  * Topology store — the design the user draws. Source of truth for nodes/edges/
@@ -28,7 +28,6 @@ export type RFNode = Node<RFNodeData>
 type GraphState = {
   nodes: RFNode[]
   edges: Edge[]
-  loopPolicies: LoopPolicy[]
   selectedNodeId: string | null
   lastLayoutPositions: Record<string, { x: number; y: number }> | null
   /** Node the last `Arrange radially` was centered on — a UI-only hint so
@@ -57,7 +56,6 @@ const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${seq++
 export const useGraphStore = create<GraphState>((set, get) => ({
   nodes: [],
   edges: [],
-  loopPolicies: [],
   selectedNodeId: null,
   lastLayoutPositions: null,
   radialCenterId: null,
@@ -135,14 +133,13 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         target: e.target,
         targetHandle: e.targetHandle,
       })),
-      loopPolicies: arch.loopPolicies,
       selectedNodeId: null,
       lastLayoutPositions: null,
       radialCenterId: null,
     }),
 
   toArchitecture: (name) => {
-    const { nodes, edges, loopPolicies } = get()
+    const { nodes, edges } = get()
     return {
       version: '0.1',
       metadata: { name, createdAt: new Date().toISOString() },
@@ -159,7 +156,6 @@ export const useGraphStore = create<GraphState>((set, get) => ({
         target: e.target,
         targetHandle: e.targetHandle ?? 'in',
       })),
-      loopPolicies,
     }
   },
 }))
