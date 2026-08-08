@@ -479,6 +479,27 @@ def test_validate_gated_cycles_reports_only_the_ungated_component():
         compile_mod._validate_gated_cycles(["a", "g", "c", "d"], edges, {"g"})
 
 
+def test_validate_gated_cycles_rejects_an_ungated_cycle_sharing_a_node_with_a_gated_one():
+    """Tarjan은 노드를 공유하는 cycle을 하나의 컴포넌트로 합친다 — guard가 있는 cycle과
+    없는 cycle이 노드 하나만 공유해도 가드 없이 그린 cycle이 조용히 통과해서는 안 된다."""
+    edges = [
+        _edge("reasoning", "review"),
+        _edge("review", "guard"),
+        _edge("guard", "reasoning"),
+        _edge("reasoning", "critic"),
+        _edge("critic", "reasoning"),
+    ]
+    with pytest.raises(ValueError, match=r"\['critic', 'reasoning'\]"):
+        compile_mod._validate_gated_cycles(
+            ["reasoning", "review", "guard", "critic"], edges, {"guard"}
+        )
+
+
+def test_validate_gated_cycles_still_accepts_a_purely_gated_cycle():
+    edges = [_edge("a", "g"), _edge("g", "a")]
+    compile_mod._validate_gated_cycles(["a", "g"], edges, {"g"})
+
+
 async def test_loop_guard_without_a_loop_back_edge_raises(monkeypatch):
     """loopBack이 배선 안 된 Loop 노드는 '아무 데도 안 도는 루프' — 설정 실수다 (§9)."""
     _patch_model(monkeypatch)
@@ -520,6 +541,58 @@ async def test_loop_guard_exit_port_unwired_raises(monkeypatch):
         ],
     )
     with pytest.raises(ValueError, match="requires a wired 'exit' port"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_loop_guard_loopback_port_fanout_raises(monkeypatch):
+    """loopBack 포트에 outgoing edge가 2개 이상이면 _handle_targets가 마지막 것만
+    남기고 나머지를 조용히 버리므로, 컴파일 에러로 막아야 한다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("guard", "loop.guard", {"onExhaustion": "exit"}),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            _edge("review", "guard", "refine", "in"),
+            _edge("review", "output", "accept", "result"),
+            _edge("guard", "reasoning", "loopBack", "task"),
+            _edge("guard", "review", "loopBack", "in"),
+            _edge("guard", "output", "exit", "result"),
+        ],
+    )
+    with pytest.raises(ValueError, match=r"2 edges on its 'loopBack' port"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_loop_guard_exit_port_fanout_raises(monkeypatch):
+    """exit 포트도 loopBack과 마찬가지로 outgoing edge가 2개 이상이면 컴파일 에러다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("guard", "loop.guard", {"onExhaustion": "exit"}),
+            _node("output", "io.output"),
+            _node("output2", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            _edge("review", "guard", "refine", "in"),
+            _edge("review", "output", "accept", "result"),
+            _edge("guard", "reasoning", "loopBack", "task"),
+            _edge("guard", "output", "exit", "result"),
+            _edge("guard", "output2", "exit", "result"),
+        ],
+    )
+    with pytest.raises(ValueError, match=r"2 edges on its 'exit' port"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
 
 

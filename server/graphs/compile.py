@@ -287,6 +287,22 @@ def _handle_targets(outgoing: dict[str, list[dict]], node_id: str) -> dict[str, 
     return {e["sourceHandle"]: e["target"] for e in outgoing.get(node_id, [])}
 
 
+def _validate_loop_guard_ports(node_id: str, outs: list[dict]) -> None:
+    """loop.guard의 loopBack/exit 포트는 각 최대 1개의 outgoing edge만 가질 수 있다.
+
+    _handle_targets는 sourceHandle을 dict key로 인덱싱하므로, 한 포트에 edge가
+    여러 개 그려지면 마지막 것만 남고 나머지는 아무 에러 없이 조용히 사라진다 —
+    그래서 여기서 컴파일 에러로 미리 막는다.
+    """
+    for handle in ("loopBack", "exit"):
+        count = sum(1 for e in outs if e["sourceHandle"] == handle)
+        if count > 1:
+            raise ValueError(
+                f"loop.guard node {node_id!r} has {count} edges on its {handle!r} "
+                "port — each port must have exactly one outgoing edge"
+            )
+
+
 def _tarjan_scc(node_ids: list[str], edges: list[dict]) -> list[list[str]]:
     """Tarjan SCC. 크기 >= 2인 컴포넌트는 그 안에 최소 하나의 cycle이 있다는 뜻이다.
 
@@ -341,11 +357,14 @@ def _tarjan_scc(node_ids: list[str], edges: list[dict]) -> list[list[str]]:
 def _validate_gated_cycles(node_ids: list[str], edges: list[dict], loop_node_ids: set[str]) -> None:
     """가드 없이 그려진 cycle은 컴파일 에러 — 무한 루프를 멈출 지점이 없다는 뜻이다.
 
-    프론트 Loop Scope Lens가 담당하던 실수 방지 역할의 백엔드 이관(설계 §4).
+    가드 노드의 outgoing edge를 미리 제거해야 한다: Tarjan SCC는 한 노드를 공유하는
+    모든 cycle을 하나의 컴포넌트로 합치므로, 가드 노드를 프루닝하지 않으면 가드가 있는
+    cycle과 없는 cycle이 한 노드만 공유해도 통째로 "가드 있음"으로 오판된다.
     크기 1 컴포넌트(self-loop 포함)는 대상이 아니다.
     """
-    for component in _tarjan_scc(node_ids, edges):
-        if len(component) >= 2 and not (set(component) & loop_node_ids):
+    pruned_edges = [e for e in edges if e["source"] not in loop_node_ids]
+    for component in _tarjan_scc(node_ids, pruned_edges):
+        if len(component) >= 2:
             raise ValueError(
                 f"Cycle without a loop.guard node: {sorted(component)} — "
                 "add a Loop node on the feedback edge"
@@ -525,6 +544,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             )
         elif node_type == "loop.guard":
             loop_policy = _loop_policy_from_config(node)
+            _validate_loop_guard_ports(node_id, outgoing.get(node_id, []))
             targets = _handle_targets(outgoing, node_id)
             continue_target = targets.get("loopBack")
             exit_target = targets.get("exit")
