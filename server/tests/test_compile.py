@@ -99,14 +99,19 @@ async def test_compile_unknown_type_raises():
 
 
 async def test_compile_no_entry_raises(monkeypatch):
-    """모든 노드에 incoming이 있으면(순환) 진입점 부재 ValueError."""
+    """모든 노드에 incoming이 있으면(순환) 진입점 부재 ValueError.
+
+    cycle 검증이 먼저 돌기 때문에 가드가 포함된 루프여야 이 에러까지 도달한다."""
     _patch_model(monkeypatch)
     arch = _arch(
-        [_node("a", "reasoning.cot"), _node("b", "reasoning.cot")],
-        [_edge("a", "b"), _edge("b", "a")],
+        [
+            _node("a", "reasoning.cot"),
+            _node("g", "loop.guard", {"onExhaustion": "fail"}),
+        ],
+        [_edge("a", "g", "answer", "in"), _edge("g", "a", "loopBack", "task")],
     )
     with pytest.raises(ValueError, match="no entry"):
-        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, None, "run-1")
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
 
 
 def test_filter_control_edges_unit():
@@ -209,7 +214,10 @@ async def test_node_positions_do_not_change_compiled_execution(monkeypatch):
 
 
 async def test_review_refine_loop_then_accept(monkeypatch):
-    """review의 refine 핸들→reasoning 루프 후 accept 핸들→output."""
+    """review의 refine 핸들→guard→reasoning 루프 후 accept 핸들→output.
+
+    가드 축을 하나도 설정하지 않았으므로 판정은 8/6 이전과 동일해야 한다 —
+    가드 도입이 기존 review 3분기 동작을 바꾸지 않는다는 회귀 증거."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     calls = {"review": 0}
@@ -222,24 +230,11 @@ async def test_review_refine_loop_then_accept(monkeypatch):
 
     monkeypatch.setattr(review_mod, "run_llm_step", fake_review_llm_step)
     emitter = ListEventEmitter()
-    arch = _arch(
-        [
-            _node("input", "io.input", {"sample": "2+2"}),
-            _node("reasoning", "reasoning.cot"),
-            _node("review", "review.intent"),
-            _node("output", "io.output"),
-        ],
-        [
-            _edge("input", "reasoning", "task"),
-            _edge("reasoning", "review", "answer"),
-            _edge("review", "reasoning", "refine"),
-            _edge("review", "output", "accept"),
-        ],
+    graph = compile_mod.compile_graph(
+        _gated_refine_arch({}, review_config={}), DEFAULT_MODEL_CFG, emitter, "run-1"
     )
-    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
-    criteria = [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}]
     final = await graph.ainvoke(
-        initial_state("", criteria=criteria, intent="정확한 계산"),
+        initial_state("", criteria=_ONE_CRITERION, intent="정확한 계산"),
         {"configurable": {"thread_id": "t3"}},
     )
 
@@ -247,6 +242,10 @@ async def test_review_refine_loop_then_accept(monkeypatch):
     assert final["retries"] == 1
     branches = [e.policy_decision["branch"] for e in emitter.events if e.policy_decision]
     assert branches == ["refine", "accept"]
+
+    guard_events = [e for e in emitter.events if e.node_id == "guard" and e.loop_runtime]
+    assert [e.loop_runtime["iteration"] for e in guard_events] == [1]
+    assert "exitReason" not in guard_events[0].loop_runtime
 
 
 async def test_review_unwired_branch_falls_back(monkeypatch):
@@ -315,52 +314,6 @@ async def test_model_binding_ignored_in_flow(monkeypatch):
     graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
     final = await graph.ainvoke(initial_state(""), {"configurable": {"thread_id": "t5"}})
     assert final["answer"] == "4"
-
-
-async def test_architecture_without_loop_policies_key_behaves_unchanged(monkeypatch):
-    """loopPolicies 키 자체가 없는(기존 저장 파일 형태) Architecture는 예전 그대로 동작한다."""
-    _patch_model(monkeypatch)
-    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
-    calls = {"review": 0}
-
-    async def fake_review_llm_step(state, *, node_id, **kwargs):
-        calls["review"] += 1
-        if calls["review"] == 1:
-            return _delta([{"id": "c1", "verdict": "unmet", "evidence": "부족"}])
-        return _delta([{"id": "c1", "verdict": "met", "evidence": "ok"}])
-
-    monkeypatch.setattr(review_mod, "run_llm_step", fake_review_llm_step)
-    emitter = ListEventEmitter()
-    # loopPolicies 키를 아예 넣지 않는다 — architecture.get("loopPolicies") or [] 폴백 경로 검증.
-    arch = {
-        "version": "1",
-        "metadata": {"name": "legacy"},
-        "nodes": [
-            _node("input", "io.input", {"sample": "2+2"}),
-            _node("reasoning", "reasoning.cot"),
-            _node("review", "review.intent"),
-            _node("output", "io.output"),
-        ],
-        "edges": [
-            _edge("input", "reasoning", "task"),
-            _edge("reasoning", "review", "answer"),
-            _edge("review", "reasoning", "refine"),
-            _edge("review", "output", "accept"),
-        ],
-    }
-    assert "loopPolicies" not in arch
-
-    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
-    criteria = [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}]
-    final = await graph.ainvoke(
-        initial_state("", criteria=criteria, intent="정확한 계산"),
-        {"configurable": {"thread_id": "t-legacy"}},
-    )
-
-    assert final["review_branch"] == "accept"
-    assert final["retries"] == 1
-    # 가드 노드가 전혀 등록되지 않았으므로 __loop_guard__ 이벤트도 없다.
-    assert not any(e.node_id.startswith("__loop_guard__") for e in emitter.events)
 
 
 def test_loop_policy_from_config_nests_the_four_scalar_axes():
@@ -723,3 +676,33 @@ async def test_loop_guard_is_reached_from_human_checkpoint_dynamic_goto(monkeypa
     guard_events = [e for e in emitter.events if e.node_id == "guard" and e.loop_runtime]
     assert [e.loop_runtime["iteration"] for e in guard_events] == [1, 2]
     assert guard_events[-1].loop_runtime["exitReason"] == "maxIterations"
+
+
+async def test_cycle_without_loop_guard_raises(monkeypatch):
+    """review --refine--> reasoning 직결 루프는 이제 컴파일 에러다 (설계 §4, 의도된
+    breaking change — Loop 노드를 끼워야 컴파일된다)."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            _edge("review", "reasoning", "refine", "task"),
+            _edge("review", "output", "accept", "result"),
+        ],
+    )
+    with pytest.raises(ValueError, match="Cycle without a loop.guard node"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_cycle_with_loop_guard_compiles(monkeypatch):
+    _patch_model(monkeypatch)
+    graph = compile_mod.compile_graph(
+        _gated_refine_arch({}), DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1"
+    )
+    assert graph is not None

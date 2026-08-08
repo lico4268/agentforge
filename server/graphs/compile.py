@@ -475,6 +475,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         incoming.setdefault(e["target"], []).append(e)
 
     loop_node_ids = {n["id"] for n in nodes if n["type"] == "loop.guard"}
+    _validate_gated_cycles([n["id"] for n in nodes], edges, loop_node_ids)
 
     # 토큰/비용 예산을 귀속시킬 루프 본체를 그래프에서 유도한다 (설계 §3d).
     # 파라미터 이름 loop_policy_ids는 review/llm_step 쪽 무변경을 위해 유지된다.
