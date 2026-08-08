@@ -282,89 +282,9 @@ def _filter_control_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
     ]
 
 
-def _prepare_loop_policies(
-    loop_policies: list[dict], nodes_by_id: dict[str, dict], edges_by_id: dict[str, dict]
-) -> tuple[dict[str, str], list[dict], dict[str, list[str]]]:
-    """LoopPolicy 목록을 검증하고, 컴파일러가 쓸 세 가지 파생 구조를 만든다.
-
-    - edge_target_override: feedbackEdgeId → guard 노드 id (조건부 라우팅 재작성용)
-    - guard_specs: 각 정책의 guard 노드 등록에 필요한 정보
-    - node_to_policies: memberNodeId → 소속 정책 id 목록 (토큰/비용 귀속용, Task 6)
-    """
-    edge_target_override: dict[str, str] = {}
-    guard_specs: list[dict] = []
-    node_to_policies: dict[str, list[str]] = {}
-
-    for policy in loop_policies:
-        policy_id = policy.get("id")
-        if not policy_id:
-            raise ValueError("LoopPolicy is missing required field 'id'")
-
-        on_exhaustion = policy.get("onExhaustion")
-        if on_exhaustion not in ("exit", "escalate", "fail"):
-            raise ValueError(
-                f"LoopPolicy {policy_id!r} has invalid onExhaustion {on_exhaustion!r} "
-                "(must be 'exit', 'escalate', or 'fail')"
-            )
-
-        guard_node_id = f"__loop_guard__{policy_id}"
-
-        feedback_edges = []
-        for edge_id in policy.get("feedbackEdgeIds") or []:
-            edge = edges_by_id.get(edge_id)
-            if edge is None:
-                raise ValueError(
-                    f"LoopPolicy {policy_id!r} references unknown feedbackEdgeId {edge_id!r}"
-                )
-            source_type = nodes_by_id.get(edge["source"], {}).get("type")
-            if source_type not in ("review.intent", "human.checkpoint"):
-                raise ValueError(
-                    f"LoopPolicy {policy_id!r} feedback edge {edge_id!r} has source type "
-                    f"{source_type!r}, which does not support loop guards "
-                    "(v1 supports review.intent/human.checkpoint only)"
-                )
-            feedback_edges.append(edge)
-
-        targets = {e["target"] for e in feedback_edges}
-        if len(targets) != 1:
-            raise ValueError(
-                f"LoopPolicy {policy_id!r} feedbackEdgeIds must share a single re-entry "
-                f"target, got {sorted(targets)!r}"
-            )
-        continue_target = targets.pop()
-
-        exit_target: str | None = None
-        exit_edge_ids = policy.get("exitEdgeIds") or []
-        if exit_edge_ids:
-            exit_edge_id = exit_edge_ids[0]
-            exit_edge = edges_by_id.get(exit_edge_id)
-            if exit_edge is None:
-                raise ValueError(
-                    f"LoopPolicy {policy_id!r} references unknown exitEdgeId {exit_edge_id!r}"
-                )
-            exit_target = exit_edge["target"]
-        if on_exhaustion in ("exit", "escalate") and exit_target is None:
-            raise ValueError(
-                f"LoopPolicy {policy_id!r} onExhaustion={on_exhaustion!r} "
-                "requires a non-empty exitEdgeIds"
-            )
-
-        for edge in feedback_edges:
-            edge_target_override[edge["id"]] = guard_node_id
-
-        for member_id in policy.get("memberNodeIds") or []:
-            node_to_policies.setdefault(member_id, []).append(policy_id)
-
-        guard_specs.append(
-            {
-                "policy": policy,
-                "guard_node_id": guard_node_id,
-                "continue_target": continue_target,
-                "exit_target": exit_target,
-            }
-        )
-
-    return edge_target_override, guard_specs, node_to_policies
+def _handle_targets(outgoing: dict[str, list[dict]], node_id: str) -> dict[str, str]:
+    """노드의 outgoing 엣지를 sourceHandle → target 으로 인덱싱한다."""
+    return {e["sourceHandle"]: e["target"] for e in outgoing.get(node_id, [])}
 
 
 def _tarjan_scc(node_ids: list[str], edges: list[dict]) -> list[list[str]]:
@@ -531,7 +451,7 @@ def _make_loop_guard_node(
 
         if on_exhaustion == "fail":
             raise RuntimeError(
-                f"LoopPolicy {policy_id!r} exhausted ({result['exit_reason']}) "
+                f"loop.guard node {policy_id!r} exhausted ({result['exit_reason']}) "
                 "with onExhaustion='fail'"
             )
         return Command(goto=exit_target, update={"loop_runtime": {policy_id: update}})
@@ -554,28 +474,18 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         outgoing.setdefault(e["source"], []).append(e)
         incoming.setdefault(e["target"], []).append(e)
 
-    nodes_by_id = {n["id"]: n for n in nodes}
-    edges_by_id = {e["id"]: e for e in edges}
-    loop_policies: list[dict] = architecture.get("loopPolicies") or []
-    edge_target_override, guard_specs, node_to_policies = _prepare_loop_policies(
-        loop_policies, nodes_by_id, edges_by_id
-    )
+    loop_node_ids = {n["id"] for n in nodes if n["type"] == "loop.guard"}
+
+    # 토큰/비용 예산을 귀속시킬 루프 본체를 그래프에서 유도한다 (설계 §3d).
+    # 파라미터 이름 loop_policy_ids는 review/llm_step 쪽 무변경을 위해 유지된다.
+    node_to_policies: dict[str, list[str]] = {}
+    for loop_node_id in sorted(loop_node_ids):
+        continue_target = _handle_targets(outgoing, loop_node_id).get("loopBack")
+        for member_id in sorted(_derive_loop_members(loop_node_id, continue_target, outgoing)):
+            node_to_policies.setdefault(member_id, []).append(loop_node_id)
 
     graph = StateGraph(AgentState)
     route_fns: dict[str, Any] = {}
-
-    for spec in guard_specs:
-        graph.add_node(
-            spec["guard_node_id"],
-            _make_loop_guard_node(
-                spec["policy"],
-                spec["guard_node_id"],
-                spec["continue_target"],
-                spec["exit_target"],
-                emit,
-                run_id,
-            ),
-        )
 
     for node in nodes:
         node_id = node["id"]
@@ -607,15 +517,44 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             )
         elif node_type == "human.checkpoint":
             routes = {"approve": END, "revise": END, "reject": END}
-            routes.update(
-                {
-                    e["sourceHandle"]: edge_target_override.get(e["id"], e["target"])
-                    for e in outgoing.get(node_id, [])
-                }
-            )
+            routes.update(_handle_targets(outgoing, node_id))
             graph.add_node(
                 node_id,
                 make_human_checkpoint(emit, run_id, routes=routes, node_id=node_id),
+            )
+        elif node_type == "loop.guard":
+            loop_policy = _loop_policy_from_config(node)
+            targets = _handle_targets(outgoing, node_id)
+            continue_target = targets.get("loopBack")
+            exit_target = targets.get("exit")
+            on_exhaustion = loop_policy["onExhaustion"]
+
+            if continue_target is None:
+                raise ValueError(
+                    f"loop.guard node {node_id!r} has no 'loopBack' edge — "
+                    "wire the Loop back port to the node the loop re-enters"
+                )
+            if on_exhaustion not in ("exit", "escalate", "fail"):
+                raise ValueError(
+                    f"loop.guard node {node_id!r} has invalid onExhaustion "
+                    f"{on_exhaustion!r} (must be 'exit', 'escalate', or 'fail')"
+                )
+            if on_exhaustion in ("exit", "escalate") and exit_target is None:
+                raise ValueError(
+                    f"loop.guard node {node_id!r} onExhaustion={on_exhaustion!r} "
+                    "requires a wired 'exit' port"
+                )
+
+            graph.add_node(
+                node_id,
+                _make_loop_guard_node(
+                    loop_policy,
+                    node_id,
+                    continue_target=continue_target,
+                    exit_target=exit_target,
+                    emit=emit,
+                    run_id=run_id,
+                ),
             )
         else:
             raise ValueError(f"Unsupported node type in compiler: {node_type!r}")
@@ -627,12 +566,13 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         outs = outgoing.get(node_id, [])
 
         if node_type == "review.intent":
-            mapping = {
-                e["sourceHandle"]: edge_target_override.get(e["id"], e["target"]) for e in outs
-            }
-            graph.add_conditional_edges(node_id, route_fns[node_id], mapping)
+            graph.add_conditional_edges(
+                node_id, route_fns[node_id], _handle_targets(outgoing, node_id)
+            )
             continue
-        if node_type == "human.checkpoint":
+        # human.checkpoint / loop.guard는 Command(goto=...)로 스스로 라우팅하므로
+        # plain edge를 추가하지 않는다.
+        if node_type in ("human.checkpoint", "loop.guard"):
             continue
 
         if not outs:
