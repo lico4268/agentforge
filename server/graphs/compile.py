@@ -367,6 +367,71 @@ def _prepare_loop_policies(
     return edge_target_override, guard_specs, node_to_policies
 
 
+def _tarjan_scc(node_ids: list[str], edges: list[dict]) -> list[list[str]]:
+    """Tarjan SCC. 크기 >= 2인 컴포넌트는 그 안에 최소 하나의 cycle이 있다는 뜻이다.
+
+    ui/src/canvas/loops/loopCandidates.ts의 findStronglyConnectedComponents를
+    포팅한 것 — Tier 판별용 countSimpleCyclesCapped는 UI 표시 목적이 사라져
+    포팅하지 않는다(설계 §4).
+    """
+    adjacency: dict[str, list[str]] = {node_id: [] for node_id in node_ids}
+    for e in edges:
+        if e["source"] in adjacency:
+            adjacency[e["source"]].append(e["target"])
+
+    index_counter = 0
+    indices: dict[str, int] = {}
+    lowlink: dict[str, int] = {}
+    on_stack: set[str] = set()
+    stack: list[str] = []
+    components: list[list[str]] = []
+
+    def strong_connect(v: str) -> None:
+        nonlocal index_counter
+        indices[v] = index_counter
+        lowlink[v] = index_counter
+        index_counter += 1
+        stack.append(v)
+        on_stack.add(v)
+
+        for w in adjacency.get(v, []):
+            if w not in indices:
+                strong_connect(w)
+                lowlink[v] = min(lowlink[v], lowlink[w])
+            elif w in on_stack:
+                lowlink[v] = min(lowlink[v], indices[w])
+
+        if lowlink[v] == indices[v]:
+            component: list[str] = []
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                component.append(w)
+                if w == v:
+                    break
+            components.append(component)
+
+    for node_id in node_ids:
+        if node_id not in indices:
+            strong_connect(node_id)
+
+    return components
+
+
+def _validate_gated_cycles(node_ids: list[str], edges: list[dict], loop_node_ids: set[str]) -> None:
+    """가드 없이 그려진 cycle은 컴파일 에러 — 무한 루프를 멈출 지점이 없다는 뜻이다.
+
+    프론트 Loop Scope Lens가 담당하던 실수 방지 역할의 백엔드 이관(설계 §4).
+    크기 1 컴포넌트(self-loop 포함)는 대상이 아니다.
+    """
+    for component in _tarjan_scc(node_ids, edges):
+        if len(component) >= 2 and not (set(component) & loop_node_ids):
+            raise ValueError(
+                f"Cycle without a loop.guard node: {sorted(component)} — "
+                "add a Loop node on the feedback edge"
+            )
+
+
 def _derive_loop_members(
     loop_node_id: str, continue_target: str | None, outgoing: dict[str, list[dict]]
 ) -> set[str]:

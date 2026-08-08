@@ -830,3 +830,55 @@ def test_derive_loop_members_excludes_a_dead_end_branch_inside_the_loop_body():
         "reasoning",
         "review",
     }
+
+
+def _scc_sorted(components: list[list[str]]) -> list[list[str]]:
+    return sorted(sorted(component) for component in components)
+
+
+def test_tarjan_scc_isolates_every_node_when_there_are_no_edges():
+    assert _scc_sorted(compile_mod._tarjan_scc(["a", "b", "c"], [])) == [["a"], ["b"], ["c"]]
+
+
+def test_tarjan_scc_does_not_merge_a_one_way_chain():
+    edges = [_edge("a", "b"), _edge("b", "c")]
+    assert _scc_sorted(compile_mod._tarjan_scc(["a", "b", "c"], edges)) == [["a"], ["b"], ["c"]]
+
+
+def test_tarjan_scc_merges_a_simple_two_cycle():
+    edges = [_edge("a", "b"), _edge("b", "a")]
+    assert _scc_sorted(compile_mod._tarjan_scc(["a", "b"], edges)) == [["a", "b"]]
+
+
+def test_tarjan_scc_keeps_a_self_loop_as_a_size_one_component():
+    assert _scc_sorted(compile_mod._tarjan_scc(["a"], [_edge("a", "a")])) == [["a"]]
+
+
+def test_tarjan_scc_merges_two_cycles_that_share_a_node():
+    edges = [_edge("a", "b"), _edge("b", "a"), _edge("a", "c"), _edge("c", "a")]
+    assert _scc_sorted(compile_mod._tarjan_scc(["a", "b", "c"], edges)) == [["a", "b", "c"]]
+
+
+def test_validate_gated_cycles_raises_for_an_ungated_cycle():
+    with pytest.raises(ValueError, match="Cycle without a loop.guard node"):
+        compile_mod._validate_gated_cycles(["a", "b"], [_edge("a", "b"), _edge("b", "a")], set())
+
+
+def test_validate_gated_cycles_accepts_a_cycle_containing_a_guard():
+    compile_mod._validate_gated_cycles(["a", "g"], [_edge("a", "g"), _edge("g", "a")], {"g"})
+
+
+def test_validate_gated_cycles_ignores_self_loops():
+    """SCC 크기 1(self-loop 포함)은 게이팅 대상이 아니다 (설계 §비목표)."""
+    compile_mod._validate_gated_cycles(["a"], [_edge("a", "a")], set())
+
+
+def test_validate_gated_cycles_reports_only_the_ungated_component():
+    edges = [
+        _edge("a", "g"),
+        _edge("g", "a"),
+        _edge("c", "d"),
+        _edge("d", "c"),
+    ]
+    with pytest.raises(ValueError, match=r"\['c', 'd'\]"):
+        compile_mod._validate_gated_cycles(["a", "g", "c", "d"], edges, {"g"})
