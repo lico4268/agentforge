@@ -53,6 +53,12 @@ export const ExecutionErrorSchema = z.object({
 })
 export type ExecutionError = z.infer<typeof ExecutionErrorSchema>
 
+// Only 'maxIterations' | 'budget' | 'stuck' are reachable on the wire today —
+// server/nodes/loop_guard.py's evaluate_loop_guard never emits 'success' (it
+// omits exitReason entirely when should_continue is true) or 'escalated', and
+// the 'fail' onExhaustion path raises before any event can carry 'failed'.
+// Keeping the unreachable values in the enum is a deliberate reserved-for-later
+// choice, not an oversight — see server/graphs/compile.py's loop.guard branch.
 export const LOOP_RUNTIME_EXIT_REASONS = [
   'success',
   'maxIterations',
