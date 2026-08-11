@@ -160,6 +160,37 @@ async def test_linear_pipeline_runs(monkeypatch):
     assert starts == ends == {"input", "planning", "reasoning", "output"}
 
 
+async def test_input_prefers_submitted_task_over_canvas_sample(monkeypatch):
+    """WebSocket 등 실행 시 제출한 task는 io.input sample보다 우선한다."""
+    _patch_model(monkeypatch)
+    observed_tasks: list[str] = []
+
+    async def capture_task(state, *, node_id, **kwargs):
+        observed_tasks.append(state["task"])
+        return await fake_llm_step(state, node_id=node_id, **kwargs)
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", capture_task)
+    emitter = ListEventEmitter()
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "canvas sample"}),
+            _node("reasoning", "reasoning.cot"),
+        ],
+        [_edge("input", "reasoning", "task")],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    final = await graph.ainvoke(
+        initial_state("submitted task"), {"configurable": {"thread_id": "t3"}}
+    )
+
+    assert final["task"] == "submitted task"
+    assert observed_tasks == ["submitted task"]
+    input_end = next(
+        e for e in emitter.events if e.node_id == "input" and e.event_type == "node_end"
+    )
+    assert input_end.output == {"task": "submitted task"}
+
+
 async def test_reasoning_direct_no_planning(monkeypatch):
     """planning 없이 input→reasoning→output도 동작한다."""
     _patch_model(monkeypatch)

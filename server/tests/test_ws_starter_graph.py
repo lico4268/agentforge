@@ -170,7 +170,13 @@ def test_starter_graph_runs_end_to_end_over_the_websocket(monkeypatch, tmp_path)
         verdict = "unmet" if calls["review"] == 1 else "met"
         return _delta([{"id": "c1", "verdict": verdict, "evidence": "ev"}])
 
-    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    observed_tasks: list[str] = []
+
+    async def capture_task(state, *, node_id, **kwargs):
+        observed_tasks.append(state["task"])
+        return await fake_llm_step(state, node_id=node_id, **kwargs)
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", capture_task)
     monkeypatch.setattr(review_mod, "run_llm_step", fake_review)
 
     from main import app
@@ -181,7 +187,7 @@ def test_starter_graph_runs_end_to_end_over_the_websocket(monkeypatch, tmp_path)
                 "kind": "run",
                 "architecture": STARTER_ARCHITECTURE,
                 "input": {
-                    "task": "2+2",
+                    "task": "submitted task",
                     "criteria": [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}],
                 },
                 "model": {},
@@ -192,6 +198,9 @@ def test_starter_graph_runs_end_to_end_over_the_websocket(monkeypatch, tmp_path)
     assert outcome["kind"] == "run_complete", outcome
     assert outcome["result"]["answer"] == "4"
     assert outcome["result"]["reviewBranch"] == "accept"
+    assert observed_tasks == ["submitted task", "submitted task", "submitted task"]
+    input_end = next(e for e in events if e["nodeId"] == "input" and e["eventType"] == "node_end")
+    assert input_end["output"] == {"task": "submitted task"}
 
     guard_events = [e for e in events if e["nodeId"] == "loop_guard" and e.get("loopRuntime")]
     assert guard_events, "loop.guard 노드가 한 번도 실행되지 않았다"

@@ -62,10 +62,12 @@ def _make_passthrough_node(
         output = None
         updates: dict = {}
         if node_type == "io.input":
+            submitted_task = state.get("task")
             sample = node_config.get("sample")
-            if sample:
+            effective_task = submitted_task or sample
+            if not submitted_task and sample:
                 updates["task"] = sample
-                output = {"task": sample}
+            output = {"task": effective_task}
         elif node_type == "io.output":
             output = {"answer": state.get("answer"), "review": state.get("review_delta")}
         await emit(make_event(run_id, node_id, "node_end", output=output))

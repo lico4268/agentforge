@@ -351,7 +351,7 @@ Architecture(dict)를 실행 가능한 `CompiledGraph`로 만든다. 노드 매�
 
 | manifest type | 컴파일 결과 |
 |---------------|------------|
-| `io.input` / `io.output` / `model.binding` | passthrough 노드 (`PASSTHROUGH_TYPES`) — io.input은 `config.sample`을 task로 주입, io.output은 answer/review 요약 방출 |
+| `io.input` / `io.output` / `model.binding` | passthrough 노드 (`PASSTHROUGH_TYPES`) — io.input은 제출된 task를 우선 사용하고, 비어 있을 때만 `config.sample`을 fallback으로 주입; io.output은 answer/review 요약 방출 |
 | `runtime == "llm_step"` (`planning.decompose`/`reasoning.cot`) | `LLM_STEP_TABLE` 스펙(output_model·state 업데이트 매핑)으로 `run_llm_step` 노드 생성 |
 | `review.intent` | `make_review` 재사용 — 노드 config의 `criteria`/`maxRetries`/`escalateTags` 반영 |
 | `human.checkpoint` | `make_human_checkpoint` + outgoing 핸들 기반 routes |
@@ -364,7 +364,8 @@ Architecture(dict)를 실행 가능한 `CompiledGraph`로 만든다. 노드 매�
 (io.input발 edge 중 실제 선행 처리 노드가 이미 있는 target행은 제거).
 
 **한계 (2026-07-03)**: llm_step은 `LLM_STEP_TABLE` 등록 타입만 지원(미등록 type은 `ValueError`),
-모델은 `modelSlots[0]`만 해석. 전용 단위 테스트(`test_compile.py`)는 아직 없다.
+모델은 `modelSlots[0]`만 해석. 전용 단위 테스트(`server/tests/test_compile.py`)와
+스타터 그래프 WebSocket 통합 테스트(`server/tests/test_ws_starter_graph.py`)가 있다.
 
 #### 7.4a `loop.guard` — 1급 루프 제어 노드 (2026-08-07, 커밋 `0d3f73e`~`b3c86ca`)
 

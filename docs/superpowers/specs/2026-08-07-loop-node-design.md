@@ -1,7 +1,7 @@
 # Loop 노드 — 1급 캔버스 노드로서의 루프 제어
 
 - **작성일**: 2026-08-07
-- **상태**: 설계 승인됨 — 구현 계획(writing-plans) 대기
+- **상태**: 구현·검증 완료 (2026-08-08)
 - **작업 스트림**: `work/radial-agent-canvas/` (Loop Control UI) 후속
 - **대체하는 문서**: `docs/superpowers/specs/2026-08-06-loop-policy-design.md` (본 설계로 전면 대체 — sidecar 정책 모델과 Loop Scope Lens를 함께 폐기)
 - **관련 문서**: `work/radial-agent-canvas/LOOP_CONTROL_UX_PLAN.md`, `LOOP_ENGINEERING_RESEARCH.md`, `DECISIONS.md`
