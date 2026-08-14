@@ -12,16 +12,18 @@ import {
   type EdgeTypes,
 } from '@xyflow/react'
 import { useShallow } from 'zustand/react/shallow'
-import { useGraphStore } from '@/stores/useGraphStore'
+import { useGraphStore, type RFNode } from '@/stores/useGraphStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { useRegistry } from '@/registry/RegistryContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { GenericNode } from './nodes/GenericNode'
 import { AgentNode } from './nodes/AgentNode'
+import { LoopNode } from './nodes/LoopNode'
 import { AgentEdge } from './edges/AgentEdge'
 import { radialLayout } from './layout/radialLayout'
 import { prefersReducedMotion, viewportTransitionDuration } from './viewport'
 import { DRAG_MIME } from './dragTypes'
+import { LOOP_COLLAPSED_NODE_TYPE, projectCollapsedView, projectDrilledInView } from './loop/loopProjection'
 
 /**
  * The canvas. `nodeTypes` is built from the registry — every manifest type maps
@@ -37,6 +39,8 @@ export function Canvas() {
   const setCanvasNodeMode = useUiStore((s) => s.setCanvasNodeMode)
   const showConnectionPorts = useUiStore((s) => s.showConnectionPorts)
   const toggleConnectionPorts = useUiStore((s) => s.toggleConnectionPorts)
+  const drilledInLoopId = useUiStore((s) => s.drilledInLoopId)
+  const exitLoop = useUiStore((s) => s.exitLoop)
 
   // Fit once after React Flow has measured nodes. Panel resizes must preserve
   // the user's viewport, so they intentionally do not trigger another fit.
@@ -81,20 +85,55 @@ export function Canvas() {
       })),
     )
 
+  // Auto-recover if the drilled-into loop's guard node was deleted (or its
+  // loopBack edge was removed) while the user was inside it.
+  useEffect(() => {
+    if (drilledInLoopId && !nodes.some((n) => n.id === drilledInLoopId)) {
+      exitLoop()
+    }
+  }, [drilledInLoopId, nodes, exitLoop])
+
+  const { nodes: viewNodes, edges: viewEdges } = useMemo(() => {
+    if (canvasNodeMode !== 'agent') return { nodes, edges }
+    // projectCollapsedView/projectDrilledInView are typed against the generic
+    // @xyflow/react `Node` (Task 2), but every node they return either passes
+    // an input RFNode through unchanged or spreads `...n.data` onto it (see
+    // LoopCollapsedNodeData = RFNodeData & {...}), so the result always
+    // satisfies RFNodeData at runtime — the cast just narrows the type back.
+    if (drilledInLoopId && nodes.some((n) => n.id === drilledInLoopId)) {
+      const view = projectDrilledInView(nodes, edges, drilledInLoopId)
+      return { nodes: view.nodes as RFNode[], edges: view.edges }
+    }
+    const view = projectCollapsedView(nodes, edges)
+    return { nodes: view.nodes as RFNode[], edges: view.edges }
+  }, [nodes, edges, drilledInLoopId, canvasNodeMode])
+
+  // Re-fit whenever the drilled-in loop changes (entering, exiting, or
+  // switching between loops) — the visible node set is a completely
+  // different subgraph each time, unlike a panel resize.
+  const previousDrilledInLoopId = useRef(drilledInLoopId)
+  useEffect(() => {
+    if (previousDrilledInLoopId.current === drilledInLoopId) return
+    previousDrilledInLoopId.current = drilledInLoopId
+    if (!nodesInitialized) return
+    void fitView({ padding: 0.2, duration: viewportTransitionDuration(prefersReducedMotion()) })
+  }, [drilledInLoopId, fitView, nodesInitialized])
+
   const nodeTypes: NodeTypes = useMemo(() => {
     const map: NodeTypes = {}
     for (const m of registry.all()) {
       map[m.type] = registry.customComponent(m.type) ?? (canvasNodeMode === 'agent' ? AgentNode : GenericNode)
     }
+    map[LOOP_COLLAPSED_NODE_TYPE] = LoopNode
     return map
   }, [canvasNodeMode, registry])
   const edgeTypes: EdgeTypes = useMemo(() => ({ agent: AgentEdge }), [])
   const renderedEdges = useMemo(
     () =>
       canvasNodeMode === 'agent'
-        ? edges.map((edge) => ({ ...edge, type: 'agent' }))
-        : edges,
-    [canvasNodeMode, edges],
+        ? viewEdges.map((edge) => ({ ...edge, type: 'agent' }))
+        : viewEdges,
+    [canvasNodeMode, viewEdges],
   )
 
   const onDragOver = useCallback((e: DragEvent) => {
@@ -113,6 +152,9 @@ export function Canvas() {
     [screenToFlowPosition, addNode],
   )
 
+  // Arrange radially still operates on the raw graph (not the collapsed/
+  // drilled-in view) — rearranging a loop's hidden members while it's
+  // collapsed is a real but low-priority gap, left for a follow-up.
   const arrangeRadially = useCallback(() => {
     const centerNode = nodes.find((node) => node.id === selectedNodeId) ?? nodes[0]
     if (!centerNode) return
@@ -128,7 +170,7 @@ export function Canvas() {
   return (
     <div className="h-full w-full bg-[#0e1511]">
       <ReactFlow
-        nodes={nodes}
+        nodes={viewNodes}
         edges={renderedEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
