@@ -55,11 +55,13 @@
 
 ## 3. 루프 표현 — 접힌 노드 + 더블클릭 드릴다운
 
-### 배경: 이미 한 번 시도했다가 되돌린 접근과의 구분
+### 배경: 이미 한 번 시도했다가 되돌린 접근과의 구분, 그리고 현재 실제 상태
 
-`LoopScopeNode`(Slice 8, `LOOP_CONTROL_IMPLEMENTATION.md`)가 루프를 캔버스 위 인라인 컨테이너 박스로 접었지만, "원래 노드를 숨기거나 흐릿하게 만들어 일반 실행 흐름을 읽기 어렵게 한다"는 이유로 되돌려졌고(`8e3948c`, `0d003b2`), 대신 Loop Anchor(짝 토큰) + Loop Lens(국소 다이어그램) 방식을 채택했다(`LOOP_CONTROL_UX_PLAN.md`).
+`LoopScopeNode`(Slice 8, `LOOP_CONTROL_IMPLEMENTATION.md`)가 루프를 캔버스 위 인라인 컨테이너 박스로 접었지만, "원래 노드를 숨기거나 흐릿하게 만들어 일반 실행 흐름을 읽기 어렵게 한다"는 이유로 되돌려졌고(`8e3948c`, `0d003b2`), 그 다음 단계로 Loop Anchor(짝 토큰) + Loop Lens(국소 다이어그램) + Loops panel 방식을 채택했었다(`LOOP_CONTROL_UX_PLAN.md`).
 
-이번에 사용자가 제안한 방식은 표면적으로 비슷해 보이지만 구조적으로 다르다: **인라인 컨테이너는 접힌 상태가 항상 같은 캔버스 위에 남아 반쪽짜리 정보를 상시 노출**했던 반면, **더블클릭 드릴다운은 접힌 상태와 펼친 상태가 서로 다른 화면**이라 반쪽짜리 상태 자체가 존재하지 않는다. 브라우저 목업으로 두 방식을 나란히 비교해 이 차이를 확인한 뒤 드릴다운을 선택했다.
+**그런데 그 Anchor/Lens/Panel 체계는 이후 `2026-08-07-loop-node-design.md` 설계(2026-08-08 구현·검증 완료)에서 `loop.guard`를 1급 캔버스 노드로 만들며 전부 삭제됐다** — `ui/src/canvas/loops/{loopCandidates,loopAnchors}.ts`, `LoopCandidateInspector.tsx`, `LoopAnchor.tsx`, `LoopControlPanel.tsx`가 모두 제거됐고(실측: 저장소에 `*loop*` 이름의 프론트 파일은 테스트 1개뿐), 현재 `loop.guard`는 **어떤 특수 시각화도 없이** `GenericNode`/`AgentNode`가 다른 노드와 완전히 동일하게 렌더한다(`category: "policy"` 색만 공유). 즉 이번 절에서 설계하는 "접힌 루프 노드 + 드릴다운"은 기존 무언가를 **대체하는 게 아니라, 현재 존재하지 않는 것을 새로 만드는 것**이다 — 브레인스토밍 과정에서 이 사실을 놓치고 "대체"라고 표현했던 부분을 이 문서에서 바로잡는다.
+
+이번에 사용자가 제안한 방식은 가장 처음 시도했던 인라인 컨테이너와 표면적으로 비슷해 보이지만 구조적으로 다르다: **인라인 컨테이너는 접힌 상태가 항상 같은 캔버스 위에 남아 반쪽짜리 정보를 상시 노출**했던 반면, **더블클릭 드릴다운은 접힌 상태와 펼친 상태가 서로 다른 화면**이라 반쪽짜리 상태 자체가 존재하지 않는다. 브라우저 목업으로 두 방식을 나란히 비교해 이 차이를 확인한 뒤 드릴다운을 선택했다.
 
 ### 결정
 
@@ -67,7 +69,7 @@
 - 접힌 상태에서도 **보통 노드와 동일하게 여러 개의 in/out 포트를 그대로 노출**한다 — 예를 들어 루프 내부의 `review.intent`가 갖는 `accept → Output`, `escalate → Human checkpoint` 같은 분기는 접힌 루프 노드의 출력 포트로도 그대로 보여야 한다. 루프를 접는 것은 **내부 노드 개수를 숨기는 것이지, 외부로 나가는 분기 구조를 숨기는 것이 아니다.**
 - 코너에 펼치기 배지(멤버 수 + `open_in_full` Material Symbol). 평소엔 은은하다가 hover 시 진해진다(기존 progressive disclosure 원칙 적용).
 - **더블클릭 → 화면이 그 루프의 내부 뷰로 전환**된다(같은 캔버스에 박스로 안 남음). 상단에 breadcrumb이 뜨고 클릭하면 메인 그래프로 복귀한다.
-- **대체되는 것**: Loop Anchor(짝 토큰)와 Loop Lens(국소 다이어그램)는 드릴다운으로 대체되어 제거 대상이다. **유지되는 것**: Loops panel(전역 루프 목록)은 남는다 — 캔버스에서 루프가 화면 밖에 있을 때도 드릴다운으로 들어갈 수 있는 또 다른 진입점이기 때문이다.
+- Loop Anchor/Lens/Loops panel은 이미 삭제되어 있으므로 "대체"할 코드가 없다 — 이번 기능은 순수 신규 구현이다. Loops panel과 동등한 전역 목록 진입점이 필요한지는 이번 설계 범위에 포함하지 않는다(후속 작업 참고) — 스타터 그래프처럼 루프가 하나뿐이고 화면 안에 항상 보이는 경우에는 캔버스 위 더블클릭만으로 충분하기 때문이다.
 
 **정체성 링 vs 상태 표현**: 물결 헤일로(바깥 2겹)는 "이 노드는 접힌 루프다"를 나타내는 고정 정체성 마커로 항상 loop-purple이다. 안쪽 원의 테두리는 기존 `AgentNode`와 동일하게 `statusColor(status, accent)`를 그대로 따른다(running/success/failed/skipped) — 즉 루프 노드는 카테고리 색 대신 loop-purple을 accent로 쓰는 것일 뿐, 상태 표현 로직 자체는 다른 노드와 동일하다. 두 신호(고정 정체성 vs 실행 중 상태)를 같은 테두리 하나로 섞지 않는다.
 
@@ -92,7 +94,7 @@
 
 - 결정 대기 **#4(checkpoint 조작 위치)** → 이미 코드에서 Inspector 중심으로 확정돼 있으므로 "확정" 표로 이동.
 - 이번 세션 결정 4건(엣지 라우팅 직선+loop-back 곡선 / 루프 드릴다운 네비게이션 / 루프 노드 물결 헤일로 비주얼 / Input Slots 원칙)을 "확정" 표에 추가.
-- Loop Anchor / Loop Lens 관련 기존 확정 항목은 삭제하지 않고 "드릴다운으로 대체됨"이라고 표기해 이력으로 남긴다.
+- Loop Anchor / Loop Lens 관련 기존 확정 항목은 삭제하지 않고 "`loop.guard` 1급 노드 설계(2026-08-07)로 이미 코드가 제거됨, 이번 드릴다운 설계는 그 위에 신규로 얹는 것"이라고 표기해 이력으로 남긴다.
 - 나머지 미해결 항목(중심 노드 자동 선정, classic renderer 병행 기간, 노드 지름, Coordinator/Tool/Memory 노출, `LoopPolicy` 직렬화 — 이미 `loop.guard` 노드 설계로 대체되어 사실상 해소됨 여부 확인 필요)은 이번 범위 밖으로 그대로 열어둔다.
 
 ## 영향받는 코드 (구현 단계 참고용, 상세 설계는 후속)
@@ -101,9 +103,7 @@
 | --- | --- | --- |
 | 엣지 라우팅 | `ui/src/canvas/edges/AgentEdge.tsx`, `ui/src/canvas/nodes/radialPortGeometry.ts` | 정방향은 직선 경로로 전환(quantized Position 접선 계산 불필요), loop-back 판별 후 곡선+점선+loop-purple 분기 |
 | 루프 접힘 노드 | `ui/src/canvas/nodes/` 신규 컴포넌트, `AgentNode.tsx` | 물결 헤일로 스타일(기존 running glow 재사용) + 코너 배지 |
-| 드릴다운 네비게이션 | `ui/src/canvas/Canvas.tsx`, `ui/src/app/Toolbar.tsx`, 캔버스 뷰 상태 스토어 | 현재 뷰 레벨(메인/루프 내부) 상태 추가, breadcrumb 렌더 |
-| 제거 대상 | `ui/src/canvas/loops/{loopCandidates,loopAnchors}.ts`, `ui/src/panels/LoopCandidateInspector.tsx`, `ui/src/canvas/nodes/LoopAnchor.tsx` | Loop Lens 관련 코드 삭제, `Canvas.tsx`/`Inspector.tsx`/`AgentNode.tsx`의 참조 제거 |
-| 유지 | `ui/src/canvas/LoopControlPanel.tsx`(Loops panel) | 드릴다운 진입점으로 재활용 — 클릭 시 해당 루프로 드릴다운 |
+| 드릴다운 네비게이션 (신규) | `ui/src/canvas/Canvas.tsx`, `ui/src/app/Toolbar.tsx`, 신규 뷰 상태(스토어 또는 로컬 state) | 현재 뷰 레벨(메인/특정 루프 내부) 상태 추가, breadcrumb 렌더. 참고할 기존 패턴 없음(순수 신규) |
 | Input Slots | `ui/src/panels/Inspector.tsx` | `ModelSlotsEditor`와 동일 패턴의 신규 `InputSlotsEditor` (백엔드 계약은 후속 설계) |
 
 ## 테스트 관점 (구현 단계에서 구체화)
@@ -111,7 +111,6 @@
 - 엣지: 대각선 방향 연결에서 직선 경로가 정확히 경계-경계로 그려지는지, loop-back 판별 로직이 오탐 없이 곡선 스타일을 적용하는지.
 - 루프 접힘 노드: 멤버 수 배지, 접힌 상태에서도 실제 manifest 출력 포트(분기 포함)가 노출되는지.
 - 드릴다운: 진입/복귀 시 Inspector 선택 상태·LogPanel 이벤트가 유지되는지(뷰 레벨 전환이 실행 상태에 영향을 주지 않는다는 원칙의 회귀 테스트), breadcrumb 네비게이션.
-- 기존 Loop Anchor/Lens 테스트(`loopCandidates.test.ts`, `loopAnchors.test.ts`) 제거에 따른 커버리지 공백을 드릴다운 테스트로 대체.
 
 ## 후속 작업 (이번 설계 범위 밖)
 
