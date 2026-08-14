@@ -13,6 +13,10 @@ export const CATEGORY_META: Record<
   io:        { label: 'I/O',       color: '#ffd180', varName: 'cat-io',        icon: 'swap_horiz'     },
 }
 
+/** Loop-purple — reserved for loop-related UI (re-entry edges, the collapsed
+ * loop node's ripple halo). Never mixed with a category color. */
+export const LOOP_ACCENT_COLOR = '#a78bfa'
+
 /** Per-node type icons for the library panel */
 export const NODE_TYPE_ICONS: Record<string, string> = {
   'planning.decompose': 'psychology',

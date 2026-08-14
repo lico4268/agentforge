@@ -3,9 +3,11 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
+  getStraightPath,
   type EdgeProps,
 } from '@xyflow/react'
-import { edgePresentation } from './edgePresentation'
+import { edgePresentation, isLoopBackEdge } from './edgePresentation'
+import { LOOP_ACCENT_COLOR } from '@/lib/categoryStyle'
 
 export function AgentEdge({
   id,
@@ -21,21 +23,28 @@ export function AgentEdge({
 }: EdgeProps) {
   const [isHovered, setIsHovered] = useState(false)
   const { conditional, color } = edgePresentation(sourceHandleId)
-  const isFeedbackLoop = sourceY > targetY
-  const fallbackPath = getBezierPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    curvature: isFeedbackLoop ? 0.42 : 0.24,
-  })
-  const edgePath = fallbackPath[0]
-  const labelX = fallbackPath[1]
-  const labelY = fallbackPath[2]
+  const isLoopBack = isLoopBackEdge(sourceHandleId)
+
+  // Forward edges: straight boundary-to-boundary. The port dot already sits
+  // at its true continuous angle (radialPortGeometry.ts); a straight line
+  // needs no tangent direction at all, so it can't be thrown off by the
+  // 4-direction Position quantization getBezierPath relies on.
+  // Loop-back edges: kept curved on purpose, so the return relationship
+  // reads as visually distinct from the forward flow.
+  const [edgePath, labelX, labelY] = isLoopBack
+    ? getBezierPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+        curvature: 0.42,
+      })
+    : getStraightPath({ sourceX, sourceY, targetX, targetY })
+
   const showLabel = conditional || selected || isHovered
-  const stroke = selected ? '#dde4dd' : color
+  const stroke = selected ? '#dde4dd' : isLoopBack ? LOOP_ACCENT_COLOR : color
   const arrowMarkerId = `agent-arrow-${id}`
 
   return (
@@ -62,6 +71,7 @@ export function AgentEdge({
           style={{
             stroke,
             strokeWidth: selected ? 2.5 : conditional ? 2 : 1.5,
+            strokeDasharray: isLoopBack ? '6 4' : undefined,
           }}
         />
       </g>
