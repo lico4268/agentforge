@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTransport } from '@/transport/TransportContext'
 import { useGraphStore } from '@/stores/useGraphStore'
+import { useUiStore } from '@/stores/useUiStore'
 import { useExecutionStore } from '@/execution/useExecutionStore'
 import { loadModels } from '@/registry/loadModels'
+import { deriveLoopMembers } from '@/canvas/loop/deriveLoopMembers'
 import type { ModelConfig } from '@/types'
 
 const ARCH_OPTIONS = [
@@ -21,6 +23,13 @@ export function Toolbar() {
   const nodes = useGraphStore((s) => s.nodes)
   const nodeCount = nodes.length
   const runStatus      = useExecutionStore((s) => s.runStatus)
+
+  const drilledInLoopId = useUiStore((s) => s.drilledInLoopId)
+  const exitLoop = useUiStore((s) => s.exitLoop)
+  const edges = useGraphStore((s) => s.edges)
+  const drilledInLoopMemberCount = drilledInLoopId
+    ? deriveLoopMembers(nodes.map((n) => n.id), edges, drilledInLoopId).length
+    : 0
 
   const [archName, setArchName] = useState<ArchOption>('gsm8k-treatment')
   const [modelId, setModelId]   = useState<string>('gemini-3.5-flash')
@@ -59,13 +68,28 @@ export function Toolbar() {
       {/* Single-row toolbar */}
       <div className="flex h-14 items-center gap-3 px-4">
 
-        {/* Logo */}
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="text-[15px] font-semibold tracking-tight text-[#dde4dd]">Agentforge</span>
-          <span className="rounded border border-[#3c4a42]/60 bg-[#2f3632]/60 px-1.5 py-px font-mono text-[10px] text-[#86948a]">
-            v0.1
-          </span>
-        </div>
+        {/* Logo, or a breadcrumb back to the main graph while drilled into a loop */}
+        {drilledInLoopId ? (
+          <button
+            type="button"
+            onClick={exitLoop}
+            className="flex shrink-0 items-center gap-1.5 text-[13px] font-semibold text-[#dde4dd] transition-colors hover:text-[#4edea3]"
+            title="Back to main graph"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>arrow_back</span>
+            Agentforge <span className="font-normal text-[#86948a]">/</span> Loop
+            <span className="rounded border border-[#a78bfa]/40 bg-[#a78bfa]/10 px-1.5 py-px font-mono text-[10px] text-[#a78bfa]">
+              {drilledInLoopMemberCount} node{drilledInLoopMemberCount === 1 ? '' : 's'}
+            </span>
+          </button>
+        ) : (
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-[15px] font-semibold tracking-tight text-[#dde4dd]">Agentforge</span>
+            <span className="rounded border border-[#3c4a42]/60 bg-[#2f3632]/60 px-1.5 py-px font-mono text-[10px] text-[#86948a]">
+              v0.1
+            </span>
+          </div>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />
