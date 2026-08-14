@@ -33,3 +33,23 @@ describe('useUiStore connection port visibility', () => {
     expect(useUiStore.getState().showConnectionPorts).toBe(false)
   })
 })
+
+describe('useUiStore loop drill-down', () => {
+  beforeEach(() => {
+    useUiStore.setState({ drilledInLoopId: null })
+  })
+
+  it('defaults to no loop drilled into', () => {
+    expect(useUiStore.getState().drilledInLoopId).toBeNull()
+  })
+
+  it('enterLoop sets the drilled-in loop id, exitLoop clears it', () => {
+    useUiStore.getState().enterLoop('loop_guard')
+
+    expect(useUiStore.getState().drilledInLoopId).toBe('loop_guard')
+
+    useUiStore.getState().exitLoop()
+
+    expect(useUiStore.getState().drilledInLoopId).toBeNull()
+  })
+})
