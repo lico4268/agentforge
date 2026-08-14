@@ -56,3 +56,6 @@ refer_data/
 
 # Git worktrees (subagent-driven-development scratch workspaces)
 .worktrees/
+
+# Brainstorming visual companion mockups
+.superpowers/
