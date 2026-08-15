@@ -1,9 +1,20 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { useGraphStore } from '@/stores/useGraphStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { RadialNodePorts } from '@/canvas/nodes/RadialNodePorts'
+
+const connectionInProgress = vi.hoisted(() => ({ value: false }))
+
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@xyflow/react')>()
+  return {
+    ...actual,
+    useConnection: (selector: (c: { inProgress: boolean }) => unknown) =>
+      selector({ inProgress: connectionInProgress.value }),
+  }
+})
 
 function renderPorts() {
   return render(
@@ -67,5 +78,29 @@ describe('RadialNodePorts — local hover reveal', () => {
 
     fireEvent.mouseLeave(hoverZone)
     expect(queryByText('Task')).not.toBeInTheDocument()
+  })
+})
+
+describe('RadialNodePorts — reveal while another connection is in progress', () => {
+  beforeEach(() => {
+    useGraphStore.setState({ nodes: [], edges: [], radialCenterId: null })
+    useUiStore.setState({ showConnectionPorts: true })
+    connectionInProgress.value = false
+  })
+
+  it('reveals unconnected ports even without local hover, while a connection is in progress', () => {
+    connectionInProgress.value = true
+    const { container } = renderPorts()
+
+    expect(container.querySelector('[aria-label="Input port: Task"]')).toHaveStyle({
+      opacity: '1',
+      pointerEvents: 'auto',
+    })
+  })
+
+  it('stays hidden when no connection is in progress and the node is not hovered', () => {
+    const { container } = renderPorts()
+
+    expect(container.querySelector('[aria-label="Input port: Task"]')).toHaveStyle({ opacity: '0' })
   })
 })

@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react'
-import { Handle } from '@xyflow/react'
+import { Handle, useConnection } from '@xyflow/react'
 import type { Port } from '@/types'
 import { useUiStore } from '@/stores/useUiStore'
 import {
@@ -48,6 +48,7 @@ type RadialNodePortsProps = {
 export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', viewOverride }: RadialNodePortsProps) {
   const showConnectionPorts = useUiStore((s) => s.showConnectionPorts)
   const [isHovered, setIsHovered] = useState(false)
+  const connectionInProgress = useConnection((c) => c.inProgress)
   const liveInputAngles = useHubRimAngles(nodeId, inputs, 'input')
   const liveOutputAngles = useHubRimAngles(nodeId, outputs, 'output')
 
@@ -86,7 +87,7 @@ export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', vi
     seamAngleDeg,
   )
 
-  const revealed = showConnectionPorts && isHovered
+  const revealed = showConnectionPorts && (isHovered || connectionInProgress)
 
   return (
     <>
