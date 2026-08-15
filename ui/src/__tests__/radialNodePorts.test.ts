@@ -2,9 +2,14 @@ import { Position } from '@xyflow/react'
 import { describe, expect, it } from 'vitest'
 import {
   angleDegBetween,
+  clusterFallbackAngles,
+  connectedHandleStyle,
+  labelPointFromAngleDeg,
   pointFromAngleDeg,
   positionFromAngleDeg,
   resolveNodePortAngles,
+  revealableHandleStyle,
+  unconnectedPortAngles,
 } from '@/canvas/nodes/radialPortGeometry'
 
 describe('positionFromAngleDeg', () => {
@@ -116,5 +121,76 @@ describe('resolveNodePortAngles', () => {
 
   it('returns an empty array for zero ports', () => {
     expect(resolveNodePortAngles([])).toEqual([])
+  })
+})
+
+describe('clusterFallbackAngles', () => {
+  it('returns an empty array for zero ports', () => {
+    expect(clusterFallbackAngles(0, 90)).toEqual([])
+  })
+
+  it('places a single port exactly on the anchor angle', () => {
+    expect(clusterFallbackAngles(1, 90)).toEqual([90])
+  })
+
+  it('spreads multiple ports symmetrically around the anchor at the given gap', () => {
+    expect(clusterFallbackAngles(3, 0, 16)).toEqual([-16, 0, 16])
+  })
+
+  it('defaults to a 16 degree gap between adjacent ports', () => {
+    const angles = clusterFallbackAngles(2, 0)
+    expect(angles[1] - angles[0]).toBeCloseTo(16)
+  })
+})
+
+describe('unconnectedPortAngles', () => {
+  it('clusters inputs around the seam angle and outputs around its opposite', () => {
+    const { inputAngles, outputAngles } = unconnectedPortAngles(1, 1, 40)
+    expect(inputAngles).toEqual([40])
+    expect(outputAngles).toEqual([220])
+  })
+
+  it('returns an empty array for a side with no unconnected ports', () => {
+    const { inputAngles, outputAngles } = unconnectedPortAngles(0, 2, 0)
+    expect(inputAngles).toEqual([])
+    expect(outputAngles).toHaveLength(2)
+  })
+})
+
+describe('labelPointFromAngleDeg', () => {
+  it('sits further from the node center than the port dot at the same angle', () => {
+    const dot = pointFromAngleDeg(30)
+    const label = labelPointFromAngleDeg(30)
+    const dotDist = Math.hypot(dot.left - 56, dot.top - 56)
+    const labelDist = Math.hypot(label.left - 56, label.top - 56)
+    expect(labelDist).toBeGreaterThan(dotDist)
+  })
+
+  it('defaults to a 22px outward offset along the same angle as pointFromAngleDeg', () => {
+    const label = labelPointFromAngleDeg(0)
+    expect(label.left).toBeCloseTo(56 + 56 + 22)
+    expect(label.top).toBeCloseTo(56)
+  })
+})
+
+describe('connectedHandleStyle', () => {
+  it('is always invisible and non-interactive', () => {
+    const style = connectedHandleStyle()
+    expect(style.opacity).toBe(0)
+    expect(style.pointerEvents).toBe('none')
+  })
+})
+
+describe('revealableHandleStyle', () => {
+  it('is visible and interactive when revealed', () => {
+    const style = revealableHandleStyle('#fff', true)
+    expect(style.opacity).toBe(1)
+    expect(style.pointerEvents).toBe('auto')
+  })
+
+  it('is hidden and non-interactive when not revealed', () => {
+    const style = revealableHandleStyle('#fff', false)
+    expect(style.opacity).toBe(0)
+    expect(style.pointerEvents).toBe('none')
   })
 })
