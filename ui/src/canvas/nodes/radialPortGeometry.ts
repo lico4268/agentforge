@@ -2,7 +2,7 @@ import { Position } from '@xyflow/react'
 
 const NODE_DIAMETER = 112
 const NODE_RADIUS = NODE_DIAMETER / 2
-const FULL_CIRCLE = 360
+export const FULL_CIRCLE = 360
 
 export type NodePortInput = {
   /** Degrees. Real direction from this node toward the port's connected
@@ -47,11 +47,11 @@ export function clusterFallbackAngles(count: number, anchorAngleDeg: number, spr
 
 /**
  * Where a node's *unconnected* ports cluster while hover-revealed: inputs
- * toward the hub-facing direction (`seamAngleDeg` — the same low-traffic
- * default `resolveNodePortAngles` already anchors its sort seam to), outputs
- * toward the opposite, rim-facing direction. Keeping the two groups on
- * opposite sides means they never overlap each other even when both are
- * revealed on the same node at once.
+ * toward `seamAngleDeg + 180` (hub-facing — pointing back toward the graph's
+ * radial center, matching data flowing IN), outputs toward `seamAngleDeg`
+ * itself (rim-facing — pointing away from center, matching data flowing
+ * OUT). Keeping the two groups on opposite sides means they never overlap
+ * each other even when both are revealed on the same node at once.
  */
 export function unconnectedPortAngles(
   inputCount: number,
@@ -59,8 +59,8 @@ export function unconnectedPortAngles(
   seamAngleDeg: number,
 ): { inputAngles: number[]; outputAngles: number[] } {
   return {
-    inputAngles: clusterFallbackAngles(inputCount, seamAngleDeg),
-    outputAngles: clusterFallbackAngles(outputCount, seamAngleDeg + 180),
+    inputAngles: clusterFallbackAngles(inputCount, seamAngleDeg + 180),
+    outputAngles: clusterFallbackAngles(outputCount, seamAngleDeg),
   }
 }
 
@@ -143,13 +143,13 @@ function wrapIntoTurnFrom(angle: number, seam: number): number {
  * rim) is a natural, low-traffic choice: partners rarely sit back toward the
  * graph's own center.
  */
-export function resolveNodePortAngles(ports: NodePortInput[], seamAngleDeg = 0): number[] {
+export function resolveNodePortAngles(ports: NodePortInput[], seamAngleDeg = 0, minGapDeg?: number): number[] {
   const total = ports.length
   if (total === 0) return []
 
   const start = seamAngleDeg
   const end = start + FULL_CIRCLE
-  const minGap = FULL_CIRCLE / total
+  const minGap = minGapDeg ?? FULL_CIRCLE / total
 
   const idealAngles = ports.map((port, index) => {
     const fallback = start + ((index + 0.5) / total) * FULL_CIRCLE

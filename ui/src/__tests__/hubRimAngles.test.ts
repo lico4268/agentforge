@@ -123,4 +123,36 @@ describe('computeHubRimAngles', () => {
 
     expect(result.partnerAngleDegByPortId).toEqual({})
   })
+
+  it('still resolves partner angles when there is no radial center', () => {
+    const edges = [{ source: 'partner', sourceHandle: 'answer', target: 'east', targetHandle: 'task' }]
+
+    const result = computeHubRimAngles({
+      nodeId: 'east',
+      ports: [{ id: 'task' }],
+      side: 'input',
+      radialCenterId: null,
+      nodes,
+      edges,
+    })
+
+    expect(result.rimAngleDeg).toBe(0)
+    expect(result.partnerAngleDegByPortId.task).toBeCloseTo(90)
+  })
+
+  it('still resolves partner angles when this node is itself the radial center', () => {
+    const edges = [{ source: 'partner', sourceHandle: 'answer', target: 'east', targetHandle: 'task' }]
+
+    const result = computeHubRimAngles({
+      nodeId: 'east',
+      ports: [{ id: 'task' }],
+      side: 'input',
+      radialCenterId: 'east',
+      nodes,
+      edges,
+    })
+
+    expect(result.rimAngleDeg).toBe(0)
+    expect(result.partnerAngleDegByPortId.task).toBeCloseTo(90)
+  })
 })

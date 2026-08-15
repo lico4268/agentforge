@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
-import { useGraphStore } from '@/stores/useGraphStore'
+import { useGraphStore, type RFNode } from '@/stores/useGraphStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { RadialNodePorts } from '@/canvas/nodes/RadialNodePorts'
 
@@ -14,6 +14,10 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     useConnection: (selector: (c: { inProgress: boolean }) => unknown) =>
       selector({ inProgress: connectionInProgress.value }),
   }
+})
+
+beforeEach(() => {
+  connectionInProgress.value = false
 })
 
 function renderPorts() {
@@ -102,5 +106,51 @@ describe('RadialNodePorts — reveal while another connection is in progress', (
     const { container } = renderPorts()
 
     expect(container.querySelector('[aria-label="Input port: Task"]')).toHaveStyle({ opacity: '0' })
+  })
+})
+
+describe('RadialNodePorts — connected ports', () => {
+  beforeEach(() => {
+    useUiStore.setState({ showConnectionPorts: true })
+  })
+
+  function renderConnectedPorts(radialCenterId: string | null) {
+    const nodes: RFNode[] = [
+      { id: 'n1', position: { x: 0, y: 0 }, data: { manifestType: 'x', config: {} } },
+      { id: 'n2', position: { x: 200, y: 0 }, data: { manifestType: 'x', config: {} } },
+    ]
+    useGraphStore.setState({
+      nodes,
+      edges: [{ id: 'e1', source: 'n1', sourceHandle: 'plan', target: 'n2', targetHandle: 'task' }],
+      radialCenterId,
+    })
+    return render(
+      <ReactFlowProvider>
+        <RadialNodePorts nodeId="n1" inputs={[]} outputs={[{ id: 'plan', label: 'Plan', dataType: 'plan' }]} />
+      </ReactFlowProvider>,
+    )
+  }
+
+  it('keeps a connected port invisible even while hovered, with no radial center set', () => {
+    const { container, queryByText } = renderConnectedPorts(null)
+    const hoverZone = container.querySelector('[aria-hidden="true"]')!
+    fireEvent.mouseEnter(hoverZone)
+
+    expect(container.querySelector('[aria-label="Output port: Plan"]')).toHaveStyle({
+      opacity: '0',
+      pointerEvents: 'none',
+    })
+    expect(queryByText('Plan')).not.toBeInTheDocument()
+  })
+
+  it('keeps a connected port invisible even while hovered, when this node is itself the radial center', () => {
+    const { container } = renderConnectedPorts('n1')
+    const hoverZone = container.querySelector('[aria-hidden="true"]')!
+    fireEvent.mouseEnter(hoverZone)
+
+    expect(container.querySelector('[aria-label="Output port: Plan"]')).toHaveStyle({
+      opacity: '0',
+      pointerEvents: 'none',
+    })
   })
 })

@@ -122,6 +122,15 @@ describe('resolveNodePortAngles', () => {
   it('returns an empty array for zero ports', () => {
     expect(resolveNodePortAngles([])).toEqual([])
   })
+
+  it('accepts an explicit minGapDeg that overrides the list-length-based default', () => {
+    const angles = resolveNodePortAngles(
+      [{ partnerAngleDeg: 10 }, { partnerAngleDeg: 10 }],
+      0,
+      20,
+    )
+    expect(angles[1] - angles[0]).toBeCloseTo(20)
+  })
 })
 
 describe('clusterFallbackAngles', () => {
@@ -144,10 +153,10 @@ describe('clusterFallbackAngles', () => {
 })
 
 describe('unconnectedPortAngles', () => {
-  it('clusters inputs around the seam angle and outputs around its opposite', () => {
+  it('clusters outputs around the seam angle and inputs around its opposite', () => {
     const { inputAngles, outputAngles } = unconnectedPortAngles(1, 1, 40)
-    expect(inputAngles).toEqual([40])
-    expect(outputAngles).toEqual([220])
+    expect(outputAngles).toEqual([40])
+    expect(inputAngles).toEqual([220])
   })
 
   it('returns an empty array for a side with no unconnected ports', () => {

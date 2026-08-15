@@ -22,7 +22,9 @@ export type HubRimAngles = {
    * radial center or this node is it. */
   rimAngleDeg: number
   /** Degrees, keyed by port id. Only present for ports with a connected
-   * edge; absent ports fall back to even spacing around the full circle. */
+   * edge — independent of whether a radial center is set. Absent ports are
+   * treated as unconnected by `RadialNodePorts.tsx` (see
+   * `unconnectedPortAngles`), not fed through this angle-resolution path. */
   partnerAngleDegByPortId: Record<string, number>
 }
 
@@ -49,14 +51,13 @@ export function computeHubRimAngles(params: {
 }): HubRimAngles {
   const { nodeId, ports, side, radialCenterId, nodes, edges, nodeDiameter = DEFAULT_NODE_DIAMETER } = params
 
-  if (!radialCenterId || radialCenterId === nodeId) return FALLBACK
-
   const self = nodes.find((n) => n.id === nodeId)
-  const center = nodes.find((n) => n.id === radialCenterId)
-  if (!self || !center) return FALLBACK
+  if (!self) return FALLBACK
 
   const selfPoint = centerPointOf(self, nodeDiameter)
-  const rimAngleDeg = angleDegBetween(centerPointOf(center, nodeDiameter), selfPoint)
+
+  const center = radialCenterId && radialCenterId !== nodeId ? nodes.find((n) => n.id === radialCenterId) : undefined
+  const rimAngleDeg = center ? angleDegBetween(centerPointOf(center, nodeDiameter), selfPoint) : 0
 
   const partnerAngleDegByPortId: Record<string, number> = {}
   for (const port of ports) {

@@ -214,7 +214,7 @@ export function Canvas() {
               type="button"
               onClick={toggleConnectionPorts}
               aria-pressed={showConnectionPorts}
-              title="Show connection ports to drag new edges — hidden by default so direction reads from the arrowhead"
+              title="Hover a node in this mode to reveal its open connection ports and drag new edges — hidden otherwise so direction reads from the arrowhead"
               className="flex items-center gap-1 rounded-lg border border-[#3c4a42] bg-[#161d19]/90 px-2.5 py-1 text-[10px] font-semibold backdrop-blur transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#dde4dd]"
               style={{ color: showConnectionPorts ? '#4edea3' : '#86948a' }}
             >

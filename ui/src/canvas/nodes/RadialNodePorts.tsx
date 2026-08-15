@@ -4,6 +4,7 @@ import type { Port } from '@/types'
 import { useUiStore } from '@/stores/useUiStore'
 import {
   connectedHandleStyle,
+  FULL_CIRCLE,
   labelPointFromAngleDeg,
   pointFromAngleDeg,
   positionFromAngleDeg,
@@ -80,6 +81,7 @@ export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', vi
   const connectedAngles = resolveNodePortAngles(
     connectedPorts.map((port) => ({ partnerAngleDeg: partnerAngleDegByPortId[port.id] })),
     seamAngleDeg,
+    FULL_CIRCLE / ports.length,
   )
   const { inputAngles: unconnectedInputAngles, outputAngles: unconnectedOutputAngles } = unconnectedPortAngles(
     unconnectedInputs.length,
@@ -90,14 +92,14 @@ export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', vi
   const revealed = showConnectionPorts && (isHovered || connectionInProgress)
 
   return (
-    <>
-      <div
-        className="absolute inset-0 rounded-full"
-        style={{ pointerEvents: 'auto' }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        aria-hidden="true"
-      />
+    <div
+      className="absolute inset-0"
+      style={{ pointerEvents: 'none' }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      aria-hidden="true"
+    >
+      <div className="absolute inset-0 rounded-full" style={{ pointerEvents: 'auto' }} />
       {connectedPorts.map((port, index) => (
         <Handle
           key={`connected:${port.side}:${port.id}`}
@@ -167,6 +169,6 @@ export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', vi
           </Fragment>
         )
       })}
-    </>
+    </div>
   )
 }
