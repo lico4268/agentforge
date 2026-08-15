@@ -21,11 +21,12 @@ function LoopNodeImpl({ id, data, selected }: NodeProps) {
   const enterLoop = useUiStore((s) => s.enterLoop)
   const radialCenterId = useGraphStore((s) => s.radialCenterId)
   const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
-  const { memberCount, loopInputs, loopOutputs, portView } = data as LoopCollapsedNodeData
+  const { memberCount, memberIds, loopInputs, loopOutputs, portView } = data as LoopCollapsedNodeData
 
   const status = runtime?.status ?? 'idle'
   const borderColor = selected ? LOOP_ACCENT_COLOR : statusColor(status, LOOP_ACCENT_COLOR)
-  const hasPendingCheckpointInside = pendingInterrupt !== null
+  const hasPendingCheckpointInside =
+    pendingInterrupt !== null && memberIds.includes(pendingInterrupt.nodeId)
 
   return (
     <div

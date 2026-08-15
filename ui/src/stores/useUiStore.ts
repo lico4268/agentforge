@@ -27,7 +27,10 @@ export const useUiStore = create<UiState>((set) => ({
   drilledInLoopId: null,
   togglePanel: (key) =>
     set((s) => ({ panels: { ...s.panels, [key]: !s.panels[key] } })),
-  setCanvasNodeMode: (canvasNodeMode) => set({ canvasNodeMode }),
+  // Drill-down only exists conceptually in agent mode — switching modes
+  // always exits any drill-down so Canvas (which stops projecting outside
+  // agent mode) and Toolbar's breadcrumb never disagree about the state.
+  setCanvasNodeMode: (canvasNodeMode) => set({ canvasNodeMode, drilledInLoopId: null }),
   toggleConnectionPorts: () => set((s) => ({ showConnectionPorts: !s.showConnectionPorts })),
   enterLoop: (loopNodeId) => set({ drilledInLoopId: loopNodeId }),
   exitLoop: () => set({ drilledInLoopId: null }),

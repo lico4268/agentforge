@@ -20,9 +20,17 @@ export function AgentEdge({
   sourceHandleId,
   markerEnd,
   selected,
+  data,
 }: EdgeProps) {
   const [isHovered, setIsHovered] = useState(false)
-  const { conditional, color } = edgePresentation(sourceHandleId)
+  // Collapsing a loop reroutes an outgoing edge's sourceHandle onto a
+  // synthetic port id (edge.id) so RadialNodePorts can find it — but that
+  // means it no longer names the real branch (accept/clarify/…). loopProjection
+  // stashes the original handle in data.branchHandle for exactly this: display
+  // purposes prefer it, while the real wire handle (sourceHandleId) stays
+  // authoritative for anything structural (e.g. isLoopBackEdge below).
+  const labelHandle = typeof data?.branchHandle === 'string' ? data.branchHandle : sourceHandleId
+  const { conditional, color } = edgePresentation(labelHandle)
   const isLoopBack = isLoopBackEdge(sourceHandleId)
 
   // Forward edges: straight boundary-to-boundary. The port dot already sits
@@ -84,7 +92,7 @@ export function AgentEdge({
               color: stroke,
             }}
           >
-            {sourceHandleId}
+            {labelHandle}
           </div>
         </EdgeLabelRenderer>
       )}

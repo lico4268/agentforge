@@ -1,4 +1,4 @@
-import type { Edge, Node } from '@xyflow/react'
+import type { Edge } from '@xyflow/react'
 import type { RFNode, RFNodeData } from '@/stores/useGraphStore'
 import { deriveLoopMembers } from './deriveLoopMembers'
 
@@ -14,6 +14,10 @@ export type CrossingPort = { id: string; label: string; dataType: string }
 export type LoopCollapsedNodeData = RFNodeData & {
   loopNodeId: string
   memberCount: number
+  /** Node ids collapsed into this loop — lets consumers (e.g. LoopNode's
+   * pending-checkpoint badge) scope graph-wide state to just this loop's
+   * members instead of reacting to any node anywhere in the graph. */
+  memberIds: string[]
   loopInputs: CrossingPort[]
   loopOutputs: CrossingPort[]
   /** Just enough of the projected view for RadialNodePorts' partner-angle
@@ -39,7 +43,7 @@ function crossingPort(edge: Edge): CrossingPort {
 export function projectCollapsedView(
   nodes: RFNode[],
   edges: Edge[],
-): { nodes: Node[]; edges: Edge[] } {
+): { nodes: RFNode[]; edges: Edge[] } {
   const nodeIds = nodes.map((n) => n.id)
   const loopGuards = nodes.filter(isLoopGuard)
 
@@ -80,19 +84,31 @@ export function projectCollapsedView(
       rerouted.push({ ...edge, target: targetOwner, targetHandle: edge.id })
     } else if (sourceOwner && !targetOwner) {
       loopOutputsById.get(sourceOwner)!.push(crossingPort(edge))
-      rerouted.push({ ...edge, source: sourceOwner, sourceHandle: edge.id })
+      rerouted.push({
+        ...edge,
+        source: sourceOwner,
+        sourceHandle: edge.id,
+        data: { ...edge.data, branchHandle: edge.sourceHandle },
+      })
     } else if (sourceOwner && targetOwner) {
       // Chains straight from one loop into another (e.g. guard1's exit feeds
       // guard2's member directly) — reroute both ends onto their own guard.
       loopOutputsById.get(sourceOwner)!.push(crossingPort(edge))
       loopInputsById.get(targetOwner)!.push(crossingPort(edge))
-      rerouted.push({ ...edge, source: sourceOwner, sourceHandle: edge.id, target: targetOwner, targetHandle: edge.id })
+      rerouted.push({
+        ...edge,
+        source: sourceOwner,
+        sourceHandle: edge.id,
+        target: targetOwner,
+        targetHandle: edge.id,
+        data: { ...edge.data, branchHandle: edge.sourceHandle },
+      })
     } else {
       passthrough.push(edge)
     }
   }
 
-  const resultNodes: Node[] = nodes
+  const resultNodes: RFNode[] = nodes
     .filter((n) => {
       const owner = ownerOf.get(n.id)
       return owner === undefined || owner === n.id // keep: not in any loop, or is the loop's own guard
@@ -108,6 +124,7 @@ export function projectCollapsedView(
         ...n.data,
         loopNodeId: n.id,
         memberCount: members.size,
+        memberIds: [...members],
         loopInputs: loopInputsById.get(n.id) ?? [],
         loopOutputs: loopOutputsById.get(n.id) ?? [],
         portView: {
@@ -131,7 +148,7 @@ export function projectDrilledInView(
   nodes: RFNode[],
   edges: Edge[],
   loopNodeId: string,
-): { nodes: Node[]; edges: Edge[] } {
+): { nodes: RFNode[]; edges: Edge[] } {
   const members = deriveLoopMembers(nodes.map((n) => n.id), edges, loopNodeId)
   const visible = new Set([loopNodeId, ...members])
   return {

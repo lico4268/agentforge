@@ -52,4 +52,14 @@ describe('useUiStore loop drill-down', () => {
 
     expect(useUiStore.getState().drilledInLoopId).toBeNull()
   })
+
+  it('setCanvasNodeMode clears a previously-set drilledInLoopId', () => {
+    useUiStore.getState().enterLoop('loop_guard')
+    expect(useUiStore.getState().drilledInLoopId).toBe('loop_guard')
+
+    useUiStore.getState().setCanvasNodeMode('classic')
+
+    expect(useUiStore.getState().drilledInLoopId).toBeNull()
+    expect(useUiStore.getState().canvasNodeMode).toBe('classic')
+  })
 })

@@ -34,6 +34,7 @@ describe('projectCollapsedView on the starter graph', () => {
 
     const data = guard.data as LoopCollapsedNodeData
     expect(data.memberCount).toBe(2)
+    expect(data.memberIds).toEqual(['reasoning', 'review'])
     expect(data.loopInputs.map((p) => p.label)).toEqual(['plan', 'task'])
     expect(data.loopOutputs.map((p) => p.label)).toEqual(['accept', 'clarify', 'exit'])
   })
@@ -52,6 +53,10 @@ describe('projectCollapsedView on the starter graph', () => {
 
     const e5 = result.find((e) => e.id === 'e5')!
     expect(e5).toMatchObject({ source: 'loop_guard', target: 'output', sourceHandle: 'e5' })
+    // Rerouting onto the synthetic port id must not lose which branch this
+    // edge represents — AgentEdge falls back to data.branchHandle for its
+    // color/label so "accept" doesn't visually collapse into a bare edge id.
+    expect(e5.data).toMatchObject({ branchHandle: 'accept' })
 
     const e1 = result.find((e) => e.id === 'e1')!
     expect(e1).toMatchObject({ source: 'input', target: 'planning' }) // untouched passthrough

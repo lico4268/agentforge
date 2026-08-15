@@ -12,7 +12,7 @@ import {
   type EdgeTypes,
 } from '@xyflow/react'
 import { useShallow } from 'zustand/react/shallow'
-import { useGraphStore, type RFNode } from '@/stores/useGraphStore'
+import { useGraphStore } from '@/stores/useGraphStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { useRegistry } from '@/registry/RegistryContext'
 import { CATEGORY_META } from '@/lib/categoryStyle'
@@ -85,8 +85,8 @@ export function Canvas() {
       })),
     )
 
-  // Auto-recover if the drilled-into loop's guard node was deleted (or its
-  // loopBack edge was removed) while the user was inside it.
+  // Auto-recover if the drilled-into loop's guard node no longer exists in
+  // the graph (e.g. it was deleted) while the user was inside it.
   useEffect(() => {
     if (drilledInLoopId && !nodes.some((n) => n.id === drilledInLoopId)) {
       exitLoop()
@@ -95,17 +95,10 @@ export function Canvas() {
 
   const { nodes: viewNodes, edges: viewEdges } = useMemo(() => {
     if (canvasNodeMode !== 'agent') return { nodes, edges }
-    // projectCollapsedView/projectDrilledInView are typed against the generic
-    // @xyflow/react `Node` (Task 2), but every node they return either passes
-    // an input RFNode through unchanged or spreads `...n.data` onto it (see
-    // LoopCollapsedNodeData = RFNodeData & {...}), so the result always
-    // satisfies RFNodeData at runtime — the cast just narrows the type back.
     if (drilledInLoopId && nodes.some((n) => n.id === drilledInLoopId)) {
-      const view = projectDrilledInView(nodes, edges, drilledInLoopId)
-      return { nodes: view.nodes as RFNode[], edges: view.edges }
+      return projectDrilledInView(nodes, edges, drilledInLoopId)
     }
-    const view = projectCollapsedView(nodes, edges)
-    return { nodes: view.nodes as RFNode[], edges: view.edges }
+    return projectCollapsedView(nodes, edges)
   }, [nodes, edges, drilledInLoopId, canvasNodeMode])
 
   // Re-fit whenever the drilled-in loop changes (entering, exiting, or
@@ -114,9 +107,12 @@ export function Canvas() {
   const previousDrilledInLoopId = useRef(drilledInLoopId)
   useEffect(() => {
     if (previousDrilledInLoopId.current === drilledInLoopId) return
-    previousDrilledInLoopId.current = drilledInLoopId
     if (!nodesInitialized) return
-    void fitView({ padding: 0.2, duration: viewportTransitionDuration(prefersReducedMotion()) })
+    previousDrilledInLoopId.current = drilledInLoopId
+    const frame = requestAnimationFrame(() => {
+      void fitView({ padding: 0.2, duration: viewportTransitionDuration(prefersReducedMotion()) })
+    })
+    return () => cancelAnimationFrame(frame)
   }, [drilledInLoopId, fitView, nodesInitialized])
 
   const nodeTypes: NodeTypes = useMemo(() => {
