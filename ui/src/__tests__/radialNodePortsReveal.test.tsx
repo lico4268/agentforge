@@ -54,4 +54,18 @@ describe('RadialNodePorts — local hover reveal', () => {
     fireEvent.mouseEnter(hoverZone)
     expect(container.querySelector('[aria-label="Input port: Task"]')).toHaveStyle({ opacity: '0' })
   })
+
+  it('shows the port label text only while revealed', () => {
+    const { container, queryByText, getByText } = renderPorts()
+    expect(queryByText('Task')).not.toBeInTheDocument()
+    expect(queryByText('Plan')).not.toBeInTheDocument()
+
+    const hoverZone = container.querySelector('[aria-hidden="true"]')!
+    fireEvent.mouseEnter(hoverZone)
+    expect(getByText('Task')).toBeInTheDocument()
+    expect(getByText('Plan')).toBeInTheDocument()
+
+    fireEvent.mouseLeave(hoverZone)
+    expect(queryByText('Task')).not.toBeInTheDocument()
+  })
 })

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Handle } from '@xyflow/react'
 import type { Port } from '@/types'
 import { useUiStore } from '@/stores/useUiStore'
 import {
   connectedHandleStyle,
+  labelPointFromAngleDeg,
   pointFromAngleDeg,
   positionFromAngleDeg,
   resolveNodePortAngles,
@@ -111,36 +112,60 @@ export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', vi
           aria-label={`${port.side === 'input' ? 'Input' : 'Output'} port: ${port.label}`}
         />
       ))}
-      {unconnectedInputs.map((port, index) => (
-        <Handle
-          key={`unconnected:input:${port.id}`}
-          type="target"
-          position={positionFromAngleDeg(unconnectedInputAngles[index])}
-          id={port.id}
-          style={{
-            ...revealableHandleStyle(color, revealed),
-            ...pointFromAngleDeg(unconnectedInputAngles[index]),
-            transform: 'translate(-50%, -50%)',
-          }}
-          title={`Input: ${port.label}`}
-          aria-label={`Input port: ${port.label}`}
-        />
-      ))}
-      {unconnectedOutputs.map((port, index) => (
-        <Handle
-          key={`unconnected:output:${port.id}`}
-          type="source"
-          position={positionFromAngleDeg(unconnectedOutputAngles[index])}
-          id={port.id}
-          style={{
-            ...revealableHandleStyle(color, revealed),
-            ...pointFromAngleDeg(unconnectedOutputAngles[index]),
-            transform: 'translate(-50%, -50%)',
-          }}
-          title={`Output: ${port.label}`}
-          aria-label={`Output port: ${port.label}`}
-        />
-      ))}
+      {unconnectedInputs.map((port, index) => {
+        const angle = unconnectedInputAngles[index]
+        return (
+          <Fragment key={`unconnected:input:${port.id}`}>
+            <Handle
+              type="target"
+              position={positionFromAngleDeg(angle)}
+              id={port.id}
+              style={{
+                ...revealableHandleStyle(color, revealed),
+                ...pointFromAngleDeg(angle),
+                transform: 'translate(-50%, -50%)',
+              }}
+              title={`Input: ${port.label}`}
+              aria-label={`Input port: ${port.label}`}
+            />
+            {revealed && (
+              <div
+                className="pointer-events-none absolute whitespace-nowrap rounded-full border border-[#3c4a42] bg-[#161d19] px-1.5 py-0.5 font-mono text-[9px] font-semibold text-[#dde4dd] shadow-sm"
+                style={{ ...labelPointFromAngleDeg(angle), transform: 'translate(-50%, -50%)' }}
+              >
+                {port.label}
+              </div>
+            )}
+          </Fragment>
+        )
+      })}
+      {unconnectedOutputs.map((port, index) => {
+        const angle = unconnectedOutputAngles[index]
+        return (
+          <Fragment key={`unconnected:output:${port.id}`}>
+            <Handle
+              type="source"
+              position={positionFromAngleDeg(angle)}
+              id={port.id}
+              style={{
+                ...revealableHandleStyle(color, revealed),
+                ...pointFromAngleDeg(angle),
+                transform: 'translate(-50%, -50%)',
+              }}
+              title={`Output: ${port.label}`}
+              aria-label={`Output port: ${port.label}`}
+            />
+            {revealed && (
+              <div
+                className="pointer-events-none absolute whitespace-nowrap rounded-full border border-[#3c4a42] bg-[#161d19] px-1.5 py-0.5 font-mono text-[9px] font-semibold text-[#dde4dd] shadow-sm"
+                style={{ ...labelPointFromAngleDeg(angle), transform: 'translate(-50%, -50%)' }}
+              >
+                {port.label}
+              </div>
+            )}
+          </Fragment>
+        )
+      })}
     </>
   )
 }
