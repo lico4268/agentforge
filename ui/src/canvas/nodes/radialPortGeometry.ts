@@ -123,21 +123,6 @@ export function positionFromAngleDeg(angleDeg: number): Position {
   return Position.Bottom
 }
 
-/** Shared handle style for every port dot (real nodes and collapsed loop
- * scope containers alike) — hidden by default, revealed only in connection
- * edit mode (`useUiStore.showConnectionPorts`). */
-export function handleStyle(color: string, visible: boolean) {
-  return {
-    width: 10,
-    height: 10,
-    background: '#0e1511',
-    border: `2px solid ${color}`,
-    borderRadius: '50%',
-    opacity: visible ? 1 : 0,
-    pointerEvents: visible ? 'auto' : 'none',
-  } as const
-}
-
 /** Wraps `angle` into `[seam, seam + 360)`. */
 function wrapIntoTurnFrom(angle: number, seam: number): number {
   return seam + (((angle - seam) % FULL_CIRCLE) + FULL_CIRCLE) % FULL_CIRCLE

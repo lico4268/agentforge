@@ -1,8 +1,15 @@
-import { Fragment } from 'react'
+import { useState } from 'react'
 import { Handle } from '@xyflow/react'
 import type { Port } from '@/types'
 import { useUiStore } from '@/stores/useUiStore'
-import { handleStyle, pointFromAngleDeg, positionFromAngleDeg, resolveNodePortAngles } from './radialPortGeometry'
+import {
+  connectedHandleStyle,
+  pointFromAngleDeg,
+  positionFromAngleDeg,
+  resolveNodePortAngles,
+  revealableHandleStyle,
+  unconnectedPortAngles,
+} from './radialPortGeometry'
 import { computeHubRimAngles, useHubRimAngles, type HubRimAngles } from './hubRimAngles'
 
 type PortSide = 'input' | 'output'
@@ -29,16 +36,17 @@ type RadialNodePortsProps = {
 }
 
 /**
- * Renders every port (input and output together) on one shared 360-degree
- * pool around the node's boundary — there is no hemisphere split anymore.
- * Direction is read from the edge's arrowhead, not from which side a port
- * sits on, so a port is free to sit wherever its real partner actually is.
- * Dots are hidden by default (`useUiStore.showConnectionPorts`) — connection
- * meaning lives on the edge's label, and dots only reappear while the user
- * is actively wiring up new connections.
+ * Renders every port around the node's full 360-degree boundary. Connected
+ * ports never draw a visible dot — the edge line already shows exactly
+ * where they attach (see radialPortGeometry.ts's connectedHandleStyle).
+ * Unconnected ports draw nothing until the node is hovered in connection
+ * edit mode, at which point they appear clustered near a default direction
+ * (inputs hub-facing, outputs rim-facing) instead of claiming a permanent
+ * slot on the circle.
  */
 export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', viewOverride }: RadialNodePortsProps) {
   const showConnectionPorts = useUiStore((s) => s.showConnectionPorts)
+  const [isHovered, setIsHovered] = useState(false)
   const liveInputAngles = useHubRimAngles(nodeId, inputs, 'input')
   const liveOutputAngles = useHubRimAngles(nodeId, outputs, 'output')
 
@@ -61,35 +69,78 @@ export function RadialNodePorts({ nodeId, inputs, outputs, color = '#3c4a42', vi
   }
   // rimAngleDeg doesn't depend on `side` or the port list — both calls above
   // always agree, so either is fine to use here.
-  const rimAngleDeg = inputAngles.rimAngleDeg
+  const seamAngleDeg = inputAngles.rimAngleDeg
 
-  const angles = resolveNodePortAngles(
-    ports.map((port) => ({ partnerAngleDeg: partnerAngleDegByPortId[port.id] })),
-    rimAngleDeg,
+  const connectedPorts = ports.filter((port) => partnerAngleDegByPortId[port.id] !== undefined)
+  const unconnectedInputs = inputs.filter((port) => partnerAngleDegByPortId[port.id] === undefined)
+  const unconnectedOutputs = outputs.filter((port) => partnerAngleDegByPortId[port.id] === undefined)
+
+  const connectedAngles = resolveNodePortAngles(
+    connectedPorts.map((port) => ({ partnerAngleDeg: partnerAngleDegByPortId[port.id] })),
+    seamAngleDeg,
   )
+  const { inputAngles: unconnectedInputAngles, outputAngles: unconnectedOutputAngles } = unconnectedPortAngles(
+    unconnectedInputs.length,
+    unconnectedOutputs.length,
+    seamAngleDeg,
+  )
+
+  const revealed = showConnectionPorts && isHovered
 
   return (
     <>
-      {ports.map((port, index) => {
-        const angle = angles[index]
-        const isInput = port.side === 'input'
-        return (
-          <Fragment key={`${port.side}:${port.id}`}>
-            <Handle
-              type={isInput ? 'target' : 'source'}
-              position={positionFromAngleDeg(angle)}
-              id={port.id}
-              style={{
-                ...handleStyle(color, showConnectionPorts),
-                ...pointFromAngleDeg(angle),
-                transform: 'translate(-50%, -50%)',
-              }}
-              title={`${isInput ? 'Input' : 'Output'}: ${port.label}`}
-              aria-label={`${isInput ? 'Input' : 'Output'} port: ${port.label}`}
-            />
-          </Fragment>
-        )
-      })}
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{ pointerEvents: 'auto' }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        aria-hidden="true"
+      />
+      {connectedPorts.map((port, index) => (
+        <Handle
+          key={`connected:${port.side}:${port.id}`}
+          type={port.side === 'input' ? 'target' : 'source'}
+          position={positionFromAngleDeg(connectedAngles[index])}
+          id={port.id}
+          style={{
+            ...connectedHandleStyle(),
+            ...pointFromAngleDeg(connectedAngles[index]),
+            transform: 'translate(-50%, -50%)',
+          }}
+          title={`${port.side === 'input' ? 'Input' : 'Output'}: ${port.label}`}
+          aria-label={`${port.side === 'input' ? 'Input' : 'Output'} port: ${port.label}`}
+        />
+      ))}
+      {unconnectedInputs.map((port, index) => (
+        <Handle
+          key={`unconnected:input:${port.id}`}
+          type="target"
+          position={positionFromAngleDeg(unconnectedInputAngles[index])}
+          id={port.id}
+          style={{
+            ...revealableHandleStyle(color, revealed),
+            ...pointFromAngleDeg(unconnectedInputAngles[index]),
+            transform: 'translate(-50%, -50%)',
+          }}
+          title={`Input: ${port.label}`}
+          aria-label={`Input port: ${port.label}`}
+        />
+      ))}
+      {unconnectedOutputs.map((port, index) => (
+        <Handle
+          key={`unconnected:output:${port.id}`}
+          type="source"
+          position={positionFromAngleDeg(unconnectedOutputAngles[index])}
+          id={port.id}
+          style={{
+            ...revealableHandleStyle(color, revealed),
+            ...pointFromAngleDeg(unconnectedOutputAngles[index]),
+            transform: 'translate(-50%, -50%)',
+          }}
+          title={`Output: ${port.label}`}
+          aria-label={`Output port: ${port.label}`}
+        />
+      ))}
     </>
   )
 }
