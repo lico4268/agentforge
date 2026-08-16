@@ -298,19 +298,33 @@ def _handle_targets(outgoing: dict[str, list[dict]], node_id: str) -> dict[str, 
     return {_resolved_role(e): e["target"] for e in outgoing.get(node_id, [])}
 
 
-def _validate_loop_guard_ports(node_id: str, outs: list[dict]) -> None:
-    """loop.guard의 loopBack/exit 포트는 각 최대 1개의 outgoing edge만 가질 수 있다.
+def _validate_branch_roles(node_id: str, manifest: dict, outs: list[dict]) -> None:
+    """분기 런타임 노드(review.intent/loop.guard/human.checkpoint)의 나가는 엣지마다,
+    resolved role(_resolved_role)이 매니페스트가 선언한 출력 역할 중 하나인지, 그리고
+    같은 역할이 두 번 배정되지 않았는지 검증한다 (설계 §5).
 
-    _handle_targets는 sourceHandle을 dict key로 인덱싱하므로, 한 포트에 edge가
-    여러 개 그려지면 마지막 것만 남고 나머지는 아무 에러 없이 조용히 사라진다 —
-    그래서 여기서 컴파일 에러로 미리 막는다.
+    - 알 수 없는/미배정 역할: 프리폼 엣지를 그었지만 Inspector에서 역할을 아직
+      고르지 않은 상태. _handle_targets가 조용히 무시하거나(loop.guard) 런타임에
+      ValueError로 죽는(review) 상황을 컴파일 타임에 미리 막는다.
+    - 중복 배정: _handle_targets가 dict라 나중 엣지가 앞의 걸 조용히 덮어쓴다 —
+      기존에 loop.guard의 loopBack/exit 포트만 막던 걸 review/checkpoint를 포함해
+      모든 분기 런타임 노드로 일반화한다.
     """
-    for handle in ("loopBack", "exit"):
-        count = sum(1 for e in outs if e["sourceHandle"] == handle)
+    valid_roles = {p["id"] for p in manifest["outputs"]}
+    role_counts: dict[str, int] = {}
+    for e in outs:
+        role = _resolved_role(e)
+        if role not in valid_roles:
+            raise ValueError(
+                f"node {node_id!r} has an outgoing edge with an unassigned or unknown "
+                f"role {role!r} — assign one of {sorted(valid_roles)} in Inspector"
+            )
+        role_counts[role] = role_counts.get(role, 0) + 1
+    for role, count in role_counts.items():
         if count > 1:
             raise ValueError(
-                f"loop.guard node {node_id!r} has {count} edges on its {handle!r} "
-                "port — each port must have exactly one outgoing edge"
+                f"node {node_id!r} has {count} edges assigned the {role!r} role — "
+                "each role must have exactly one outgoing edge"
             )
 
 
@@ -539,6 +553,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                 ),
             )
         elif node_type == "review.intent":
+            _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             model, policy = _resolve_model(node, default_model_cfg)
             wired = set(_handle_targets(outgoing, node_id))
             route_fns[node_id] = make_route_review(wired)
@@ -547,6 +562,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                 _make_review_node(node, model, policy, emit, run_id, node_to_policies.get(node_id)),
             )
         elif node_type == "human.checkpoint":
+            _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             routes = {"approve": END, "revise": END, "reject": END}
             routes.update(_handle_targets(outgoing, node_id))
             graph.add_node(
@@ -555,7 +571,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             )
         elif node_type == "loop.guard":
             loop_policy = _loop_policy_from_config(node)
-            _validate_loop_guard_ports(node_id, outgoing.get(node_id, []))
+            _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             targets = _handle_targets(outgoing, node_id)
             continue_target = targets.get("loopBack")
             exit_target = targets.get("exit")

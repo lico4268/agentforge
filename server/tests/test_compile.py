@@ -62,6 +62,45 @@ def test_handle_targets_resolves_via_source_role():
     assert compile_mod._handle_targets(outgoing, "review") == {"accept": "output"}
 
 
+def test_validate_branch_roles_raises_for_unassigned_role():
+    """프리폼으로 그었지만 아직 Inspector에서 역할을 안 고른 엣지 — sourceRole 없음,
+    opaque sourceHandle이라 유효한 역할 이름이 아니다."""
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [_edge("review", "output", source_handle="opaque-1")]
+    with pytest.raises(ValueError, match="unassigned or unknown"):
+        compile_mod._validate_branch_roles("review", manifest, outs)
+
+
+def test_validate_branch_roles_accepts_freeform_edge_with_source_role():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [_edge("review", "output", source_handle="opaque-1", source_role="accept")]
+    compile_mod._validate_branch_roles("review", manifest, outs)  # 예외 없이 통과해야 함
+
+
+def test_validate_branch_roles_raises_for_duplicate_role():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [
+        _edge("review", "a", source_handle="refine"),
+        _edge("review", "b", source_handle="opaque-2", source_role="refine"),
+    ]
+    with pytest.raises(ValueError, match=r"2 edges assigned the 'refine' role"):
+        compile_mod._validate_branch_roles("review", manifest, outs)
+
+
+def test_validate_branch_roles_accepts_distinct_roles():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [
+        _edge("review", "a", source_handle="accept"),
+        _edge("review", "b", source_handle="refine"),
+    ]
+    compile_mod._validate_branch_roles("review", manifest, outs)  # 예외 없이 통과해야 함
+
+
+def test_validate_branch_roles_accepts_empty_outs():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["human.checkpoint"]
+    compile_mod._validate_branch_roles("checkpoint", manifest, [])  # 예외 없이 통과해야 함
+
+
 def _gated_refine_arch(guard_config: dict, review_config: dict | None = None) -> dict:
     """스타터 그래프와 같은 모양의 게이팅된 refine 루프.
 
@@ -619,7 +658,7 @@ async def test_loop_guard_loopback_port_fanout_raises(monkeypatch):
             _edge("guard", "output", "exit", "result"),
         ],
     )
-    with pytest.raises(ValueError, match=r"2 edges on its 'loopBack' port"):
+    with pytest.raises(ValueError, match=r"2 edges assigned the 'loopBack' role"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
 
 
@@ -645,7 +684,29 @@ async def test_loop_guard_exit_port_fanout_raises(monkeypatch):
             _edge("guard", "output2", "exit", "result"),
         ],
     )
-    with pytest.raises(ValueError, match=r"2 edges on its 'exit' port"):
+    with pytest.raises(ValueError, match=r"2 edges assigned the 'exit' role"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_review_unassigned_branch_edge_raises_at_compile(monkeypatch):
+    """프리폼으로 그은 뒤 아직 Inspector에서 역할을 안 고른 엣지는 컴파일 타임에 막혀야
+    한다 — 지금까지는 review 노드가 런타임에 ValueError로 죽거나(review)
+    human.checkpoint처럼 조용히 END로 빠지는 문제였다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            _edge("review", "output", source_handle="opaque-slot-1"),  # 역할 미배정
+        ],
+    )
+    with pytest.raises(ValueError, match="unassigned or unknown"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
 
 
