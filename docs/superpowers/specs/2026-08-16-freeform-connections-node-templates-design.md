@@ -32,7 +32,7 @@
 - 사용자가 완전히 새로운 실행 로직(커스텀 코드)을 정의하는 것 — 플러그인 시스템 규모, 별도 과제.
 - 필수 입력의 완전한 must-reach 정적 분석(조건부 분기의 일부 경로에만 writer가 있는 경우) — §6에서 범위 제외 사유와 대안(매니페스트 컨벤션) 명시.
 - 기존 `AgentEdge.tsx`의 엣지 경로(직선/곡선) 렌더링 방식 — `2026-08-14` 설계 그대로 유지.
-- Loop Scope collapse/drilldown 로직 자체 변경 — 이 설계 위에 자동으로 얹힌다.
+- Loop Scope collapse/drilldown의 **로직 자체**(멤버 판정 알고리즘, drilldown 네비게이션) 재설계 — 그건 안 건드린다. 다만 그 로직이 `sourceHandle`을 직접 읽는 지점들은 이 설계가 `sourceHandle`을 불투명화하므로 명시적으로 함께 고쳐야 한다(§7, 자동으로 안 얹힘 — Opus 검증에서 확인된 사실로 최초 초안의 "자동으로 얹힌다" 주장을 정정).
 
 ## 아키텍처
 
@@ -64,7 +64,7 @@ export const GraphEdgeSchema = z.object({
 `GraphNodeSchema`에 필드 추가 (AND/OR join, §4):
 
 ```ts
-joinMode: z.enum(['and', 'or']).optional()  // in-degree >= 2일 때만 의미 있음, 필수
+joinMode: z.enum(['and', 'or']).optional()  // §4의 조건을 만족할 때만 의미 있음, 그 경우 필수
 ```
 
 **마이그레이션이 공짜인 이유**: 지금 저장된 모든 Architecture의 `sourceHandle`이 이미 역할 이름 그 자체다(`"accept"`, `"refine"` 등). 백엔드가 `edge.get("sourceRole") or edge["sourceHandle"]`로 읽으면, 기존 저장 파일·`starterArchitecture.ts`·고정 `gsm8k-treatment` 그래프가 전부 코드 변경 없이 계속 동작한다.
@@ -87,17 +87,23 @@ joinMode: z.enum(['and', 'or']).optional()  // in-degree >= 2일 때만 의미 �
 
 **나가는 분기 목록** (분기 런타임 노드에만 표시): 각 행은 **타겟 노드의 라벨**로 표시된다("→ Output", "→ Reasoning") — 엣지 id나 슬롯 번호가 아니라, 실제로 어디로 가는지가 바로 보여야 사용자가 직관적으로 역할을 고를 수 있다. 행마다 역할 드롭다운(그 노드 타입의 역할 카탈로그에서). 같은 소스 노드의 다른 엣지에 이미 배정된 역할은 드롭다운에서 비활성화(§5의 중복 배정 방지). 행에 마우스를 올리면 캔버스에서 해당 엣지가 하이라이트(읽기 전용 피드백 — 새 캔버스 조작 UI가 아니므로 원칙에 안 어긋남). 이건 두 분기가 같은 타겟으로 가는 드문 경우("→ Output"이 두 줄)에 어느 게 어느 건지 구분하기 위함이다.
 
-**join mode 선택** (들어오는 엣지가 2개 이상인 노드에만 표시): "이 노드는 들어오는 연결을 전부 기다려야 하나(AND) / 아무거나 하나만 오면 실행되나(OR)"를 묻는 필수 선택지. 기본값 없음 — 애매하면 반드시 사용자가 정하게 강제한다(§4).
+**join mode 선택** (§4의 조건을 만족하는 노드에만 표시): "이 노드는 들어오는 연결을 전부 기다려야 하나(AND) / 아무거나 하나만 오면 실행되나(OR)"를 묻는 필수 선택지. 기본값 없음 — 애매하면 반드시 사용자가 정하게 강제한다.
 
 ### 4. AND/OR join — 실제 동기화까지 구현
 
-들어오는 엣지가 1개뿐이면 모호함이 없어 `joinMode`가 의미 없다. 2개 이상이면 필수:
+**Opus 코드 검증에서 드러난 사실**: `review.intent`(`add_conditional_edges`), `human.checkpoint`/`loop.guard`(`Command(goto=...)`)는 애초에 일반 `add_edge`를 호출하지 않는다 — LangGraph의 join-edge(`add_edge([...], target)`)는 `add_edge`로 등록된 소스만 묶을 수 있으므로, **이 세 런타임이 소스인 엣지는 구조적으로 AND에 참여할 수 없다.** `starterArchitecture.ts`의 `output`(들어오는 엣지 3개, 전부 review/checkpoint/loop_guard발)·`reasoning`(3개)이 실제 사례 — 전부 이 부류라 애초에 AND를 고를 수 있는 상황이 아니다. 이걸 빼고 "필수 선택"을 적용하면 스타터 그래프가 로드 시점에 무효가 되어 §1 "마이그레이션 공짜" 주장이 깨진다.
 
-- **OR** (기본적으로 예상되는 대안 경로 — 예: `review.intent`의 accept/refine이 각각 다른 경로를 거쳐 같은 타겟으로 합류): 지금처럼 개별 `add_edge`. 어느 쪽이 오든 그 시점에 실행 — 다만 두 경로가 다른 수퍼스텝에 끝나면 노드가 두 번 트리거될 수 있다는 LangGraph의 기존 한계는 그대로 남는다(OR 선언이 이 문제를 풀어주지 않는다, 있는 그대로의 동작을 명시적으로 인정하는 것).
-- **AND** (진짜로 전부 끝나야 함 — 예: 병렬로 갈라진 두 처리 경로가 한 노드에서 합류): `compile_graph`가 그 노드로 들어오는 AND 선언된 소스를 전부 모아서, 개별 `add_edge` 대신 **`add_edge([source1, source2, ...], target)`** 한 번으로 등록한다. 이건 LangGraph의 기존 join-edge 기능으로, 수퍼스텝이 어긋나도 전부 끝날 때까지 실제로 기다린다(신규 동기화 엔진을 짤 필요 없음 — 문서로 확인, 아래 출처 참고). 프로젝트가 쓰는 `langgraph>=0.2.0`에서 오래 존재해온 기능이라 버전 호환 우려는 낮지만, 구현 단계에서 실제 코드로 검증한다.
-  - 출처: [LangGraph's Execution Model is Trickier Than You Might Think](https://spin.atomicobject.com/langgraphs-execution-model-tricky/), [StateGraph Reference](https://reference.langchain.com/python/langgraph/graph/state/StateGraph), [Branching - LangGraph](https://www.baihezi.com/mirrors/langgraph/how-tos/branching/index.html)
+**수정된 규칙**: 노드로 들어오는 엣지들을, `_filter_control_edges` 적용 **후**의 그래프 기준으로(실제 LangGraph가 보는 그래프와 일치시키기 위해) 소스의 런타임별로 나눈다.
 
-**`_filter_control_edges`와의 관계**: 이 함수가 땜빵했던 원래 버그(`io.input`이 즉시 완료돼 `input→reasoning` 직결과 `input→planning→reasoning` 간접이 다른 수퍼스텝에 끝나면서 reasoning이 두 번 트리거)는, 사용자가 `reasoning`의 join mode를 AND로 선언하면 join-edge 메커니즘이 자연히 해결한다 — 수퍼스텝 무관하게 한 번만 기다렸다가 실행되므로. Phase A2에서 이 함수를 좁히거나 제거할 수 있는지 실제 구현 시 검증한다(현재는 "검증 필요" 항목으로만 기록 — 이 함수의 다른 호출 경로까지 전부 감사하지 않은 상태에서 제거를 단정하지 않는다).
+- 들어오는 엣지가 전부 plain-edge 런타임(`llm_step`/`io`/`model`)에서 온 것이고 개수가 2개 이상이면 → `joinMode` **필수 선택**(AND/OR), 위 두 방식대로 컴파일.
+- 들어오는 엣지 중 하나라도 conditional-routing 런타임(`review`/`loop_guard`/`checkpoint`)에서 온 것이면 → `joinMode`는 **표시하지 않고 항상 OR**(선택 불가, AND가 애초에 불가능하므로). 개별 `add_edge`/기존 conditional 라우팅 그대로.
+
+이 조건에서 OR: 개별 `add_edge`. 두 경로가 다른 수퍼스텝에 끝나면 노드가 두 번 트리거될 수 있다는 LangGraph의 기존 한계는 그대로 남는다(OR 선언이 이 문제를 풀어주지 않는다, 있는 그대로의 동작을 명시적으로 인정하는 것). AND(plain-edge 소스만 있을 때만 선택 가능): `compile_graph`가 그 노드로 들어오는 AND 선언된 소스를 전부 모아서, 개별 `add_edge` 대신 **`add_edge([source1, source2, ...], target)`** 한 번으로 등록한다.
+
+**검증 완료** (Opus가 실제 설치 패키지 소스로 확인, 추측 아님): 프로젝트에 실제 설치된 langgraph는 **1.2.10**(`pyproject.toml`의 `>=0.2.0`은 하한선일 뿐 실행 버전이 아님). `graph/state.py:915`, `def add_edge(self, start_key: str | list[str], end_key: str)` — 리스트를 넘기면 "모든 시작 노드가 끝날 때까지 기다린다"는 docstring과 함께 `self.waiting_edges.add((tuple(start_key), end_key))`로 저장됨. 리스트의 모든 소스가 이미 `self.nodes`에 등록돼 있어야 하는데, `compile_graph`는 엣지 루프 전에 모든 노드를 먼저 추가하므로 순서 문제 없음.
+  - 출처: [LangGraph's Execution Model is Trickier Than You Might Think](https://spin.atomicobject.com/langgraphs-execution-model-tricky/), [StateGraph Reference](https://reference.langchain.com/python/langgraph/graph/state/StateGraph), [Branching - LangGraph](https://www.baihezi.com/mirrors/langgraph/how-tos/branching/index.html), 설치된 패키지의 `graph/state.py:915` 직접 확인
+
+**`_filter_control_edges`와의 관계**: 이 함수가 땜빵했던 원래 버그(`io.input`이 즉시 완료돼 `input→reasoning` 직결과 `input→planning→reasoning` 간접이 다른 수퍼스텝에 끝나면서 reasoning이 두 번 트리거)는 `io.input`(runtime `io`)과 `planning`(runtime `llm_step`) 둘 다 plain-edge 소스라 위 규칙의 "필수 선택" 버킷에 해당한다 — 이 두 엣지만 있는 상황이라면 AND로 선언 시 join-edge 메커니즘이 자연히 해결한다. 다만 실제 `starterArchitecture.ts`의 `reasoning`은 들어오는 엣지가 3개(`e2`/`e3`/`e9`)이고 `_filter_control_edges` 적용 후 2개로 줄어드는데, 그 2개가 전부 plain-edge 소스인지(AND 선택 가능) 아니면 conditional-routing 소스가 섞여 있는지(자동 OR)는 Opus 검증에서 확인되지 않았다 — 구현 착수 시 실제 `starterArchitecture.ts`를 읽어 확정한다. Phase A2에서 `_filter_control_edges` 자체를 좁히거나 제거할 수 있는지도 실제 구현 시 검증한다(현재는 "검증 필요" 항목으로만 기록 — 이 함수의 다른 호출 경로까지 전부 감사하지 않은 상태에서 제거를 단정하지 않는다).
 
 ### 5. 백엔드 (`compile.py`) 변경
 
@@ -117,6 +123,14 @@ joinMode: z.enum(['and', 'or']).optional()  // in-degree >= 2일 때만 의미 �
 **Tier 2 (구현 안 함, 범위 명시적 제외)**: "일부 경로에만 writer가 있다"(예: `review.intent`의 refine 분기에서만 쓰는 `feedback`을 `Reasoning`이 필수로 요구) — 정확히 판별하려면 조인 지점마다 AND(합집합)/OR(교집합)를 구분하는 진짜 정적 데이터플로우 분석(컴파일러의 definite-assignment 분석과 동급)이 필요하고, 백엣지도 분석에서 제외해야 한다(루프 안에서만 채워지는 값은 1회차엔 없음). 구현 비용이 이 프로젝트 전체 범위보다 커질 수 있어 이번엔 만들지 않는다.
 
 **대안**: 특정 분기에서만 채워지는 값은 매니페스트에서 애초에 `required: false`로 선언하는 컨벤션을 따른다. `required: true`는 "모든 실행 경로에서 항상 채워짐"이 참인 값에만 쓴다(예: `io.input`이 항상 주는 `task`). 이 컨벤션이 지켜지면 Tier 1만으로 오탐 없이 충분하다.
+
+### 7. Loop Scope 프론트 — `sourceHandle` 불투명화의 실제 영향 (Opus 코드 검증에서 발견)
+
+`sourceHandle`이 의미 있는 문자열이라는 전제로 짜인 프론트 코드가 최소 3곳 있다. §비목표에서 "자동으로 얹힌다"고 썼던 최초 주장은 틀렸다 — 이 설계의 명시적 작업 범위에 포함한다:
+
+- `ui/src/canvas/loop/deriveLoopMembers.ts:20` — `e.sourceHandle === 'loopBack'`으로 매칭. `sourceRole === 'loopBack'` 기준으로 변경(§1의 `sourceRole or sourceHandle` 해석 규칙과 동일 패턴).
+- `ui/src/canvas/loop/loopProjection.ts:34` — `edge.sourceHandle ?? edge.id`를 **사용자에게 보이는 라벨**로 그대로 사용. 불투명 id가 되면 의미 없는 문자열이 노출된다 — `sourceRole`이 있으면 그걸, 없으면(일반 데이터 엣지) 라벨 자체를 안 보이거나 다른 방식(예: 타겟 노드 이름)으로 대체해야 한다. 90/101행의 `sourceHandle` 재작성 로직도 함께 점검.
+- `ui/src/canvas/nodes/hubRimAngles.ts:67` — `sourceHandle === port.id`로 매칭. 불투명 id 도입 후에도 성립하는지 별도 확인 필요(포트 개념 자체가 프리폼으로 바뀌므로 이 매칭 로직 전제가 더 근본적으로 바뀔 수 있음).
 
 ## Phase A2 — 디스패치 정규화
 
@@ -138,15 +152,16 @@ Phase B는 "매니페스트를 하드코딩 리스트에서 DB로 옮기기"보�
 | 데이터 모델 | `ui/src/types/graph.ts`, `server/`의 대응 Pydantic(있다면) |
 | 캔버스 연결 | `ui/src/canvas/nodes/RadialNodePorts.tsx`, `radialPortGeometry.ts`, `ui/src/canvas/edges/edgePresentation.ts`, `AgentEdge.tsx` |
 | Inspector | `ui/src/panels/Inspector.tsx` (분기 목록 + join mode 섹션 신규) |
-| 컴파일러 | `server/graphs/compile.py`(`_handle_targets`, `_validate_loop_guard_ports`, `_make_llm_step_node`, `_filter_control_edges` 재검토, 신규 검증기·AND join) |
+| Loop Scope (§7, 신규 발견) | `ui/src/canvas/loop/deriveLoopMembers.ts`, `ui/src/canvas/loop/loopProjection.ts`, `ui/src/canvas/nodes/hubRimAngles.ts` |
+| 컴파일러 | `server/graphs/compile.py`(`_handle_targets`, `_validate_loop_guard_ports`, `_filter_control_edges` 재검토, 신규 검증기·AND join). `_make_llm_step_node`는 Phase A1에서 **변경 없음** — `input_keys`는 Phase B(출력 스키마 데이터화)까지 매니페스트 기반 그대로 유지 |
 | 라우팅 | `server/nodes/policy.py`(`make_route_review`) |
 | Phase B | `server/manifests.py` → 저장소 이전, `server/state.py`(`AgentState.vars`), 신규 REST 라우트, 신규 Node Type Builder 패널 |
 
 ## 테스트 전략
 
-- `compile.py` 단위 테스트 신설(원래도 밀려있던 작업, `CLAUDE.local.md` 참고) — role 해석, 미배정/중복 배정 에러, Tier 1 필수 입력 검증기(사전 시드 키 포함), AND join의 `add_edge` 호출 형태.
-- 프론트: `radialPortGeometry.ts`/`edgePresentation.ts` 신규 로직 단위 테스트, Inspector 분기 목록·join mode 섹션 RTL 테스트.
-- 마이그레이션 회귀: 기존 저장된 Architecture(특히 `starterArchitecture.ts`, 고정 `gsm8k-treatment`)가 `sourceRole` 없이도 그대로 컴파일되는지.
+- `server/tests/test_compile.py`는 이미 존재한다(812줄, 20개 이상 테스트 — `CLAUDE.local.md`의 "밀려있던 작업"이라는 메모는 낡은 정보였다, Opus 코드 검증으로 확인). 이번 작업은 **신설이 아니라 확장**이다. 다만 공유 테스트 헬퍼 `_edge()`(`source_handle="out"` 기본값)에 `source_role` 파라미터를 추가해야 하는데, 이건 **기존 테스트 전부에 영향**을 준다 — 이 마이그레이션 자체를 별도 작업 항목으로 잡는다. 추가로: role 해석, 미배정/중복 배정 에러, Tier 1 필수 입력 검증기(사전 시드 키 포함), AND join의 `add_edge` 호출 형태(§4의 plain-edge/conditional-routing 소스 분기 포함).
+- 프론트: `radialPortGeometry.ts`/`edgePresentation.ts` 신규 로직 단위 테스트, Inspector 분기 목록·join mode 섹션 RTL 테스트, §7의 세 파일에 대한 회귀 테스트(불투명 id 도입 후에도 loop 멤버 판정·라벨·hubRim 매칭이 깨지지 않는지).
+- 마이그레이션 회귀: 기존 저장된 Architecture(특히 `starterArchitecture.ts`, 고정 `gsm8k-treatment`)가 `sourceRole` 없이도 그대로 컴파일되는지 — `output`/`reasoning`처럼 conditional-routing 소스가 섞인 다중 in-degree 노드가 §4 수정 규칙대로 `joinMode` 없이도 유효한지 반드시 포함.
 - 실제 드래그-드롭 연결 생성은 이 샌드박스에 헤드리스 브라우저가 없어 자동 검증 불가 — 사용자가 `npm run dev`로 직접 확인.
 
 ## 미해결 세부사항 (구현 계획 단계에서 확정)
@@ -155,3 +170,4 @@ Phase B는 "매니페스트를 하드코딩 리스트에서 DB로 옮기기"보�
 - Inspector 분기 목록·join mode 섹션의 정확한 레이아웃(기존 `ModelSlotsEditor`/Connections 섹션 스타일 재사용 정도).
 - `_filter_control_edges`를 AND join 도입 후 좁힐지 완전히 제거할지 — 다른 호출 경로 감사 필요.
 - Node Type Builder UI의 정확한 폼 구성(Phase B 착수 시).
+- `starterArchitecture.ts`의 `reasoning`(필터 후 in-degree 2)이 §4의 plain-edge 버킷(AND 선택 가능)인지 conditional-routing 버킷(자동 OR)인지 — 구현 착수 시 확정.
