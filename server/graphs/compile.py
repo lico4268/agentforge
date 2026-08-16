@@ -30,12 +30,14 @@ LLM_STEP_TABLE: dict[str, dict[str, Any]] = {
     "planning.decompose": {
         "output_model": PlanOut,
         "extra_inputs": [],
+        "writes": ["plan"],
         "to_updates": lambda result, state: {"plan": result["steps"]},
         "to_event_output": lambda result: {"plan": result["steps"]},
     },
     "reasoning.cot": {
         "output_model": ReasonOut,
         "extra_inputs": [("feedback", "Previous Feedback")],
+        "writes": ["answer", "confidence"],
         "to_updates": lambda result, state: {
             "answer": result["answer"],
             "confidence": result["confidence"],
@@ -396,6 +398,45 @@ def _validate_gated_cycles(node_ids: list[str], edges: list[dict], loop_node_ids
             )
 
 
+_PRESEEDED_STATE_KEYS = {"task", "task_tags", "intent", "criteria", "batch_mode"}
+
+
+def _validate_required_inputs(nodes: list[dict]) -> None:
+    """llm_step 런타임 노드가 required로 선언한 입력마다, 그 state key를 쓰는 노드가
+    그래프 안에 있는지 검사한다 (Tier 1 — may-분석, 사이클/백엣지 구분 없음, 설계 §6).
+
+    llm_step 노드만 대상인 이유: run_llm_step이 manifest["inputs"]를 그대로
+    state.get(key)로 읽는 유일한 런타임이다. review/checkpoint/loop_guard는 자기
+    코드 안에 고정된 키를 읽거나(make_review) manifest 입력을 아예 안 읽으므로,
+    이 노드들의 required 플래그를 검사하면 실제로 존재하지 않는 state key(예:
+    io.output의 "result")까지 필수로 취급해 정상 그래프를 오탐으로 막게 된다.
+
+    initial_state()가 항상 채워주는 키(_PRESEEDED_STATE_KEYS)는 io.input 노드가
+    캔버스에 없어도 항상 충족된 것으로 본다.
+    """
+    write_keys: set[str] = set()
+    for node in nodes:
+        manifest = MANIFESTS_BY_TYPE.get(node["type"])
+        if manifest and manifest.get("runtime") == "llm_step":
+            spec = LLM_STEP_TABLE.get(node["type"], {})
+            write_keys.update(spec.get("writes", []))
+
+    for node in nodes:
+        manifest = MANIFESTS_BY_TYPE.get(node["type"])
+        if not manifest or manifest.get("runtime") != "llm_step":
+            continue
+        for port in manifest["inputs"]:
+            if not port.get("required"):
+                continue
+            key = port["id"]
+            if key in _PRESEEDED_STATE_KEYS or key in write_keys:
+                continue
+            raise ValueError(
+                f"node {node['id']!r} requires input {key!r} but no node in this "
+                "architecture writes it, and it is not provided by the run's initial input"
+            )
+
+
 def _derive_loop_members(
     loop_node_id: str, continue_target: str | None, outgoing: dict[str, list[dict]]
 ) -> set[str]:
@@ -509,6 +550,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
 
     if not nodes:
         raise ValueError("Architecture has no nodes")
+    _validate_required_inputs(nodes)
 
     edges = _filter_control_edges(nodes, raw_edges)
 

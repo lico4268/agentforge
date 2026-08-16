@@ -893,3 +893,65 @@ async def test_cycle_with_loop_guard_compiles(monkeypatch):
         _gated_refine_arch({}), DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1"
     )
     assert graph is not None
+
+
+def test_validate_required_inputs_passes_when_preseeded_key_has_no_writer_node():
+    """task는 initial_state()가 항상 채우므로, io.input 노드가 그래프에 없어도
+    reasoning.cot의 required task는 충족된 것으로 본다 (설계 §6, Tier 1)."""
+    nodes = [_node("reasoning", "reasoning.cot"), _node("output", "io.output")]
+    compile_mod._validate_required_inputs(nodes)  # 예외 없이 통과해야 함
+
+
+def test_validate_required_inputs_passes_when_a_writer_exists():
+    nodes = [_node("planning", "planning.decompose"), _node("reasoning", "reasoning.cot")]
+    compile_mod._validate_required_inputs(nodes)  # 예외 없이 통과해야 함
+
+
+def test_validate_required_inputs_raises_when_no_node_writes_a_required_non_preseeded_key(
+    monkeypatch,
+):
+    """오늘의 실제 매니페스트는 이 케이스가 없어(모든 required 입력이 preseeded) 합성
+    llm_step 타입을 주입해 재현한다."""
+    fake_manifest = {
+        "type": "test.needs_summary",
+        "runtime": "llm_step",
+        "category": "cognitive",
+        "label": "Needs Summary",
+        "description": "",
+        "inputs": [{"id": "summary", "label": "Summary", "dataType": "text", "required": True}],
+        "outputs": [],
+        "config": [],
+    }
+    monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "test.needs_summary", fake_manifest)
+    monkeypatch.setitem(
+        compile_mod.LLM_STEP_TABLE,
+        "test.needs_summary",
+        {"output_model": None, "extra_inputs": [], "writes": []},
+    )
+    nodes = [_node("n1", "test.needs_summary")]
+    with pytest.raises(ValueError, match="requires input 'summary'"):
+        compile_mod._validate_required_inputs(nodes)
+
+
+async def test_compile_graph_raises_for_missing_required_input(monkeypatch):
+    """_validate_required_inputs가 compile_graph에 실제로 연결돼 있는지 확인 — 노드
+    생성/모델 해석보다 먼저 돌아야 실행 비용을 들이기 전에 막는다."""
+    fake_manifest = {
+        "type": "test.needs_summary",
+        "runtime": "llm_step",
+        "category": "cognitive",
+        "label": "Needs Summary",
+        "description": "",
+        "inputs": [{"id": "summary", "label": "Summary", "dataType": "text", "required": True}],
+        "outputs": [],
+        "config": [],
+    }
+    monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "test.needs_summary", fake_manifest)
+    monkeypatch.setitem(
+        compile_mod.LLM_STEP_TABLE,
+        "test.needs_summary",
+        {"output_model": None, "extra_inputs": [], "writes": []},
+    )
+    arch = _arch([_node("n1", "test.needs_summary")], [])
+    with pytest.raises(ValueError, match="requires input 'summary'"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, None, "run-1")
