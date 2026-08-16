@@ -578,7 +578,7 @@ def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[l
     plan: list[tuple[list[str], str]] = []
     for target, sources in plain_sources_by_target.items():
         if len(sources) >= 2 and not has_conditional_source.get(target, False):
-            join_mode = nodes_by_id[target].get("joinMode")
+            join_mode = nodes_by_id.get(target, {}).get("joinMode")
             if join_mode not in ("and", "or"):
                 raise ValueError(
                     f"node {target!r} has {len(sources)} incoming plain edges and no "

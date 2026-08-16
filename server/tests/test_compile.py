@@ -1019,3 +1019,52 @@ def test_build_plain_edge_plan_excludes_review_sourced_edges_entirely():
     nodes = [_node("review", "review.intent"), _node("output", "io.output")]
     edges = [_edge("review", "output", "accept")]
     assert compile_mod._build_plain_edge_plan(nodes, edges) == []
+
+
+def test_build_plain_edge_plan_raises_cleanly_for_a_dangling_edge_target():
+    """target이 nodes 목록에 없는 경우(프리폼 캔버스에서 노드가 삭제됐지만 그 노드를
+    가리키던 엣지가 남아있는 경우) source 조회와 동일하게 방어적으로 처리해야 한다 —
+    KeyError로 죽지 않고 기존 '설정 오류'(joinMode 없음) ValueError로 자연스럽게
+    흡수돼야 한다."""
+    nodes = [_node("a", "planning.decompose"), _node("b", "reasoning.cot")]
+    edges = [_edge("a", "missing", "plan"), _edge("b", "missing", "answer")]
+    with pytest.raises(ValueError, match="no joinMode"):
+        compile_mod._build_plain_edge_plan(nodes, edges)
+
+
+def test_build_plain_edge_plan_forces_or_with_two_plain_sources_and_a_conditional_source():
+    """conditional-routing 소스가 하나라도 섞이면, plain 소스가 2개 이상이어도 AND는
+    구조적으로 불가능하다 — joinMode 선언 없이도 에러 없이 개별 엣지로 처리돼야 한다
+    (설계 §4의 핵심 시나리오: starter architecture에서 guard가 다른 plain 소스들과
+    함께 하나의 target으로 들어오는 경우)."""
+    nodes = [
+        _node("planning", "planning.decompose"),
+        _node("reasoning", "reasoning.cot"),
+        _node("guard", "loop.guard"),
+        _node("target", "io.output"),  # joinMode 미선언이어도 에러 없어야 함
+    ]
+    edges = [
+        _edge("planning", "target", "plan"),
+        _edge("reasoning", "target", "answer"),
+        _edge("guard", "target", "loopBack", "task"),
+    ]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert sorted(plan) == [(["planning"], "target"), (["reasoning"], "target")]
+
+
+def test_build_plain_edge_plan_dedups_multiple_edges_from_the_same_source_target_pair():
+    """같은 (source, target) 쌍에서 나온 엣지가 여러 개(예: 서로 다른 데이터 포트로
+    두 번 연결)여도 소스는 한 번만 카운트돼야 한다 — join된 소스 리스트에 중복 없이
+    한 번만 나타나야 한다."""
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("d", "reasoning.cot"),
+        {**_node("c", "io.output"), "joinMode": "and"},
+    ]
+    edges = [
+        _edge("a", "c", "plan1", "in1"),
+        _edge("a", "c", "plan2", "in2"),
+        _edge("d", "c", "answer"),
+    ]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert plan == [(["a", "d"], "c")]
