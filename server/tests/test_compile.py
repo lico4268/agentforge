@@ -20,14 +20,17 @@ def _node(id_, type_, config=None):
     return {"id": id_, "type": type_, "position": {"x": 0, "y": 0}, "config": config or {}}
 
 
-def _edge(source, target, source_handle="out", target_handle="in"):
-    return {
+def _edge(source, target, source_handle="out", target_handle="in", source_role=None):
+    edge = {
         "id": f"e-{source}-{target}",
         "source": source,
         "sourceHandle": source_handle,
         "target": target,
         "targetHandle": target_handle,
     }
+    if source_role is not None:
+        edge["sourceRole"] = source_role
+    return edge
 
 
 def _delta(per_criterion=None, misalignments=None):
@@ -38,6 +41,25 @@ def _delta(per_criterion=None, misalignments=None):
         "proposed_criteria": [],
         "reroute_hint": "",
     }
+
+
+def test_resolved_role_prefers_source_role_over_handle():
+    """새로 그은 프리폼 엣지는 sourceHandle이 의미 없는 내부 id이므로 sourceRole을 쓴다."""
+    edge = _edge("a", "b", source_handle="opaque-1", source_role="accept")
+    assert compile_mod._resolved_role(edge) == "accept"
+
+
+def test_resolved_role_falls_back_to_source_handle_when_no_role():
+    """기존 저장된 아키텍처는 sourceRole이 없고 sourceHandle 자체가 이미 역할 이름이다."""
+    edge = _edge("a", "b", source_handle="accept")
+    assert compile_mod._resolved_role(edge) == "accept"
+
+
+def test_handle_targets_resolves_via_source_role():
+    outgoing = {
+        "review": [_edge("review", "output", source_handle="opaque-1", source_role="accept")]
+    }
+    assert compile_mod._handle_targets(outgoing, "review") == {"accept": "output"}
 
 
 def _gated_refine_arch(guard_config: dict, review_config: dict | None = None) -> dict:

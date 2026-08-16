@@ -284,9 +284,18 @@ def _filter_control_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
     ]
 
 
+def _resolved_role(edge: dict) -> str:
+    """엣지의 최종 역할 문자열. 프리폼 캔버스가 그리는 새 엣지는 sourceHandle이
+    의미 없는 내부 id이고 Inspector가 채운 sourceRole만 진짜 역할이다. 기존에
+    저장된 아키텍처는 sourceRole이 없고 sourceHandle 자체가 이미 역할 이름이므로
+    (예: "accept") 그대로 쓴다 — 이 폴백이 마이그레이션을 공짜로 만든다
+    (설계 §1)."""
+    return edge.get("sourceRole") or edge["sourceHandle"]
+
+
 def _handle_targets(outgoing: dict[str, list[dict]], node_id: str) -> dict[str, str]:
-    """노드의 outgoing 엣지를 sourceHandle → target 으로 인덱싱한다."""
-    return {e["sourceHandle"]: e["target"] for e in outgoing.get(node_id, [])}
+    """노드의 outgoing 엣지를 역할(resolved role) → target 으로 인덱싱한다."""
+    return {_resolved_role(e): e["target"] for e in outgoing.get(node_id, [])}
 
 
 def _validate_loop_guard_ports(node_id: str, outs: list[dict]) -> None:
