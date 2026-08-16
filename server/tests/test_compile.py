@@ -1068,3 +1068,76 @@ def test_build_plain_edge_plan_dedups_multiple_edges_from_the_same_source_target
     ]
     plan = compile_mod._build_plain_edge_plan(nodes, edges)
     assert plan == [(["a", "d"], "c")]
+
+
+async def test_compile_graph_requires_join_mode_for_two_plain_sources(monkeypatch):
+    """_build_plain_edge_plan이 compile_graph에 실제로 연결돼 있는지 확인 — 2개 이상의
+    plain 소스가 한 target으로 모이는데 joinMode가 없으면 컴파일 에러여야 한다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("planning", "planning.decompose"),
+            _node("reasoning", "reasoning.cot"),
+            _node("output", "io.output"),  # joinMode 미선언
+        ],
+        [
+            _edge("input", "planning", "task"),
+            _edge("input", "reasoning", "task"),
+            _edge("planning", "output", "plan"),
+            _edge("reasoning", "output", "answer"),
+        ],
+    )
+    with pytest.raises(ValueError, match="no joinMode"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_compile_graph_and_join_compiles_and_runs(monkeypatch):
+    """joinMode='and'를 선언하면 컴파일 에러 없이 join-edge로 컴파일되고, 두 plain
+    소스(planning/reasoning) 각각의 결과가 전부 최종 state에 반영된 채로 완주한다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    emitter = ListEventEmitter()
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("planning", "planning.decompose"),
+            _node("reasoning", "reasoning.cot"),
+            {**_node("output", "io.output"), "joinMode": "and"},
+        ],
+        [
+            _edge("input", "planning", "task"),
+            _edge("input", "reasoning", "task"),
+            _edge("planning", "output", "plan"),
+            _edge("reasoning", "output", "answer"),
+        ],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    final = await graph.ainvoke(initial_state("2+2"), {"configurable": {"thread_id": "t-and"}})
+    assert final.get("plan") == ["s1"]
+    assert final.get("answer") == "4"
+
+
+async def test_compile_graph_or_join_still_compiles_and_runs(monkeypatch):
+    """joinMode='or'도 여전히 컴파일·실행된다 — 개별 add_edge 그대로 (회귀)."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    emitter = ListEventEmitter()
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("planning", "planning.decompose"),
+            _node("reasoning", "reasoning.cot"),
+            {**_node("output", "io.output"), "joinMode": "or"},
+        ],
+        [
+            _edge("input", "planning", "task"),
+            _edge("input", "reasoning", "task"),
+            _edge("planning", "output", "plan"),
+            _edge("reasoning", "output", "answer"),
+        ],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    final = await graph.ainvoke(initial_state("2+2"), {"configurable": {"thread_id": "t-or"}})
+    assert final.get("plan") == ["s1"]
+    assert final.get("answer") == "4"

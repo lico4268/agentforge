@@ -697,11 +697,9 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         else:
             raise ValueError(f"Unsupported node type in compiler: {node_type!r}")
 
-    added_plain_edges: set[tuple[str, str]] = set()
     for node in nodes:
         node_id = node["id"]
         node_type = node["type"]
-        outs = outgoing.get(node_id, [])
 
         if node_type == "review.intent":
             graph.add_conditional_edges(
@@ -712,16 +710,14 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         # plain edge를 추가하지 않는다.
         if node_type in ("human.checkpoint", "loop.guard"):
             continue
-
-        if not outs:
+        if not outgoing.get(node_id):
             graph.add_edge(node_id, END)
-            continue
-        for e in outs:
-            pair = (node_id, e["target"])
-            if pair in added_plain_edges:
-                continue
-            added_plain_edges.add(pair)
-            graph.add_edge(node_id, e["target"])
+
+    for sources, target in _build_plain_edge_plan(nodes, edges):
+        if len(sources) > 1:
+            graph.add_edge(sources, target)
+        else:
+            graph.add_edge(sources[0], target)
 
     entry_ids = [n["id"] for n in nodes if not incoming.get(n["id"])]
     if not entry_ids:
