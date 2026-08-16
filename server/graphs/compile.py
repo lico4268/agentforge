@@ -544,6 +544,54 @@ def _make_loop_guard_node(
     return loop_guard
 
 
+_CONDITIONAL_ROUTING_TYPES = {"review.intent", "human.checkpoint", "loop.guard"}
+
+
+def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[list[str], str]]:
+    """일반(비-분기) 엣지들을 (sources, target) 쌍의 리스트로 계획한다. 소스가
+    2개 이상이면 리스트에 그대로 담기고, 호출부가 graph.add_edge(sources, target)로
+    넘기면 LangGraph의 join-edge(모든 소스가 끝날 때까지 대기)가 된다. 소스가
+    1개면 [source] 하나짜리 리스트 — 호출부는 graph.add_edge(source, target)로
+    개별 등록한다 (설계 §4).
+
+    review.intent/human.checkpoint/loop.guard가 소스인 엣지는 여기서 완전히
+    제외된다 — 이 셋은 add_conditional_edges/Command(goto=...)로 스스로 라우팅하고
+    절대 일반 add_edge를 호출하지 않으므로, 이 노드들이 소스인 엣지는 애초에
+    LangGraph의 join-edge에 참여할 수 없다. 어떤 target이 이런 소스를 하나라도
+    가지면 joinMode 선언 자체를 요구하지 않고(항상 OR 취급), 그 target으로 가는
+    나머지 plain 소스들도 개별 add_edge로 처리한다.
+    """
+    nodes_by_id = {n["id"]: n for n in nodes}
+    plain_sources_by_target: dict[str, list[str]] = {}
+    has_conditional_source: dict[str, bool] = {}
+
+    for e in edges:
+        target = e["target"]
+        source_type = nodes_by_id.get(e["source"], {}).get("type")
+        if source_type in _CONDITIONAL_ROUTING_TYPES:
+            has_conditional_source[target] = True
+            continue
+        sources = plain_sources_by_target.setdefault(target, [])
+        if e["source"] not in sources:
+            sources.append(e["source"])
+
+    plan: list[tuple[list[str], str]] = []
+    for target, sources in plain_sources_by_target.items():
+        if len(sources) >= 2 and not has_conditional_source.get(target, False):
+            join_mode = nodes_by_id[target].get("joinMode")
+            if join_mode not in ("and", "or"):
+                raise ValueError(
+                    f"node {target!r} has {len(sources)} incoming plain edges and no "
+                    "joinMode — choose 'and' or 'or' in Inspector"
+                )
+            if join_mode == "and":
+                plan.append((sources, target))
+                continue
+        for source in sources:
+            plan.append(([source], target))
+    return plan
+
+
 def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitter, run_id: str):
     nodes: list[dict] = architecture.get("nodes") or []
     raw_edges: list[dict] = architecture.get("edges") or []

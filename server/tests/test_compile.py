@@ -955,3 +955,67 @@ async def test_compile_graph_raises_for_missing_required_input(monkeypatch):
     arch = _arch([_node("n1", "test.needs_summary")], [])
     with pytest.raises(ValueError, match="requires input 'summary'"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, None, "run-1")
+
+
+def test_build_plain_edge_plan_single_source_is_not_joined():
+    nodes = [_node("a", "reasoning.cot"), _node("b", "io.output")]
+    edges = [_edge("a", "b", "answer")]
+    assert compile_mod._build_plain_edge_plan(nodes, edges) == [(["a"], "b")]
+
+
+def test_build_plain_edge_plan_requires_join_mode_for_two_plain_sources():
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("b", "reasoning.cot"),
+        _node("c", "io.output"),  # joinMode 미선언
+    ]
+    edges = [_edge("a", "c", "plan"), _edge("b", "c", "answer")]
+    with pytest.raises(ValueError, match="no joinMode"):
+        compile_mod._build_plain_edge_plan(nodes, edges)
+
+
+def test_build_plain_edge_plan_creates_a_single_join_edge_for_and():
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("b", "reasoning.cot"),
+        {**_node("c", "io.output"), "joinMode": "and"},
+    ]
+    edges = [_edge("a", "c", "plan"), _edge("b", "c", "answer")]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert plan == [(["a", "b"], "c")]
+
+
+def test_build_plain_edge_plan_keeps_individual_edges_for_or():
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("b", "reasoning.cot"),
+        {**_node("c", "io.output"), "joinMode": "or"},
+    ]
+    edges = [_edge("a", "c", "plan"), _edge("b", "c", "answer")]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert sorted(plan) == [(["a"], "c"), (["b"], "c")]
+
+
+def test_build_plain_edge_plan_forces_or_when_a_conditional_source_is_mixed_in():
+    """review.intent/loop.guard/human.checkpoint 같은 conditional-routing 소스가
+    하나라도 섞이면 AND가 구조적으로 불가능하다 — 이 셋은 add_conditional_edges나
+    Command(goto=...)로 스스로 라우팅하고 add_edge를 절대 호출하지 않으므로
+    LangGraph의 join-edge에 참여할 수 없다. joinMode 선언 자체를 요구하지 않고
+    나머지 plain 소스도 자동으로 개별 엣지가 된다 (설계 §4)."""
+    nodes = [
+        _node("input", "io.input"),
+        _node("guard", "loop.guard"),
+        _node("reasoning", "reasoning.cot"),  # joinMode 미선언이어도 에러 없어야 함
+    ]
+    edges = [
+        _edge("input", "reasoning", "task"),
+        _edge("guard", "reasoning", "loopBack", "task"),
+    ]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert plan == [(["input"], "reasoning")]  # guard발 엣지는 plan에 아예 안 들어감
+
+
+def test_build_plain_edge_plan_excludes_review_sourced_edges_entirely():
+    nodes = [_node("review", "review.intent"), _node("output", "io.output")]
+    edges = [_edge("review", "output", "accept")]
+    assert compile_mod._build_plain_edge_plan(nodes, edges) == []
