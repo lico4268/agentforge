@@ -74,7 +74,8 @@ if [ ! -d "$BACKEND_VENV" ]; then
   ok "venv 생성 완료"
 else
   # 디렉토리 이동/rename 후 shebang이 깨진 경우 venv 재생성
-  VENV_PYTHON_SHEBANG=$(head -1 "$BACKEND_VENV/bin/pip" 2>/dev/null | sed 's/#!//')
+  # (uv venv는 기본적으로 pip를 설치하지 않으므로 uvicorn 스크립트로 확인한다)
+  VENV_PYTHON_SHEBANG=$(head -1 "$BACKEND_VENV/bin/uvicorn" 2>/dev/null | sed 's/#!//')
   if [ -n "$VENV_PYTHON_SHEBANG" ] && [ ! -f "$VENV_PYTHON_SHEBANG" ]; then
     warn "venv shebang 경로 깨짐 ($VENV_PYTHON_SHEBANG) → venv 재생성"
     rm -rf "$BACKEND_VENV"
