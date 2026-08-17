@@ -17,6 +17,8 @@
 .vscode/
 .idea/
 .claude/
+.agents/
+.opencode/
 .mcp.json
 CLAUDE.local.md
 ROADMAP.md

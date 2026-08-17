@@ -397,7 +397,7 @@ function createTransport(): Transport {
 
 ### CORS
 
-`config.yaml`의 `server.cors_origins`(기본 `http://localhost:5173`)가 `main.py`의 `CORSMiddleware`에 들어간다.
+`config.yaml`의 `server.cors_origins`(기본 `http://localhost:5137`)가 `main.py`의 `CORSMiddleware`에 들어간다.
 
 ---
 
@@ -436,7 +436,7 @@ harness 2 · manifests 3 · policy 14 · workspace 10), 프론트 vitest 7개(Lo
 
 # 개별
 cd server && ../.venv/bin/uvicorn main:app --reload --port 8000
-cd ui && npm run dev -- --port 5173
+cd ui && npm run dev -- --port 5137
 ```
 
 API 키는 `server/.env` (`ANTHROPIC_API_KEY` 등). 나머지 설정은 `config.yaml`.

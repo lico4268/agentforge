@@ -1,7 +1,9 @@
 import { RunFileSchema, RunFileContentSchema } from '@/types'
 import type { RunFile, RunFileContent } from '@/types'
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
+// 기본값은 same-origin('') — Vite dev 프록시(/api → :8000)를 타므로 CORS도,
+// LAN 접속 시 클라이언트 자기 자신을 가리키는 문제도 생기지 않는다.
+const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 export async function loadRunFiles(runId: string): Promise<RunFile[]> {
   const res = await fetch(`${API_BASE}/api/runs/${runId}/files`)

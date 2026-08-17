@@ -7,7 +7,7 @@ Design rationale: [../ui-architecture.md](../ui-architecture.md).
 
 ```bash
 npm install        # first time (uses ../.npm-cache locally)
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5137
 npm run build      # type-check + production build
 ```
 

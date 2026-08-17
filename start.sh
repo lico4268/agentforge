@@ -117,14 +117,17 @@ check_port() {
   fi
 }
 check_port 8000
-check_port 5173
+check_port 5137
+
+# ─── LAN IP 탐지 (같은 네트워크의 다른 기기에서 접속할 때 안내용) ──────────────
+LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}') || true
 
 # ─── 백엔드 실행 ──────────────────────────────────────────────────────────────
 # venv: $BACKEND_VENV  /  실행파일: $BACKEND_UVICORN
 log "백엔드 시작 → http://localhost:8000"
 log "  venv    : $BACKEND_VENV"
 log "  uvicorn : $BACKEND_UVICORN"
-(cd "$BACKEND" && "$BACKEND_UVICORN" main:app --reload --port 8000 --log-level warning) \
+(cd "$BACKEND" && "$BACKEND_UVICORN" main:app --reload --host 0.0.0.0 --port 8000 --log-level warning) \
   2>&1 | sed $'s/^/\033[0;36m[server]\033[0m /' &
 BACKEND_PID=$!
 
@@ -143,9 +146,9 @@ done
 
 # ─── 프론트엔드 실행 ──────────────────────────────────────────────────────────
 # Node.js 시스템 런타임 / 패키지: $UI/node_modules
-log "프론트엔드 시작 → http://localhost:5173"
+log "프론트엔드 시작 → http://0.0.0.0:5137 (LAN 공개)"
 log "  node_modules : $UI/node_modules"
-(cd "$UI" && npm run dev -- --port 5173) \
+(cd "$UI" && npm run dev -- --host 0.0.0.0 --port 5137) \
   2>&1 | sed $'s/^/\033[0;32m[frontend]\033[0m /' &
 UI_PID=$!
 
@@ -154,12 +157,15 @@ echo ""
 echo -e "${BOLD}  프로세스     가상환경 / 런타임${RESET}"
 echo   "  ──────────  ──────────────────────────────────────────────────"
 echo -e "  ${CYAN}server${RESET}      Python 3.12  $BACKEND_VENV"
-echo -e "  ${GREEN}frontend${RESET}    Node.js      $UI/node_modules"
+echo -e "  ${GREEN}frontend${RESET}    Node.js      $UI/node_modules (0.0.0.0:5137)"
 echo ""
-ok "서버 실행 중. 브라우저: ${GREEN}http://localhost:5173${RESET}"
+ok "서버 실행 중. 브라우저: ${GREEN}http://localhost:5137${RESET}"
 echo ""
 echo "  Backend  → http://localhost:8000"
-echo "  Frontend → http://localhost:5173"
+echo "  Frontend → http://localhost:5137"
+if [ -n "$LAN_IP" ]; then
+  echo "  LAN      → http://$LAN_IP:5137"
+fi
 echo ""
 echo "  Ctrl+C 로 모두 종료."
 echo ""

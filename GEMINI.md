@@ -67,7 +67,7 @@ LangGraph StateGraph (graphs/*.py)
 ## 개발 환경
 
 ```bash
-./start.sh          # 백엔드(8000) + 프론트(5173) 동시 시작
+./start.sh          # 백엔드(8000) + 프론트(5137) 동시 시작
 ```
 
 환경변수: `server/.env`에 `ANTHROPIC_API_KEY` 필수.

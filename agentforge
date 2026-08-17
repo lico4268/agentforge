@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Linux launcher for Agentforge. This works regardless of the current directory.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+exec "$SCRIPT_DIR/start.sh" "$@"

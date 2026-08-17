@@ -95,7 +95,7 @@ DATABASE_URL=sqlite:///./agentforge.db
 | 프로세스 | URL | 가상환경 |
 |---------|-----|---------|
 | Backend (FastAPI/uvicorn) | http://localhost:8000 | `server/.venv` (Python 3.12) |
-| Frontend (Vite) | http://localhost:5173 | `ui/node_modules` (Node.js) |
+| Frontend (Vite) | http://localhost:5137 | `ui/node_modules` (Node.js) |
 
 ### 개별 실행
 
@@ -104,7 +104,7 @@ DATABASE_URL=sqlite:///./agentforge.db
 cd server && ../.venv/bin/uvicorn main:app --reload --port 8000
 
 # 프론트엔드만
-cd ui && npm run dev -- --port 5173
+cd ui && npm run dev -- --port 5137
 ```
 
 ### 의존성 추가
