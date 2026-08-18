@@ -30,12 +30,14 @@ LLM_STEP_TABLE: dict[str, dict[str, Any]] = {
     "planning.decompose": {
         "output_model": PlanOut,
         "extra_inputs": [],
+        "writes": ["plan"],
         "to_updates": lambda result, state: {"plan": result["steps"]},
         "to_event_output": lambda result: {"plan": result["steps"]},
     },
     "reasoning.cot": {
         "output_model": ReasonOut,
         "extra_inputs": [("feedback", "Previous Feedback")],
+        "writes": ["answer", "confidence"],
         "to_updates": lambda result, state: {
             "answer": result["answer"],
             "confidence": result["confidence"],
@@ -284,24 +286,47 @@ def _filter_control_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
     ]
 
 
+def _resolved_role(edge: dict) -> str:
+    """엣지의 최종 역할 문자열. 프리폼 캔버스가 그리는 새 엣지는 sourceHandle이
+    의미 없는 내부 id이고 Inspector가 채운 sourceRole만 진짜 역할이다. 기존에
+    저장된 아키텍처는 sourceRole이 없고 sourceHandle 자체가 이미 역할 이름이므로
+    (예: "accept") 그대로 쓴다 — 이 폴백이 마이그레이션을 공짜로 만든다
+    (설계 §1)."""
+    return edge.get("sourceRole") or edge["sourceHandle"]
+
+
 def _handle_targets(outgoing: dict[str, list[dict]], node_id: str) -> dict[str, str]:
-    """노드의 outgoing 엣지를 sourceHandle → target 으로 인덱싱한다."""
-    return {e["sourceHandle"]: e["target"] for e in outgoing.get(node_id, [])}
+    """노드의 outgoing 엣지를 역할(resolved role) → target 으로 인덱싱한다."""
+    return {_resolved_role(e): e["target"] for e in outgoing.get(node_id, [])}
 
 
-def _validate_loop_guard_ports(node_id: str, outs: list[dict]) -> None:
-    """loop.guard의 loopBack/exit 포트는 각 최대 1개의 outgoing edge만 가질 수 있다.
+def _validate_branch_roles(node_id: str, manifest: dict, outs: list[dict]) -> None:
+    """분기 런타임 노드(review.intent/loop.guard/human.checkpoint)의 나가는 엣지마다,
+    resolved role(_resolved_role)이 매니페스트가 선언한 출력 역할 중 하나인지, 그리고
+    같은 역할이 두 번 배정되지 않았는지 검증한다 (설계 §5).
 
-    _handle_targets는 sourceHandle을 dict key로 인덱싱하므로, 한 포트에 edge가
-    여러 개 그려지면 마지막 것만 남고 나머지는 아무 에러 없이 조용히 사라진다 —
-    그래서 여기서 컴파일 에러로 미리 막는다.
+    - 알 수 없는/미배정 역할: 프리폼 엣지를 그었지만 Inspector에서 역할을 아직
+      고르지 않은 상태. _handle_targets가 조용히 무시하거나(loop.guard) 런타임에
+      ValueError로 죽는(review) 상황을 컴파일 타임에 미리 막는다.
+    - 중복 배정: _handle_targets가 dict라 나중 엣지가 앞의 걸 조용히 덮어쓴다 —
+      기존에 loop.guard의 loopBack/exit 포트만 막던 걸 review/checkpoint를 포함해
+      모든 분기 런타임 노드로 일반화한다.
     """
-    for handle in ("loopBack", "exit"):
-        count = sum(1 for e in outs if e["sourceHandle"] == handle)
+    valid_roles = {p["id"] for p in manifest["outputs"]}
+    role_counts: dict[str, int] = {}
+    for e in outs:
+        role = _resolved_role(e)
+        if role not in valid_roles:
+            raise ValueError(
+                f"node {node_id!r} has an outgoing edge with an unassigned or unknown "
+                f"role {role!r} — assign one of {sorted(valid_roles)} in Inspector"
+            )
+        role_counts[role] = role_counts.get(role, 0) + 1
+    for role, count in role_counts.items():
         if count > 1:
             raise ValueError(
-                f"loop.guard node {node_id!r} has {count} edges on its {handle!r} "
-                "port — each port must have exactly one outgoing edge"
+                f"node {node_id!r} has {count} edges assigned the {role!r} role — "
+                "each role must have exactly one outgoing edge"
             )
 
 
@@ -370,6 +395,45 @@ def _validate_gated_cycles(node_ids: list[str], edges: list[dict], loop_node_ids
             raise ValueError(
                 f"Cycle without a loop.guard node: {sorted(component)} — "
                 "add a Loop node on the feedback edge"
+            )
+
+
+_PRESEEDED_STATE_KEYS = {"task", "task_tags", "intent", "criteria", "batch_mode"}
+
+
+def _validate_required_inputs(nodes: list[dict]) -> None:
+    """llm_step 런타임 노드가 required로 선언한 입력마다, 그 state key를 쓰는 노드가
+    그래프 안에 있는지 검사한다 (Tier 1 — may-분석, 사이클/백엣지 구분 없음, 설계 §6).
+
+    llm_step 노드만 대상인 이유: run_llm_step이 manifest["inputs"]를 그대로
+    state.get(key)로 읽는 유일한 런타임이다. review/checkpoint/loop_guard는 자기
+    코드 안에 고정된 키를 읽거나(make_review) manifest 입력을 아예 안 읽으므로,
+    이 노드들의 required 플래그를 검사하면 실제로 존재하지 않는 state key(예:
+    io.output의 "result")까지 필수로 취급해 정상 그래프를 오탐으로 막게 된다.
+
+    initial_state()가 항상 채워주는 키(_PRESEEDED_STATE_KEYS)는 io.input 노드가
+    캔버스에 없어도 항상 충족된 것으로 본다.
+    """
+    write_keys: set[str] = set()
+    for node in nodes:
+        manifest = MANIFESTS_BY_TYPE.get(node["type"])
+        if manifest and manifest.get("runtime") == "llm_step":
+            spec = LLM_STEP_TABLE.get(node["type"], {})
+            write_keys.update(spec.get("writes", []))
+
+    for node in nodes:
+        manifest = MANIFESTS_BY_TYPE.get(node["type"])
+        if not manifest or manifest.get("runtime") != "llm_step":
+            continue
+        for port in manifest["inputs"]:
+            if not port.get("required"):
+                continue
+            key = port["id"]
+            if key in _PRESEEDED_STATE_KEYS or key in write_keys:
+                continue
+            raise ValueError(
+                f"node {node['id']!r} requires input {key!r} but no node in this "
+                "architecture writes it, and it is not provided by the run's initial input"
             )
 
 
@@ -480,12 +544,61 @@ def _make_loop_guard_node(
     return loop_guard
 
 
+_CONDITIONAL_ROUTING_TYPES = {"review.intent", "human.checkpoint", "loop.guard"}
+
+
+def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[list[str], str]]:
+    """일반(비-분기) 엣지들을 (sources, target) 쌍의 리스트로 계획한다. 소스가
+    2개 이상이면 리스트에 그대로 담기고, 호출부가 graph.add_edge(sources, target)로
+    넘기면 LangGraph의 join-edge(모든 소스가 끝날 때까지 대기)가 된다. 소스가
+    1개면 [source] 하나짜리 리스트 — 호출부는 graph.add_edge(source, target)로
+    개별 등록한다 (설계 §4).
+
+    review.intent/human.checkpoint/loop.guard가 소스인 엣지는 여기서 완전히
+    제외된다 — 이 셋은 add_conditional_edges/Command(goto=...)로 스스로 라우팅하고
+    절대 일반 add_edge를 호출하지 않으므로, 이 노드들이 소스인 엣지는 애초에
+    LangGraph의 join-edge에 참여할 수 없다. 어떤 target이 이런 소스를 하나라도
+    가지면 joinMode 선언 자체를 요구하지 않고(항상 OR 취급), 그 target으로 가는
+    나머지 plain 소스들도 개별 add_edge로 처리한다.
+    """
+    nodes_by_id = {n["id"]: n for n in nodes}
+    plain_sources_by_target: dict[str, list[str]] = {}
+    has_conditional_source: dict[str, bool] = {}
+
+    for e in edges:
+        target = e["target"]
+        source_type = nodes_by_id.get(e["source"], {}).get("type")
+        if source_type in _CONDITIONAL_ROUTING_TYPES:
+            has_conditional_source[target] = True
+            continue
+        sources = plain_sources_by_target.setdefault(target, [])
+        if e["source"] not in sources:
+            sources.append(e["source"])
+
+    plan: list[tuple[list[str], str]] = []
+    for target, sources in plain_sources_by_target.items():
+        if len(sources) >= 2 and not has_conditional_source.get(target, False):
+            join_mode = nodes_by_id.get(target, {}).get("joinMode")
+            if join_mode not in ("and", "or"):
+                raise ValueError(
+                    f"node {target!r} has {len(sources)} incoming plain edges and no "
+                    "joinMode — choose 'and' or 'or' in Inspector"
+                )
+            if join_mode == "and":
+                plan.append((sources, target))
+                continue
+        for source in sources:
+            plan.append(([source], target))
+    return plan
+
+
 def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitter, run_id: str):
     nodes: list[dict] = architecture.get("nodes") or []
     raw_edges: list[dict] = architecture.get("edges") or []
 
     if not nodes:
         raise ValueError("Architecture has no nodes")
+    _validate_required_inputs(nodes)
 
     edges = _filter_control_edges(nodes, raw_edges)
 
@@ -530,6 +643,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                 ),
             )
         elif node_type == "review.intent":
+            _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             model, policy = _resolve_model(node, default_model_cfg)
             wired = set(_handle_targets(outgoing, node_id))
             route_fns[node_id] = make_route_review(wired)
@@ -538,6 +652,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                 _make_review_node(node, model, policy, emit, run_id, node_to_policies.get(node_id)),
             )
         elif node_type == "human.checkpoint":
+            _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             routes = {"approve": END, "revise": END, "reject": END}
             routes.update(_handle_targets(outgoing, node_id))
             graph.add_node(
@@ -546,7 +661,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             )
         elif node_type == "loop.guard":
             loop_policy = _loop_policy_from_config(node)
-            _validate_loop_guard_ports(node_id, outgoing.get(node_id, []))
+            _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             targets = _handle_targets(outgoing, node_id)
             continue_target = targets.get("loopBack")
             exit_target = targets.get("exit")
@@ -582,11 +697,9 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         else:
             raise ValueError(f"Unsupported node type in compiler: {node_type!r}")
 
-    added_plain_edges: set[tuple[str, str]] = set()
     for node in nodes:
         node_id = node["id"]
         node_type = node["type"]
-        outs = outgoing.get(node_id, [])
 
         if node_type == "review.intent":
             graph.add_conditional_edges(
@@ -597,16 +710,14 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         # plain edge를 추가하지 않는다.
         if node_type in ("human.checkpoint", "loop.guard"):
             continue
-
-        if not outs:
+        if not outgoing.get(node_id):
             graph.add_edge(node_id, END)
-            continue
-        for e in outs:
-            pair = (node_id, e["target"])
-            if pair in added_plain_edges:
-                continue
-            added_plain_edges.add(pair)
-            graph.add_edge(node_id, e["target"])
+
+    for sources, target in _build_plain_edge_plan(nodes, edges):
+        if len(sources) > 1:
+            graph.add_edge(sources, target)
+        else:
+            graph.add_edge(sources[0], target)
 
     entry_ids = [n["id"] for n in nodes if not incoming.get(n["id"])]
     if not entry_ids:

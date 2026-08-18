@@ -20,14 +20,17 @@ def _node(id_, type_, config=None):
     return {"id": id_, "type": type_, "position": {"x": 0, "y": 0}, "config": config or {}}
 
 
-def _edge(source, target, source_handle="out", target_handle="in"):
-    return {
+def _edge(source, target, source_handle="out", target_handle="in", source_role=None):
+    edge = {
         "id": f"e-{source}-{target}",
         "source": source,
         "sourceHandle": source_handle,
         "target": target,
         "targetHandle": target_handle,
     }
+    if source_role is not None:
+        edge["sourceRole"] = source_role
+    return edge
 
 
 def _delta(per_criterion=None, misalignments=None):
@@ -38,6 +41,64 @@ def _delta(per_criterion=None, misalignments=None):
         "proposed_criteria": [],
         "reroute_hint": "",
     }
+
+
+def test_resolved_role_prefers_source_role_over_handle():
+    """새로 그은 프리폼 엣지는 sourceHandle이 의미 없는 내부 id이므로 sourceRole을 쓴다."""
+    edge = _edge("a", "b", source_handle="opaque-1", source_role="accept")
+    assert compile_mod._resolved_role(edge) == "accept"
+
+
+def test_resolved_role_falls_back_to_source_handle_when_no_role():
+    """기존 저장된 아키텍처는 sourceRole이 없고 sourceHandle 자체가 이미 역할 이름이다."""
+    edge = _edge("a", "b", source_handle="accept")
+    assert compile_mod._resolved_role(edge) == "accept"
+
+
+def test_handle_targets_resolves_via_source_role():
+    outgoing = {
+        "review": [_edge("review", "output", source_handle="opaque-1", source_role="accept")]
+    }
+    assert compile_mod._handle_targets(outgoing, "review") == {"accept": "output"}
+
+
+def test_validate_branch_roles_raises_for_unassigned_role():
+    """프리폼으로 그었지만 아직 Inspector에서 역할을 안 고른 엣지 — sourceRole 없음,
+    opaque sourceHandle이라 유효한 역할 이름이 아니다."""
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [_edge("review", "output", source_handle="opaque-1")]
+    with pytest.raises(ValueError, match="unassigned or unknown"):
+        compile_mod._validate_branch_roles("review", manifest, outs)
+
+
+def test_validate_branch_roles_accepts_freeform_edge_with_source_role():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [_edge("review", "output", source_handle="opaque-1", source_role="accept")]
+    compile_mod._validate_branch_roles("review", manifest, outs)  # 예외 없이 통과해야 함
+
+
+def test_validate_branch_roles_raises_for_duplicate_role():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [
+        _edge("review", "a", source_handle="refine"),
+        _edge("review", "b", source_handle="opaque-2", source_role="refine"),
+    ]
+    with pytest.raises(ValueError, match=r"2 edges assigned the 'refine' role"):
+        compile_mod._validate_branch_roles("review", manifest, outs)
+
+
+def test_validate_branch_roles_accepts_distinct_roles():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["review.intent"]
+    outs = [
+        _edge("review", "a", source_handle="accept"),
+        _edge("review", "b", source_handle="refine"),
+    ]
+    compile_mod._validate_branch_roles("review", manifest, outs)  # 예외 없이 통과해야 함
+
+
+def test_validate_branch_roles_accepts_empty_outs():
+    manifest = compile_mod.MANIFESTS_BY_TYPE["human.checkpoint"]
+    compile_mod._validate_branch_roles("checkpoint", manifest, [])  # 예외 없이 통과해야 함
 
 
 def _gated_refine_arch(guard_config: dict, review_config: dict | None = None) -> dict:
@@ -597,7 +658,7 @@ async def test_loop_guard_loopback_port_fanout_raises(monkeypatch):
             _edge("guard", "output", "exit", "result"),
         ],
     )
-    with pytest.raises(ValueError, match=r"2 edges on its 'loopBack' port"):
+    with pytest.raises(ValueError, match=r"2 edges assigned the 'loopBack' role"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
 
 
@@ -623,7 +684,29 @@ async def test_loop_guard_exit_port_fanout_raises(monkeypatch):
             _edge("guard", "output2", "exit", "result"),
         ],
     )
-    with pytest.raises(ValueError, match=r"2 edges on its 'exit' port"):
+    with pytest.raises(ValueError, match=r"2 edges assigned the 'exit' role"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_review_unassigned_branch_edge_raises_at_compile(monkeypatch):
+    """프리폼으로 그은 뒤 아직 Inspector에서 역할을 안 고른 엣지는 컴파일 타임에 막혀야
+    한다 — 지금까지는 review 노드가 런타임에 ValueError로 죽거나(review)
+    human.checkpoint처럼 조용히 END로 빠지는 문제였다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent"),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            _edge("review", "output", source_handle="opaque-slot-1"),  # 역할 미배정
+        ],
+    )
+    with pytest.raises(ValueError, match="unassigned or unknown"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
 
 
@@ -810,3 +893,251 @@ async def test_cycle_with_loop_guard_compiles(monkeypatch):
         _gated_refine_arch({}), DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1"
     )
     assert graph is not None
+
+
+def test_validate_required_inputs_passes_when_preseeded_key_has_no_writer_node():
+    """task는 initial_state()가 항상 채우므로, io.input 노드가 그래프에 없어도
+    reasoning.cot의 required task는 충족된 것으로 본다 (설계 §6, Tier 1)."""
+    nodes = [_node("reasoning", "reasoning.cot"), _node("output", "io.output")]
+    compile_mod._validate_required_inputs(nodes)  # 예외 없이 통과해야 함
+
+
+def test_validate_required_inputs_passes_when_a_writer_exists():
+    nodes = [_node("planning", "planning.decompose"), _node("reasoning", "reasoning.cot")]
+    compile_mod._validate_required_inputs(nodes)  # 예외 없이 통과해야 함
+
+
+def test_validate_required_inputs_raises_when_no_node_writes_a_required_non_preseeded_key(
+    monkeypatch,
+):
+    """오늘의 실제 매니페스트는 이 케이스가 없어(모든 required 입력이 preseeded) 합성
+    llm_step 타입을 주입해 재현한다."""
+    fake_manifest = {
+        "type": "test.needs_summary",
+        "runtime": "llm_step",
+        "category": "cognitive",
+        "label": "Needs Summary",
+        "description": "",
+        "inputs": [{"id": "summary", "label": "Summary", "dataType": "text", "required": True}],
+        "outputs": [],
+        "config": [],
+    }
+    monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "test.needs_summary", fake_manifest)
+    monkeypatch.setitem(
+        compile_mod.LLM_STEP_TABLE,
+        "test.needs_summary",
+        {"output_model": None, "extra_inputs": [], "writes": []},
+    )
+    nodes = [_node("n1", "test.needs_summary")]
+    with pytest.raises(ValueError, match="requires input 'summary'"):
+        compile_mod._validate_required_inputs(nodes)
+
+
+async def test_compile_graph_raises_for_missing_required_input(monkeypatch):
+    """_validate_required_inputs가 compile_graph에 실제로 연결돼 있는지 확인 — 노드
+    생성/모델 해석보다 먼저 돌아야 실행 비용을 들이기 전에 막는다."""
+    fake_manifest = {
+        "type": "test.needs_summary",
+        "runtime": "llm_step",
+        "category": "cognitive",
+        "label": "Needs Summary",
+        "description": "",
+        "inputs": [{"id": "summary", "label": "Summary", "dataType": "text", "required": True}],
+        "outputs": [],
+        "config": [],
+    }
+    monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "test.needs_summary", fake_manifest)
+    monkeypatch.setitem(
+        compile_mod.LLM_STEP_TABLE,
+        "test.needs_summary",
+        {"output_model": None, "extra_inputs": [], "writes": []},
+    )
+    arch = _arch([_node("n1", "test.needs_summary")], [])
+    with pytest.raises(ValueError, match="requires input 'summary'"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, None, "run-1")
+
+
+def test_build_plain_edge_plan_single_source_is_not_joined():
+    nodes = [_node("a", "reasoning.cot"), _node("b", "io.output")]
+    edges = [_edge("a", "b", "answer")]
+    assert compile_mod._build_plain_edge_plan(nodes, edges) == [(["a"], "b")]
+
+
+def test_build_plain_edge_plan_requires_join_mode_for_two_plain_sources():
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("b", "reasoning.cot"),
+        _node("c", "io.output"),  # joinMode 미선언
+    ]
+    edges = [_edge("a", "c", "plan"), _edge("b", "c", "answer")]
+    with pytest.raises(ValueError, match="no joinMode"):
+        compile_mod._build_plain_edge_plan(nodes, edges)
+
+
+def test_build_plain_edge_plan_creates_a_single_join_edge_for_and():
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("b", "reasoning.cot"),
+        {**_node("c", "io.output"), "joinMode": "and"},
+    ]
+    edges = [_edge("a", "c", "plan"), _edge("b", "c", "answer")]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert plan == [(["a", "b"], "c")]
+
+
+def test_build_plain_edge_plan_keeps_individual_edges_for_or():
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("b", "reasoning.cot"),
+        {**_node("c", "io.output"), "joinMode": "or"},
+    ]
+    edges = [_edge("a", "c", "plan"), _edge("b", "c", "answer")]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert sorted(plan) == [(["a"], "c"), (["b"], "c")]
+
+
+def test_build_plain_edge_plan_forces_or_when_a_conditional_source_is_mixed_in():
+    """review.intent/loop.guard/human.checkpoint 같은 conditional-routing 소스가
+    하나라도 섞이면 AND가 구조적으로 불가능하다 — 이 셋은 add_conditional_edges나
+    Command(goto=...)로 스스로 라우팅하고 add_edge를 절대 호출하지 않으므로
+    LangGraph의 join-edge에 참여할 수 없다. joinMode 선언 자체를 요구하지 않고
+    나머지 plain 소스도 자동으로 개별 엣지가 된다 (설계 §4)."""
+    nodes = [
+        _node("input", "io.input"),
+        _node("guard", "loop.guard"),
+        _node("reasoning", "reasoning.cot"),  # joinMode 미선언이어도 에러 없어야 함
+    ]
+    edges = [
+        _edge("input", "reasoning", "task"),
+        _edge("guard", "reasoning", "loopBack", "task"),
+    ]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert plan == [(["input"], "reasoning")]  # guard발 엣지는 plan에 아예 안 들어감
+
+
+def test_build_plain_edge_plan_excludes_review_sourced_edges_entirely():
+    nodes = [_node("review", "review.intent"), _node("output", "io.output")]
+    edges = [_edge("review", "output", "accept")]
+    assert compile_mod._build_plain_edge_plan(nodes, edges) == []
+
+
+def test_build_plain_edge_plan_raises_cleanly_for_a_dangling_edge_target():
+    """target이 nodes 목록에 없는 경우(프리폼 캔버스에서 노드가 삭제됐지만 그 노드를
+    가리키던 엣지가 남아있는 경우) source 조회와 동일하게 방어적으로 처리해야 한다 —
+    KeyError로 죽지 않고 기존 '설정 오류'(joinMode 없음) ValueError로 자연스럽게
+    흡수돼야 한다."""
+    nodes = [_node("a", "planning.decompose"), _node("b", "reasoning.cot")]
+    edges = [_edge("a", "missing", "plan"), _edge("b", "missing", "answer")]
+    with pytest.raises(ValueError, match="no joinMode"):
+        compile_mod._build_plain_edge_plan(nodes, edges)
+
+
+def test_build_plain_edge_plan_forces_or_with_two_plain_sources_and_a_conditional_source():
+    """conditional-routing 소스가 하나라도 섞이면, plain 소스가 2개 이상이어도 AND는
+    구조적으로 불가능하다 — joinMode 선언 없이도 에러 없이 개별 엣지로 처리돼야 한다
+    (설계 §4의 핵심 시나리오: starter architecture에서 guard가 다른 plain 소스들과
+    함께 하나의 target으로 들어오는 경우)."""
+    nodes = [
+        _node("planning", "planning.decompose"),
+        _node("reasoning", "reasoning.cot"),
+        _node("guard", "loop.guard"),
+        _node("target", "io.output"),  # joinMode 미선언이어도 에러 없어야 함
+    ]
+    edges = [
+        _edge("planning", "target", "plan"),
+        _edge("reasoning", "target", "answer"),
+        _edge("guard", "target", "loopBack", "task"),
+    ]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert sorted(plan) == [(["planning"], "target"), (["reasoning"], "target")]
+
+
+def test_build_plain_edge_plan_dedups_multiple_edges_from_the_same_source_target_pair():
+    """같은 (source, target) 쌍에서 나온 엣지가 여러 개(예: 서로 다른 데이터 포트로
+    두 번 연결)여도 소스는 한 번만 카운트돼야 한다 — join된 소스 리스트에 중복 없이
+    한 번만 나타나야 한다."""
+    nodes = [
+        _node("a", "planning.decompose"),
+        _node("d", "reasoning.cot"),
+        {**_node("c", "io.output"), "joinMode": "and"},
+    ]
+    edges = [
+        _edge("a", "c", "plan1", "in1"),
+        _edge("a", "c", "plan2", "in2"),
+        _edge("d", "c", "answer"),
+    ]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert plan == [(["a", "d"], "c")]
+
+
+async def test_compile_graph_requires_join_mode_for_two_plain_sources(monkeypatch):
+    """_build_plain_edge_plan이 compile_graph에 실제로 연결돼 있는지 확인 — 2개 이상의
+    plain 소스가 한 target으로 모이는데 joinMode가 없으면 컴파일 에러여야 한다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("planning", "planning.decompose"),
+            _node("reasoning", "reasoning.cot"),
+            _node("output", "io.output"),  # joinMode 미선언
+        ],
+        [
+            _edge("input", "planning", "task"),
+            _edge("input", "reasoning", "task"),
+            _edge("planning", "output", "plan"),
+            _edge("reasoning", "output", "answer"),
+        ],
+    )
+    with pytest.raises(ValueError, match="no joinMode"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_compile_graph_and_join_compiles_and_runs(monkeypatch):
+    """joinMode='and'를 선언하면 컴파일 에러 없이 join-edge로 컴파일되고, 두 plain
+    소스(planning/reasoning) 각각의 결과가 전부 최종 state에 반영된 채로 완주한다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    emitter = ListEventEmitter()
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("planning", "planning.decompose"),
+            _node("reasoning", "reasoning.cot"),
+            {**_node("output", "io.output"), "joinMode": "and"},
+        ],
+        [
+            _edge("input", "planning", "task"),
+            _edge("input", "reasoning", "task"),
+            _edge("planning", "output", "plan"),
+            _edge("reasoning", "output", "answer"),
+        ],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    final = await graph.ainvoke(initial_state("2+2"), {"configurable": {"thread_id": "t-and"}})
+    assert final.get("plan") == ["s1"]
+    assert final.get("answer") == "4"
+
+
+async def test_compile_graph_or_join_still_compiles_and_runs(monkeypatch):
+    """joinMode='or'도 여전히 컴파일·실행된다 — 개별 add_edge 그대로 (회귀)."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    emitter = ListEventEmitter()
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("planning", "planning.decompose"),
+            _node("reasoning", "reasoning.cot"),
+            {**_node("output", "io.output"), "joinMode": "or"},
+        ],
+        [
+            _edge("input", "planning", "task"),
+            _edge("input", "reasoning", "task"),
+            _edge("planning", "output", "plan"),
+            _edge("reasoning", "output", "answer"),
+        ],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    final = await graph.ainvoke(initial_state("2+2"), {"configurable": {"thread_id": "t-or"}})
+    assert final.get("plan") == ["s1"]
+    assert final.get("answer") == "4"
