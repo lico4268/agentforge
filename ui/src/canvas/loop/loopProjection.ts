@@ -151,6 +151,7 @@ export function projectDrilledInView(
 ): { nodes: RFNode[]; edges: Edge[] } {
   const members = deriveLoopMembers(nodes.map((n) => n.id), edges, loopNodeId)
   const visible = new Set([loopNodeId, ...members])
+
   return {
     nodes: nodes.filter((n) => visible.has(n.id)),
     edges: edges.filter((e) => visible.has(e.source) && visible.has(e.target)),

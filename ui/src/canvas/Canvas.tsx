@@ -23,7 +23,11 @@ import { AgentEdge } from './edges/AgentEdge'
 import { radialLayout } from './layout/radialLayout'
 import { prefersReducedMotion, viewportTransitionDuration } from './viewport'
 import { DRAG_MIME } from './dragTypes'
-import { LOOP_COLLAPSED_NODE_TYPE, projectCollapsedView, projectDrilledInView } from './loop/loopProjection'
+import {
+  LOOP_COLLAPSED_NODE_TYPE,
+  projectCollapsedView,
+  projectDrilledInView,
+} from './loop/loopProjection'
 
 /**
  * The canvas. `nodeTypes` is built from the registry — every manifest type maps

@@ -117,4 +117,12 @@ describe('projectDrilledInView on the starter graph', () => {
     expect(viewNodes.map((n) => n.id).sort()).toEqual(['loop_guard', 'reasoning', 'review'].sort())
     expect(viewEdges.map((e) => e.id).sort()).toEqual(['e4', 'e6', 'e9'].sort())
   })
+
+  it('is a no-op on nodes/edges when the guard has no loopBack target', () => {
+    const { nodes: starterNodes, edges: starterEdges } = loadStarterGraph()
+    const edges = starterEdges.filter((e) => !(e.source === 'loop_guard' && e.sourceHandle === 'loopBack'))
+    const { nodes: viewNodes } = projectDrilledInView(starterNodes, edges, 'loop_guard')
+
+    expect(viewNodes.map((n) => n.id).sort()).toEqual(['loop_guard'].sort())
+  })
 })
