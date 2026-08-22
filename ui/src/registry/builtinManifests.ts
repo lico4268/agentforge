@@ -253,6 +253,17 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
     ],
   },
 
+  {
+    type: 'loop.reentry',
+    runtime: 'passthrough',
+    category: 'policy',
+    label: 'Loop Start',
+    description: '루프가 다시 도는 지점을 표시하는 시각 마커. 로직 없이 입력을 그대로 통과시킨다 — loop.guard의 loopBack 포트를 여기로 연결.',
+    inputs: [{ id: 'in', label: 'In', dataType: 'any', required: true }],
+    outputs: [{ id: 'out', label: 'Out', dataType: 'any' }],
+    config: [],
+  },
+
   // ── Human ──────────────────────────────────────────────────────────────────
 
   {

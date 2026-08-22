@@ -26,4 +26,5 @@ export const NODE_TYPE_ICONS: Record<string, string> = {
   'model.binding':      'smart_toy',
   'io.input':           'login',
   'io.output':          'logout',
+  'loop.reentry':       'restart_alt',
 }
