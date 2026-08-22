@@ -340,6 +340,54 @@ async def test_review_refine_loop_then_accept(monkeypatch):
     assert "exitReason" not in guard_events[0].loop_runtime
 
 
+async def test_loop_reentry_node_passes_through_without_touching_state(monkeypatch):
+    """loop.reentry는 loopBack 경로에 끼어도 순수 통과 노드라, 실행 결과가
+    reentry 노드가 없을 때(test_review_refine_loop_then_accept)와 동일해야 한다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    calls = {"review": 0}
+
+    async def fake_review_llm_step(state, *, node_id, **kwargs):
+        calls["review"] += 1
+        if calls["review"] == 1:
+            return _delta([{"id": "c1", "verdict": "unmet", "evidence": "부족"}])
+        return _delta([{"id": "c1", "verdict": "met", "evidence": "ok"}])
+
+    monkeypatch.setattr(review_mod, "run_llm_step", fake_review_llm_step)
+    emitter = ListEventEmitter()
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("reasoning", "reasoning.cot"),
+            _node("review", "review.intent", {}),
+            _node("guard", "loop.guard", {"onExhaustion": "exit"}),
+            _node("reentry", "loop.reentry"),
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("input", "reasoning", "task"),
+            _edge("reasoning", "review", "answer"),
+            _edge("review", "guard", "refine", "in"),
+            _edge("review", "output", "accept", "result"),
+            _edge("guard", "reentry", "loopBack", "in"),
+            _edge("reentry", "reasoning", "out", "task"),
+            _edge("guard", "output", "exit", "result"),
+        ],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
+    final = await graph.ainvoke(
+        initial_state("", criteria=_ONE_CRITERION, intent="정확한 계산"),
+        {"configurable": {"thread_id": "t-reentry"}},
+    )
+
+    assert final["review_branch"] == "accept"
+    assert final["retries"] == 1
+
+    reentry_events = [e for e in emitter.events if e.node_id == "reentry"]
+    assert [e.event_type for e in reentry_events] == ["node_start", "node_end"]
+    assert reentry_events[-1].output is None
+
+
 async def test_review_unwired_branch_falls_back(monkeypatch):
     """미배선 브랜치는 wired 기반 폴백으로 라우팅돼 그래프가 END에 도달한다."""
     _patch_model(monkeypatch)
@@ -1013,6 +1061,36 @@ def test_build_plain_edge_plan_forces_or_when_a_conditional_source_is_mixed_in()
     ]
     plan = compile_mod._build_plain_edge_plan(nodes, edges)
     assert plan == [(["input"], "reasoning")]  # guard발 엣지는 plan에 아예 안 들어감
+
+
+def test_build_plain_edge_plan_forces_or_when_a_loop_reentry_source_is_mixed_in():
+    """loop.reentry는 conditional-routing 타입이 아니라 진짜 plain 소스지만,
+    loop.guard의 Command(goto=...) 점프 하류에서만 실행되므로 다른 passthrough
+    타입과 달리 joinMode 없이도 에러 없이 개별 엣지로 처리돼야 한다."""
+    nodes = [
+        _node("input", "io.input"),
+        _node("reentry", "loop.reentry"),
+        _node("reasoning", "reasoning.cot"),  # joinMode 미선언이어도 에러 없어야 함
+    ]
+    edges = [
+        _edge("input", "reasoning", "task"),
+        _edge("reentry", "reasoning", "out", "task"),
+    ]
+    plan = compile_mod._build_plain_edge_plan(nodes, edges)
+    assert sorted(plan) == [(["input"], "reasoning"), (["reentry"], "reasoning")]
+
+
+def test_build_plain_edge_plan_still_requires_join_mode_for_two_plain_passthrough_sources():
+    """loop.reentry가 아닌 다른 passthrough 타입(io.input/io.output/model.binding)은
+    이번 예외에 포함되지 않는다 — 실제로 2개 이상 모이면 여전히 joinMode가 필요하다."""
+    nodes = [
+        _node("a", "io.input"),
+        _node("b", "model.binding"),
+        _node("target", "io.output"),  # joinMode 미선언 — 에러가 나야 함
+    ]
+    edges = [_edge("a", "target"), _edge("b", "target")]
+    with pytest.raises(ValueError, match="no joinMode"):
+        compile_mod._build_plain_edge_plan(nodes, edges)
 
 
 def test_build_plain_edge_plan_excludes_review_sourced_edges_entirely():

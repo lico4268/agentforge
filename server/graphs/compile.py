@@ -49,7 +49,7 @@ LLM_STEP_TABLE: dict[str, dict[str, Any]] = {
     },
 }
 
-PASSTHROUGH_TYPES = {"io.input", "io.output", "model.binding"}
+PASSTHROUGH_TYPES = {"io.input", "io.output", "model.binding", "loop.reentry"}
 
 
 def _make_passthrough_node(
@@ -560,6 +560,12 @@ def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[l
     LangGraph의 join-edge에 참여할 수 없다. 어떤 target이 이런 소스를 하나라도
     가지면 joinMode 선언 자체를 요구하지 않고(항상 OR 취급), 그 target으로 가는
     나머지 plain 소스들도 개별 add_edge로 처리한다.
+
+    loop.reentry도 마찬가지다 — loop.guard의 loopBack이 도착하는 노드일 뿐, 그
+    자신도 Command(goto=...) 점프의 하류에서만 실행되므로 다중 소스 타겟의 경우
+    joinMode를 요구하지 않는다. 다른 passthrough 타입(io.input/io.output/
+    model.binding)은 이 예외에 포함되지 않는다 — 이들은 정적으로 항상 실행되므로
+    실제로 여러 소스가 한 target에 모이면 명시적 joinMode 결정이 여전히 필요하다.
     """
     nodes_by_id = {n["id"]: n for n in nodes}
     plain_sources_by_target: dict[str, list[str]] = {}
@@ -571,6 +577,8 @@ def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[l
         if source_type in _CONDITIONAL_ROUTING_TYPES:
             has_conditional_source[target] = True
             continue
+        if source_type == "loop.reentry":
+            has_conditional_source[target] = True
         sources = plain_sources_by_target.setdefault(target, [])
         if e["source"] not in sources:
             sources.append(e["source"])

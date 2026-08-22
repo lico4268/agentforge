@@ -53,3 +53,15 @@ def test_loop_guard_manifest_exposes_all_five_guard_axes(client):
         "stuckThreshold",
         "onExhaustion",
     ]
+
+
+def test_loop_reentry_manifest_declares_one_passthrough_in_and_out(client):
+    manifests = {n["type"]: n for n in client.get("/api/nodes").json()}
+    assert "loop.reentry" in manifests, "loop.reentry 매니페스트가 /api/nodes에 없다"
+
+    reentry = manifests["loop.reentry"]
+    assert reentry["runtime"] == "passthrough"
+    assert reentry["category"] == "policy"
+    assert [(p["id"], p["label"]) for p in reentry["inputs"]] == [("in", "In")]
+    assert [(p["id"], p["label"]) for p in reentry["outputs"]] == [("out", "Out")]
+    assert reentry["config"] == []
