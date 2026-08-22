@@ -22,9 +22,10 @@ export const STARTER_ARCHITECTURE: Architecture = {
   nodes: [
     { id: 'input',             type: 'io.input',           position: { x: 96,  y: 88  }, config: { sample: 'Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?' } },
     { id: 'planning',          type: 'planning.decompose',  position: { x: 272, y: 220 }, config: { modelSlots: [{ id: 'slot-planning', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
-    { id: 'reasoning',         type: 'reasoning.cot',       position: { x: 472, y: 356 }, config: { modelSlots: [{ id: 'slot-reasoning', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
-    { id: 'review',            type: 'review.intent',       position: { x: 690, y: 300 }, config: { criteria: [], maxRetries: 2, modelSlots: [{ id: 'slot-review', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
-    { id: 'loop_guard',        type: 'loop.guard',          position: { x: 916, y: 430 }, config: { kind: 'critiqueRevise', maxIterations: 3, onExhaustion: 'exit' } },
+    { id: 'loop_reentry',      type: 'loop.reentry',        position: { x: 328, y: 380 }, config: {} },
+    { id: 'reasoning',         type: 'reasoning.cot',       position: { x: 472, y: 380 }, config: { modelSlots: [{ id: 'slot-reasoning', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
+    { id: 'review',            type: 'review.intent',       position: { x: 690, y: 380 }, config: { criteria: [], maxRetries: 2, modelSlots: [{ id: 'slot-review', provider: 'google', model: 'gemini-3.1-flash-lite', temperature: 0, role: '' }] } },
+    { id: 'loop_guard',        type: 'loop.guard',          position: { x: 916, y: 380 }, config: { kind: 'critiqueRevise', maxIterations: 3, onExhaustion: 'exit' } },
     { id: 'human_checkpoint',  type: 'human.checkpoint',    position: { x: 748, y: 520 }, config: {} },
     { id: 'output',            type: 'io.output',           position: { x: 522, y: 616 }, config: {} },
   ],
@@ -37,7 +38,8 @@ export const STARTER_ARCHITECTURE: Architecture = {
     { id: 'e6', source: 'review',           sourceHandle: 'refine',  target: 'loop_guard',       targetHandle: 'in'     },
     { id: 'e7', source: 'review',           sourceHandle: 'clarify', target: 'human_checkpoint', targetHandle: 'review' },
     { id: 'e8', source: 'human_checkpoint', sourceHandle: 'approve', target: 'output',           targetHandle: 'result' },
-    { id: 'e9', source: 'loop_guard',       sourceHandle: 'loopBack', target: 'reasoning',        targetHandle: 'task'   },
+    { id: 'e9', source: 'loop_guard',       sourceHandle: 'loopBack', target: 'loop_reentry',     targetHandle: 'in'     },
     { id: 'e10', source: 'loop_guard',      sourceHandle: 'exit',     target: 'output',           targetHandle: 'result' },
+    { id: 'e11', source: 'loop_reentry',    sourceHandle: 'out',      target: 'reasoning',        targetHandle: 'task'   },
   ],
 }

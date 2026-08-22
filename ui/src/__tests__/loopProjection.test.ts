@@ -25,7 +25,7 @@ describe('projectCollapsedView on the starter graph', () => {
     )
   })
 
-  it('turns the guard node into a collapsed node carrying 2 members and the right crossing ports', () => {
+  it('turns the guard node into a collapsed node carrying 3 members and the right crossing ports', () => {
     const { nodes, edges } = loadStarterGraph()
     const { nodes: result } = projectCollapsedView(nodes, edges)
 
@@ -33,29 +33,27 @@ describe('projectCollapsedView on the starter graph', () => {
     expect(guard.type).toBe(LOOP_COLLAPSED_NODE_TYPE)
 
     const data = guard.data as LoopCollapsedNodeData
-    expect(data.memberCount).toBe(2)
-    expect(data.memberIds).toEqual(['reasoning', 'review'])
+    expect(data.memberCount).toBe(3)
+    expect(data.memberIds).toEqual(['loop_reentry', 'reasoning', 'review'])
     expect(data.loopInputs.map((p) => p.label)).toEqual(['plan', 'task'])
     expect(data.loopOutputs.map((p) => p.label)).toEqual(['accept', 'clarify', 'exit'])
   })
 
-  it('drops the 3 internal edges and reroutes the 5 boundary-crossing edges onto the guard, leaving the 2 fully-external edges untouched', () => {
+  it('drops the 4 internal edges and reroutes the 5 boundary-crossing edges onto the guard, leaving the 2 fully-external edges untouched', () => {
     const { nodes, edges } = loadStarterGraph()
     const { edges: result } = projectCollapsedView(nodes, edges)
 
     expect(result).toHaveLength(7)
     expect(result.find((e) => e.id === 'e4')).toBeUndefined() // reasoning -> review, internal
     expect(result.find((e) => e.id === 'e6')).toBeUndefined() // review -> loop_guard, internal
-    expect(result.find((e) => e.id === 'e9')).toBeUndefined() // loop_guard -> reasoning, internal
+    expect(result.find((e) => e.id === 'e9')).toBeUndefined() // loop_guard -> loop_reentry, internal
+    expect(result.find((e) => e.id === 'e11')).toBeUndefined() // loop_reentry -> reasoning, internal
 
     const e2 = result.find((e) => e.id === 'e2')!
     expect(e2).toMatchObject({ source: 'planning', target: 'loop_guard', targetHandle: 'e2' })
 
     const e5 = result.find((e) => e.id === 'e5')!
     expect(e5).toMatchObject({ source: 'loop_guard', target: 'output', sourceHandle: 'e5' })
-    // Rerouting onto the synthetic port id must not lose which branch this
-    // edge represents — AgentEdge falls back to data.branchHandle for its
-    // color/label so "accept" doesn't visually collapse into a bare edge id.
     expect(e5.data).toMatchObject({ branchHandle: 'accept' })
 
     const e1 = result.find((e) => e.id === 'e1')!
@@ -114,8 +112,10 @@ describe('projectDrilledInView on the starter graph', () => {
     const { nodes, edges } = loadStarterGraph()
     const { nodes: viewNodes, edges: viewEdges } = projectDrilledInView(nodes, edges, 'loop_guard')
 
-    expect(viewNodes.map((n) => n.id).sort()).toEqual(['loop_guard', 'reasoning', 'review'].sort())
-    expect(viewEdges.map((e) => e.id).sort()).toEqual(['e4', 'e6', 'e9'].sort())
+    expect(viewNodes.map((n) => n.id).sort()).toEqual(
+      ['loop_guard', 'loop_reentry', 'reasoning', 'review'].sort(),
+    )
+    expect(viewEdges.map((e) => e.id).sort()).toEqual(['e4', 'e6', 'e9', 'e11'].sort())
   })
 
   it('is a no-op on nodes/edges when the guard has no loopBack target', () => {

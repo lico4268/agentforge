@@ -27,10 +27,16 @@ describe('STARTER_ARCHITECTURE', () => {
 
   it('reasoning으로 되돌아오는 유일한 피드백 경로가 loop.guard를 거친다', () => {
     // 가드를 우회하는 되돌림 엣지가 하나라도 있으면 ungated cycle 컴파일 에러가 난다.
+    // loop_reentry는 순수 통과 노드이므로 "가드를 거친다"는 곧 "가드 -> loop_reentry -> reasoning"이다.
     const feedbackIntoReasoning = STARTER_ARCHITECTURE.edges
       .filter((e) => e.target === 'reasoning' && !['input', 'planning'].includes(e.source))
       .map((e) => e.source)
-    expect(feedbackIntoReasoning).toEqual([guard()!.id])
+    expect(feedbackIntoReasoning).toEqual(['loop_reentry'])
+
+    const reentryInputs = STARTER_ARCHITECTURE.edges
+      .filter((e) => e.target === 'loop_reentry')
+      .map((e) => e.source)
+    expect(reentryInputs).toEqual([guard()!.id])
   })
 
   it('가드에 유한한 maxIterations와 exit 소진 정책이 설정돼 있다', () => {
