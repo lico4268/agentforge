@@ -1,13 +1,6 @@
 import { useState } from 'react'
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  getBezierPath,
-  getStraightPath,
-  type EdgeProps,
-} from '@xyflow/react'
-import { edgePresentation, isLoopBackEdge } from './edgePresentation'
-import { LOOP_ACCENT_COLOR } from '@/lib/categoryStyle'
+import { BaseEdge, EdgeLabelRenderer, getStraightPath, type EdgeProps } from '@xyflow/react'
+import { edgePresentation } from './edgePresentation'
 
 export function AgentEdge({
   id,
@@ -15,8 +8,6 @@ export function AgentEdge({
   sourceY,
   targetX,
   targetY,
-  sourcePosition,
-  targetPosition,
   sourceHandleId,
   markerEnd,
   selected,
@@ -27,32 +18,18 @@ export function AgentEdge({
   // synthetic port id (edge.id) so RadialNodePorts can find it — but that
   // means it no longer names the real branch (accept/clarify/…). loopProjection
   // stashes the original handle in data.branchHandle for exactly this: display
-  // purposes prefer it, while the real wire handle (sourceHandleId) stays
-  // authoritative for anything structural (e.g. isLoopBackEdge below).
+  // purposes prefer it over the rerouted sourceHandleId.
   const labelHandle = typeof data?.branchHandle === 'string' ? data.branchHandle : sourceHandleId
   const { conditional, color } = edgePresentation(labelHandle)
-  const isLoopBack = isLoopBackEdge(sourceHandleId)
 
-  // Forward edges: straight boundary-to-boundary. The port dot already sits
-  // at its true continuous angle (radialPortGeometry.ts); a straight line
-  // needs no tangent direction at all, so it can't be thrown off by the
-  // 4-direction Position quantization getBezierPath relies on.
-  // Loop-back edges: kept curved on purpose, so the return relationship
-  // reads as visually distinct from the forward flow.
-  const [edgePath, labelX, labelY] = isLoopBack
-    ? getBezierPath({
-        sourceX,
-        sourceY,
-        sourcePosition,
-        targetX,
-        targetY,
-        targetPosition,
-        curvature: 0.42,
-      })
-    : getStraightPath({ sourceX, sourceY, targetX, targetY })
+  // Straight boundary-to-boundary. The port dot already sits at its true
+  // continuous angle (radialPortGeometry.ts); a straight line needs no
+  // tangent direction at all, so it can't be thrown off by the 4-direction
+  // Position quantization getBezierPath relies on.
+  const [edgePath, labelX, labelY] = getStraightPath({ sourceX, sourceY, targetX, targetY })
 
   const showLabel = conditional || selected || isHovered
-  const stroke = selected ? '#dde4dd' : isLoopBack ? LOOP_ACCENT_COLOR : color
+  const stroke = selected ? '#dde4dd' : color
   const arrowMarkerId = `agent-arrow-${id}`
 
   return (
@@ -79,7 +56,6 @@ export function AgentEdge({
           style={{
             stroke,
             strokeWidth: selected ? 2.5 : conditional ? 2 : 1.5,
-            strokeDasharray: isLoopBack ? '6 4' : undefined,
           }}
         />
       </g>

@@ -4,6 +4,13 @@ export type LoopGraphEdge = {
   target: string
 }
 
+/** The node a `loop.guard`'s `loopBack` output re-enters the loop body at —
+ * the loop's "start" for boundary-marker purposes. `null` if the guard's
+ * loopBack port isn't wired to anything. */
+export function findLoopBackTarget(edges: LoopGraphEdge[], loopNodeId: string): string | null {
+  return edges.find((e) => e.source === loopNodeId && e.sourceHandle === 'loopBack')?.target ?? null
+}
+
 /**
  * The set of nodes that make up one loop's body: everything reachable
  * forward from the guard's `loopBack` target that can also reach back to the
@@ -17,8 +24,8 @@ export function deriveLoopMembers(
   edges: LoopGraphEdge[],
   loopNodeId: string,
 ): string[] {
-  const loopBackEdge = edges.find((e) => e.source === loopNodeId && e.sourceHandle === 'loopBack')
-  if (!loopBackEdge) return []
+  const loopBackTarget = findLoopBackTarget(edges, loopNodeId)
+  if (loopBackTarget === null) return []
 
   const outgoing = new Map<string, string[]>()
   const incoming = new Map<string, string[]>()
@@ -30,7 +37,7 @@ export function deriveLoopMembers(
   // Forward: reachable from the loopBack target, without crossing back
   // through the guard (the guard is the loop's boundary, not a member).
   const forward = new Set<string>()
-  const forwardStack = [loopBackEdge.target]
+  const forwardStack = [loopBackTarget]
   while (forwardStack.length > 0) {
     const current = forwardStack.pop()!
     if (current === loopNodeId || forward.has(current)) continue
