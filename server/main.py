@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 import config as cfg
+import node_types as nt
 from events import WSEventEmitter
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
@@ -71,7 +72,26 @@ async def get_models() -> list[dict]:
 
 @app.get("/api/nodes")
 async def get_nodes() -> list[dict]:
-    return BUILTIN_MANIFESTS
+    return BUILTIN_MANIFESTS + nt.list_custom_manifests()
+
+
+@app.get("/api/node-types")
+async def list_node_types() -> list[dict]:
+    """커스텀 노드 타입만(BUILTIN 제외) — Node Type Builder UI의 "내가 만든 타입" 목록용."""
+    return nt.list_custom_manifests()
+
+
+@app.post("/api/node-types")
+async def create_node_type(manifest: nt.NodeTypeManifest) -> dict:
+    """생성/수정(upsert, /api/architectures와 동일 관례) — 같은 type이면 덮어쓴다."""
+    return nt.save_custom_manifest(manifest)
+
+
+@app.delete("/api/node-types/{type_}")
+async def delete_node_type(type_: str) -> dict:
+    if not nt.delete_custom_manifest(type_):
+        raise HTTPException(status_code=404, detail="Node type not found")
+    return {"deleted": type_}
 
 
 @app.get("/api/architectures")
