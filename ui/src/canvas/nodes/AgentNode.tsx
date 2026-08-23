@@ -3,7 +3,7 @@ import type { NodeProps } from '@xyflow/react'
 import { useExecutionStore, useNodeRuntime } from '@/execution/useExecutionStore'
 import { CATEGORY_META } from '@/lib/categoryStyle'
 import { useRegistry } from '@/registry/RegistryContext'
-import type { ModelSlot, NodeRuntimeStatus } from '@/types'
+import type { ModelSlot, NodeRuntimeStatus, Port } from '@/types'
 import type { RFNodeData } from '@/stores/useGraphStore'
 import { RadialNodePorts } from './RadialNodePorts'
 
@@ -23,9 +23,15 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
 
   const meta = CATEGORY_META[manifest.category]
   const status = runtime?.status ?? 'idle'
-  const modelSlots: ModelSlot[] = Array.isArray((data as RFNodeData).config?.modelSlots)
-    ? ((data as RFNodeData).config.modelSlots as ModelSlot[])
+  const config = (data as RFNodeData).config
+  const modelSlots: ModelSlot[] = Array.isArray(config?.modelSlots)
+    ? (config.modelSlots as ModelSlot[])
     : []
+  // custom.node(Phase B④)는 매니페스트에 포트/라벨이 없다 — 인스턴스 config가 채운다.
+  // 다른 타입은 config.inputs/outputs/label을 절대 안 채우므로 이 fallback은 무변화.
+  const dynamicInputs: Port[] = (config?.inputs as Port[] | undefined) ?? manifest.inputs
+  const dynamicOutputs: Port[] = (config?.outputs as Port[] | undefined) ?? manifest.outputs
+  const label = (config?.label as string | undefined) ?? manifest.label
   const isPendingCheckpoint =
     manifest.type === 'human.checkpoint' && pendingInterrupt?.nodeId === id
   const borderColor = selected ? meta.color : statusColor(status, meta.color)
@@ -42,9 +48,9 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
               ? `0 0 0 1px ${meta.color}66`
               : undefined,
       }}
-      aria-label={`${manifest.label} agent node`}
+      aria-label={`${label} agent node`}
     >
-      <RadialNodePorts nodeId={id} inputs={manifest.inputs} outputs={manifest.outputs} color={meta.color} />
+      <RadialNodePorts nodeId={id} inputs={dynamicInputs} outputs={dynamicOutputs} color={meta.color} />
       <div className="pointer-events-none absolute inset-2 flex flex-col items-center justify-center rounded-full text-center">
         <span
           className="material-symbols-outlined rounded-full p-1.5"
@@ -54,7 +60,7 @@ function AgentNodeImpl({ id, data, selected }: NodeProps) {
           {meta.icon}
         </span>
         <span className="mt-1 max-w-[82px] truncate text-[10px] font-semibold text-[#dde4dd]">
-          {manifest.label}
+          {label}
         </span>
         <div className="mt-1 flex items-center gap-1 font-mono text-[8px] text-[#86948a]">
           <StatusLabel status={status} />

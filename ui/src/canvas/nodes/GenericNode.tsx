@@ -31,15 +31,22 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
   const status = runtime?.status ?? 'idle'
   const isRunning = status === 'running'
 
-  const modelSlots: ModelSlot[] = Array.isArray((data as RFNodeData).config?.modelSlots)
-    ? ((data as RFNodeData).config.modelSlots as ModelSlot[])
+  const config = (data as RFNodeData).config
+  const modelSlots: ModelSlot[] = Array.isArray(config?.modelSlots)
+    ? (config.modelSlots as ModelSlot[])
     : []
 
-  // Output ports always come from the static manifest definition.
+  // Output ports always come from the static manifest definition — EXCEPT for
+  // custom.node (Phase B④), whose manifest declares no ports at all on purpose;
+  // its ports live per-instance in config.inputs/config.outputs instead (set via
+  // Inspector's +/- editor). Every other type never populates config.inputs/
+  // config.outputs, so this fallback is a no-op for them.
   // (Previously, when maxModelSlots was set and slots were filled, outputs were
   //  replaced with slot-derived handles — but edges reference manifest handle
   //  ids like 'accept'/'refine'/'clarify', so swapping them dropped the edges.)
-  const dynamicOutputs: Port[] = manifest.outputs
+  const dynamicInputs: Port[] = (config?.inputs as Port[] | undefined) ?? manifest.inputs
+  const dynamicOutputs: Port[] = (config?.outputs as Port[] | undefined) ?? manifest.outputs
+  const label = (config?.label as string | undefined) ?? manifest.label
 
   const borderColor = selected
     ? meta.color
@@ -65,7 +72,7 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
       <div style={{ height: 2, background: meta.color, opacity: 0.9 }} />
 
       {/* Input handles */}
-      <NodeInputs inputs={manifest.inputs} color={meta.color} />
+      <NodeInputs inputs={dynamicInputs} color={meta.color} />
 
       {/* Header */}
       <div
@@ -79,7 +86,7 @@ function GenericNodeImpl({ id, data, selected }: NodeProps) {
           >
             {meta.icon}
           </span>
-          <span className="text-[12px] font-semibold text-[#dde4dd]">{manifest.label}</span>
+          <span className="text-[12px] font-semibold text-[#dde4dd]">{label}</span>
         </div>
         <StatusBadge status={status} />
       </div>

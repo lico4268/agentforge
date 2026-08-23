@@ -7,7 +7,7 @@ import { CATEGORY_META } from '@/lib/categoryStyle'
 import { loadModels } from '@/registry/loadModels'
 import { Markdown } from '@/panels/Markdown'
 import { CheckpointActions } from '@/canvas/nodes/CheckpointActions'
-import type { ConfigField, ModelConfig, ModelSlot } from '@/types'
+import type { ConfigField, ModelConfig, ModelSlot, Port } from '@/types'
 
 export function Inspector() {
   const registry = useRegistry()
@@ -130,6 +130,42 @@ export function Inspector() {
             onChange={(slots) => setField('modelSlots', slots)}
             accent={meta.color}
           />
+        )}
+
+        {/* NAME + PORTS section — custom.node (Phase B④) only. Its manifest
+            declares no ports/label on purpose; this instance's config does. */}
+        {manifest.type === 'custom.node' && (
+          <>
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] text-[#86948a]">Name</span>
+              <input
+                type="text"
+                className={SLOT_INPUT}
+                placeholder={manifest.label}
+                value={(config.label as string | undefined) ?? ''}
+                onChange={(e) => setField('label', e.target.value || undefined)}
+              />
+            </label>
+            <PortListEditor
+              title="Inputs"
+              ports={(config.inputs as Port[] | undefined) ?? []}
+              onChange={(ports) => setField('inputs', ports)}
+            />
+            <PortListEditor
+              title="Outputs"
+              ports={(config.outputs as Port[] | undefined) ?? []}
+              onChange={(ports) => setField('outputs', ports)}
+            />
+            <label className="flex flex-col gap-1">
+              <span className="text-[10px] text-[#86948a]">System prompt</span>
+              <textarea
+                className={SLOT_INPUT}
+                rows={4}
+                value={(config.systemPrompt as string | undefined) ?? ''}
+                onChange={(e) => setField('systemPrompt', e.target.value || undefined)}
+              />
+            </label>
+          </>
         )}
 
         {/* CONFIG section */}
@@ -617,6 +653,69 @@ const DEFAULT_MODELS: Record<string, string> = {
 
 let slotSeq = 0
 const nextSlotId = () => `slot-${Date.now().toString(36)}-${slotSeq++}`
+
+let portSeq = 0
+const nextPortId = () => `port-${Date.now().toString(36)}-${portSeq++}`
+
+/** custom.node(Phase B④)의 인스턴스별 in/out 포트 편집 — +/-로만 늘리고 줄인다.
+ * 포트는 전부 텍스트 타입(id는 생성 시점에 한 번 배정, 라벨을 나중에 바꿔도 안
+ * 바뀐다 — 이미 이 포트를 참조하는 연결선이 있을 수 있으므로). */
+function PortListEditor({
+  title,
+  ports,
+  onChange,
+}: {
+  title: string
+  ports: Port[]
+  onChange: (ports: Port[]) => void
+}) {
+  const addPort = () =>
+    onChange([...ports, { id: nextPortId(), label: `Port ${ports.length + 1}`, dataType: 'text' }])
+
+  const removePort = (id: string) => onChange(ports.filter((p) => p.id !== id))
+
+  const renamePort = (id: string, label: string) =>
+    onChange(ports.map((p) => (p.id === id ? { ...p, label } : p)))
+
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-center justify-between border-b border-[#3c4a42]/40 pb-1">
+        <h3 className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+          {title}
+        </h3>
+        <span className="font-mono text-[10px] text-[#86948a]">{ports.length}</span>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {ports.map((port) => (
+          <div key={port.id} className="flex items-center gap-1.5">
+            <input
+              type="text"
+              className={SLOT_INPUT}
+              value={port.label}
+              onChange={(e) => renamePort(port.id, e.target.value)}
+            />
+            <button
+              onClick={() => removePort(port.id)}
+              title="Remove port"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-[#86948a] transition-colors hover:bg-[#ff8a80]/20 hover:text-[#ff8a80]"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>close</span>
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={addPort}
+        className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-[#3c4a42] py-1.5 text-[11px] text-[#86948a] transition-colors hover:border-[#4edea3]/60 hover:text-[#4edea3]"
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
+        Add {title.slice(0, -1)}
+      </button>
+    </section>
+  )
+}
 
 const SLOT_INPUT =
   'w-full rounded-md border border-[#3c4a42] bg-[#09100c] px-2 py-1.5 text-[11px] font-mono text-[#dde4dd] outline-none appearance-none focus:border-[#4edea3]'

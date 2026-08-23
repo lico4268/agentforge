@@ -125,6 +125,7 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
     defaults: {
       systemPrompt: 'Decompose the task into ordered steps and return as JSON.',
       outputSchema: { steps: 'string[]' },
+      outputKeyMap: { steps: 'plan' },
     },
   },
 
@@ -164,7 +165,20 @@ export const BUILTIN_MANIFESTS: NodeManifest[] = [
     defaults: {
       systemPrompt: 'Solve the task step by step. Return your answer and confidence (0-1).',
       outputSchema: { answer: 'string', confidence: 'number' },
+      extraInputs: [{ id: 'feedback', label: 'Previous Feedback' }],
     },
+  },
+
+  {
+    type: 'custom.node',
+    runtime: 'llm_step',
+    category: 'cognitive',
+    label: 'Custom',
+    description: '완전히 빈 노드 — Inspector에서 이름·입출력 포트·프롬프트를 직접 정의한다.',
+    maxModelSlots: 2,
+    inputs: [],
+    outputs: [],
+    config: [],
   },
 
   // ── Policy ─────────────────────────────────────────────────────────────────

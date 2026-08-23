@@ -98,6 +98,11 @@ export const NodeManifestSchema = z.object({
     .object({
       systemPrompt: z.string().optional(),
       outputSchema: z.record(z.string(), z.string()).optional(),
+      /** outputSchema 키 → AgentState 키 재매핑. 없으면 키 이름 그대로 쓴다
+       * (예: planning.decompose는 LLM 필드 "steps"를 state의 "plan"에 쓴다). */
+      outputKeyMap: z.record(z.string(), z.string()).optional(),
+      /** 포트로 선언되지 않은, state에서 직접 읽는 입력(예: reasoning.cot의 "feedback"). */
+      extraInputs: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
       model: z
         .object({ provider: z.string(), model: z.string(), temperature: z.number() })
         .optional(),
