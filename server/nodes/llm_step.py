@@ -11,7 +11,7 @@ import config
 from events import EventEmitter, make_error_event, make_event
 from logging_config import logger
 from models import CallPolicy, build_model, cost_for_usage
-from state import AgentState
+from state import AgentState, read_state_value
 
 
 def _render(value: Any) -> str:
@@ -51,7 +51,7 @@ async def run_llm_step(
 
     blocks = []
     for state_key, label in input_keys:
-        value = state.get(state_key)
+        value = read_state_value(state, state_key)
         if value is None:
             continue
         rendered = _render(value)

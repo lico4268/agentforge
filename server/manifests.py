@@ -95,6 +95,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "defaults": {
             "systemPrompt": "Decompose the task into ordered steps and return as JSON.",
             "outputSchema": {"steps": "string[]"},
+            "outputKeyMap": {"steps": "plan"},
         },
     },
     {
@@ -133,7 +134,19 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "defaults": {
             "systemPrompt": "Solve the task step by step. Return your answer and confidence (0-1).",
             "outputSchema": {"answer": "string", "confidence": "number"},
+            "extraInputs": [{"id": "feedback", "label": "Previous Feedback"}],
         },
+    },
+    {
+        "type": "custom.node",
+        "runtime": "llm_step",
+        "category": "cognitive",
+        "label": "Custom",
+        "description": "완전히 빈 노드 — Inspector에서 이름·입출력 포트·프롬프트를 직접 정의한다.",
+        "maxModelSlots": 2,
+        "inputs": [],
+        "outputs": [],
+        "config": [],
     },
     {
         "type": "review.intent",
@@ -214,7 +227,10 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "runtime": "passthrough",
         "category": "policy",
         "label": "Loop Start",
-        "description": "루프가 다시 도는 지점을 표시하는 시각 마커. 로직 없이 입력을 그대로 통과시킨다 — loop.guard의 loopBack 포트를 여기로 연결.",
+        "description": (
+            "루프가 다시 도는 지점을 표시하는 시각 마커. 로직 없이 입력을 그대로 "
+            "통과시킨다 — loop.guard의 loopBack 포트를 여기로 연결."
+        ),
         "inputs": [{"id": "in", "label": "In", "dataType": "any", "required": True}],
         "outputs": [{"id": "out", "label": "Out", "dataType": "any"}],
         "config": [],

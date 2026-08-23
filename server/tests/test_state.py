@@ -1,11 +1,63 @@
 """state.py — loop_runtime 병합 reducer 단위 테스트."""
 
-from state import empty_loop_runtime, initial_state, merge_loop_runtime
+from state import (
+    empty_loop_runtime,
+    initial_state,
+    merge_loop_runtime,
+    merge_vars,
+    read_state_value,
+    write_state_value,
+)
 
 
 def test_initial_state_has_empty_loop_runtime():
     state = initial_state("task")
     assert state["loop_runtime"] == {}
+
+
+def test_initial_state_has_empty_vars():
+    state = initial_state("task")
+    assert state["vars"] == {}
+
+
+def test_merge_vars_shallow_merges_and_lets_new_keys_win():
+    merged = merge_vars({"a": 1, "b": 2}, {"b": 3, "c": 4})
+    assert merged == {"a": 1, "b": 3, "c": 4}
+
+
+def test_read_state_value_reads_known_key_from_top_level():
+    state = initial_state("hi")
+    assert read_state_value(state, "task") == "hi"
+
+
+def test_read_state_value_reads_unknown_key_from_vars():
+    state = initial_state("hi")
+    state["vars"] = {"myCustomField": 42}
+    assert read_state_value(state, "myCustomField") == 42
+
+
+def test_read_state_value_returns_none_for_unknown_key_missing_from_vars():
+    state = initial_state("hi")
+    assert read_state_value(state, "neverSet") is None
+
+
+def test_write_state_value_writes_known_key_at_top_level():
+    updates: dict = {}
+    write_state_value(updates, "answer", "42")
+    assert updates == {"answer": "42"}
+
+
+def test_write_state_value_writes_unknown_key_into_vars():
+    updates: dict = {}
+    write_state_value(updates, "myCustomField", 42)
+    assert updates == {"vars": {"myCustomField": 42}}
+
+
+def test_write_state_value_accumulates_multiple_unknown_keys_into_one_vars_dict():
+    updates: dict = {}
+    write_state_value(updates, "a", 1)
+    write_state_value(updates, "b", 2)
+    assert updates == {"vars": {"a": 1, "b": 2}}
 
 
 def test_merge_loop_runtime_sums_tokens_and_cost():

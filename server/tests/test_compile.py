@@ -146,6 +146,158 @@ def _patch_model(monkeypatch):
     monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
 
 
+def test_build_output_model_creates_pydantic_model_matching_output_schema():
+    model = compile_mod._build_output_model("planning.decompose", {"steps": "string[]"})
+    instance = model(steps=["s1", "s2"])
+    assert instance.model_dump() == {"steps": ["s1", "s2"]}
+
+
+def test_build_output_model_supports_scalar_types():
+    model = compile_mod._build_output_model(
+        "reasoning.cot", {"answer": "string", "confidence": "number"}
+    )
+    instance = model(answer="4", confidence=0.9)
+    assert instance.model_dump() == {"answer": "4", "confidence": 0.9}
+
+
+def test_output_write_keys_applies_output_key_map():
+    manifest = {
+        "defaults": {
+            "outputSchema": {"steps": "string[]"},
+            "outputKeyMap": {"steps": "plan"},
+        }
+    }
+    assert compile_mod._output_write_keys(_node("n1", "planning.decompose"), manifest) == ["plan"]
+
+
+def test_output_write_keys_defaults_to_identity_without_key_map():
+    manifest = {"defaults": {"outputSchema": {"answer": "string", "confidence": "number"}}}
+    assert compile_mod._output_write_keys(_node("n1", "reasoning.cot"), manifest) == [
+        "answer",
+        "confidence",
+    ]
+
+
+def test_output_write_keys_derives_from_instance_config_when_manifest_has_no_output_schema():
+    """Phase B④: custom.node는 매니페스트에 outputSchema가 없다 — 이 노드 인스턴스의
+    config.outputs 포트에서 즉석으로 유도한다(전부 string 타입 취급)."""
+    manifest = {"outputs": [], "defaults": {}}
+    node = {"config": {"outputs": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}}
+    assert compile_mod._output_write_keys(node, manifest) == ["a", "b"]
+
+
+def test_llm_step_spec_reads_extra_inputs_from_manifest_defaults():
+    manifest = {
+        "defaults": {
+            "outputSchema": {"answer": "string"},
+            "extraInputs": [{"id": "feedback", "label": "Previous Feedback"}],
+        }
+    }
+    spec = compile_mod._llm_step_spec(_node("n1", "reasoning.cot"), manifest)
+    assert spec["extra_inputs"] == [("feedback", "Previous Feedback")]
+    assert spec["writes"] == ["answer"]
+
+
+def test_llm_step_spec_builds_output_model_from_instance_config_ports():
+    """Phase B④: 완전히 빈 매니페스트(custom.node)는 이 노드 인스턴스의
+    config.outputs에서 출력 모델을 즉석으로 만든다 — outputSchema 선언 불필요."""
+    manifest = {"outputs": [], "defaults": {}}
+    node = {
+        "type": "custom.node",
+        "config": {"outputs": [{"id": "summary", "label": "Summary", "dataType": "text"}]},
+    }
+    spec = compile_mod._llm_step_spec(node, manifest)
+    assert spec["writes"] == ["summary"]
+    instance = spec["output_model"](summary="hi")
+    assert instance.model_dump() == {"summary": "hi"}
+
+
+async def test_llm_step_node_writes_unknown_output_key_into_vars(monkeypatch):
+    """Phase B ②: AgentState에 없는 output role(사용자 정의 노드 타입)은 최상위가
+    아니라 vars에 저장된다 — AgentState에 없는 키는 LangGraph 채널이 없어 최상위에
+    쓰면 조용히 버려지기 때문."""
+    _patch_model(monkeypatch)
+    custom_manifest = {
+        "type": "test.custom_writer",
+        "runtime": "llm_step",
+        "category": "cognitive",
+        "label": "Custom Writer",
+        "description": "",
+        "inputs": [],
+        "outputs": [{"id": "summary", "label": "Summary", "dataType": "text"}],
+        "config": [],
+        "defaults": {"outputSchema": {"summary": "string"}},
+    }
+    monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "test.custom_writer", custom_manifest)
+
+    async def fake_run_llm_step(state, *, node_id, **kwargs):
+        return {"summary": "hello"}
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_run_llm_step)
+
+    arch = _arch(
+        [_node("writer", "test.custom_writer"), _node("output", "io.output")],
+        [_edge("writer", "output", "summary", "result")],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+    final = await graph.ainvoke(initial_state(""), {"configurable": {"thread_id": "t-vars"}})
+
+    assert final["vars"] == {"summary": "hello"}
+
+
+async def test_custom_node_instance_ports_drive_input_reading_and_output_writing(monkeypatch):
+    """Phase B④: custom.node는 매니페스트가 완전히 비어있고, 각 인스턴스가
+    config.inputs/config.outputs로 자기만의 포트를 정의한다 — 같은 타입의 두
+    인스턴스가 서로 다른 포트를 가질 수 있어야 한다."""
+    _patch_model(monkeypatch)
+    custom_manifest = {
+        "type": "custom.node",
+        "runtime": "llm_step",
+        "category": "cognitive",
+        "label": "Custom",
+        "description": "",
+        "inputs": [],
+        "outputs": [],
+        "config": [],
+    }
+    monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "custom.node", custom_manifest)
+
+    captured_input_keys: list[tuple[str, str]] = []
+
+    async def fake_run_llm_step(state, *, node_id, input_keys, **kwargs):
+        if node_id == "writer":
+            return {"summary": "hi there"}
+        if node_id == "reader":
+            captured_input_keys.extend(input_keys)
+            return {"echo": "read: " + str(state.get("vars", {}).get("summary"))}
+        return {}
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_run_llm_step)
+
+    arch = _arch(
+        [
+            {
+                **_node("writer", "custom.node"),
+                "config": {"outputs": [{"id": "summary", "label": "Summary", "dataType": "text"}]},
+            },
+            {
+                **_node("reader", "custom.node"),
+                "config": {"inputs": [{"id": "summary", "label": "Summary", "dataType": "text"}]},
+            },
+            _node("output", "io.output"),
+        ],
+        [
+            _edge("writer", "reader", "summary"),
+            _edge("reader", "output", "echo", "result"),
+        ],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+    final = await graph.ainvoke(initial_state(""), {"configurable": {"thread_id": "t-custom"}})
+
+    assert final["vars"] == {"summary": "hi there", "echo": "read: hi there"}
+    assert captured_input_keys == [("summary", "Summary")]
+
+
 async def test_compile_no_nodes_raises():
     """노드가 없는 아키텍처는 ValueError."""
     with pytest.raises(ValueError, match="no nodes"):
@@ -971,11 +1123,6 @@ def test_validate_required_inputs_raises_when_no_node_writes_a_required_non_pres
         "config": [],
     }
     monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "test.needs_summary", fake_manifest)
-    monkeypatch.setitem(
-        compile_mod.LLM_STEP_TABLE,
-        "test.needs_summary",
-        {"output_model": None, "extra_inputs": [], "writes": []},
-    )
     nodes = [_node("n1", "test.needs_summary")]
     with pytest.raises(ValueError, match="requires input 'summary'"):
         compile_mod._validate_required_inputs(nodes)
@@ -995,11 +1142,6 @@ async def test_compile_graph_raises_for_missing_required_input(monkeypatch):
         "config": [],
     }
     monkeypatch.setitem(compile_mod.MANIFESTS_BY_TYPE, "test.needs_summary", fake_manifest)
-    monkeypatch.setitem(
-        compile_mod.LLM_STEP_TABLE,
-        "test.needs_summary",
-        {"output_model": None, "extra_inputs": [], "writes": []},
-    )
     arch = _arch([_node("n1", "test.needs_summary")], [])
     with pytest.raises(ValueError, match="requires input 'summary'"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, None, "run-1")

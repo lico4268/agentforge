@@ -11,43 +11,85 @@ from typing import Any
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
+from pydantic import BaseModel, create_model
 
 import config
 from events import EventEmitter, make_event
 from manifests import BUILTIN_MANIFESTS
-from models import CallPolicy, Criterion, ModelSettings, PlanOut, ReasonOut, build_model
+from models import CallPolicy, Criterion, ModelSettings, build_model
 from nodes.checkpoint import make_human_checkpoint
 from nodes.llm_step import run_llm_step
 from nodes.loop_guard import evaluate_loop_guard, next_runtime
 from nodes.policy import make_route_review
 from nodes.review import make_review
-from state import AgentState
+from state import AgentState, write_state_value
 
 MANIFESTS_BY_TYPE = {m["type"]: m for m in BUILTIN_MANIFESTS}
 
-# type -> (output_model, extra_inputs, to_state_updates, to_event_output)
-LLM_STEP_TABLE: dict[str, dict[str, Any]] = {
-    "planning.decompose": {
-        "output_model": PlanOut,
-        "extra_inputs": [],
-        "writes": ["plan"],
-        "to_updates": lambda result, state: {"plan": result["steps"]},
-        "to_event_output": lambda result: {"plan": result["steps"]},
-    },
-    "reasoning.cot": {
-        "output_model": ReasonOut,
-        "extra_inputs": [("feedback", "Previous Feedback")],
-        "writes": ["answer", "confidence"],
-        "to_updates": lambda result, state: {
-            "answer": result["answer"],
-            "confidence": result["confidence"],
-        },
-        "to_event_output": lambda result: {
-            "answer": result["answer"],
-            "confidence": result["confidence"],
-        },
-    },
+# 매니페스트 defaults.outputSchema의 태그 → Pydantic 필드 타입. 중첩 object(review.intent의
+# ReviewDelta처럼)는 이 평평한 태그 형식으로 표현 불가능이라 의도적으로 지원하지 않는다 —
+# review 런타임은 이 동적 생성 경로를 타지 않고 자기 하드코딩된 모델을 그대로 쓴다.
+_OUTPUT_SCHEMA_TYPES: dict[str, Any] = {
+    "string": str,
+    "number": float,
+    "boolean": bool,
+    "string[]": list[str],
+    "number[]": list[float],
 }
+
+
+def _build_output_model(node_type: str, output_schema: dict[str, str]) -> type[BaseModel]:
+    """llm_step 노드 매니페스트의 defaults.outputSchema에서 구조화 출력용 Pydantic
+    모델을 즉석에서 만든다. 예전에는 노드 타입마다 PlanOut/ReasonOut처럼 직접 정의된
+    클래스가 LLM_STEP_TABLE에 하드코딩돼 있었다 — 새 llm_step 타입을 캔버스/Inspector에서
+    만들 때마다 이 파일을 고쳐야 했던 원인. 이제는 매니페스트만으로 충분하다.
+    """
+    fields = {key: (_OUTPUT_SCHEMA_TYPES[tag], ...) for key, tag in output_schema.items()}
+    name_parts = node_type.replace(".", "_").split("_")
+    model_name = "".join(part.capitalize() for part in name_parts) + "Out"
+    return create_model(model_name, **fields)
+
+
+def _effective_output_schema(node: dict, manifest: dict) -> dict[str, str]:
+    """이 노드 인스턴스가 실제로 쓸 outputSchema — 매니페스트에 명시돼 있으면 그대로,
+    없으면(Phase B④: custom.node처럼 매니페스트가 완전히 비어있는 타입) 이 인스턴스의
+    config.outputs 포트에서 즉석 유도한다(전부 string 취급 — 포트는 타입 없이 라벨만
+    갖는다는 Inspector UI 결정과 대응)."""
+    defaults = manifest.get("defaults") or {}
+    output_schema = defaults.get("outputSchema")
+    if output_schema:
+        return output_schema
+    config = node.get("config") or {}
+    output_ports = config.get("outputs") or manifest.get("outputs") or []
+    return {p["id"]: "string" for p in output_ports}
+
+
+def _output_write_keys(node: dict, manifest: dict) -> list[str]:
+    """이 llm_step 노드가 실제로 쓰는 AgentState 키 목록 — outputSchema 키를
+    defaults.outputKeyMap으로 재매핑한 것(매핑 없으면 키 이름 그대로). 예전 하드코딩
+    LLM_STEP_TABLE의 "writes" 필드를 대체 — `_validate_required_inputs`가 여전히 쓴다."""
+    defaults = manifest.get("defaults") or {}
+    key_map = defaults.get("outputKeyMap") or {}
+    return [key_map.get(key, key) for key in _effective_output_schema(node, manifest)]
+
+
+def _llm_step_spec(node: dict, manifest: dict) -> dict[str, Any]:
+    """매니페스트 defaults(+ Phase B④: 인스턴스 config)에서 llm_step 노드 실행에
+    필요한 모든 것을 유도한다 — output_model(동적 Pydantic 모델), extra_inputs(포트에
+    없는, state에서 직접 읽는 입력), writes, key_map(LLM 출력 필드명 → AgentState 키,
+    다르면 outputKeyMap로 선언).
+    """
+    defaults = manifest.get("defaults") or {}
+    output_schema = _effective_output_schema(node, manifest)
+    key_map = defaults.get("outputKeyMap") or {}
+    extra_inputs = [(f["id"], f["label"]) for f in defaults.get("extraInputs") or []]
+    return {
+        "output_model": _build_output_model(node["type"], output_schema),
+        "extra_inputs": extra_inputs,
+        "writes": [key_map.get(k, k) for k in output_schema],
+        "key_map": key_map,
+    }
+
 
 PASSTHROUGH_TYPES = {"io.input", "io.output", "model.binding", "loop.reentry"}
 
@@ -179,12 +221,17 @@ def _make_llm_step_node(
     loop_policy_ids: list[str] | None = None,
 ):
     node_id = node["id"]
-    node_type = node["type"]
-    spec = LLM_STEP_TABLE[node_type]
-    system_prompt = (node.get("config") or {}).get("systemPrompt") or manifest.get(
-        "defaults", {}
-    ).get("systemPrompt", "")
-    input_keys = [(p["id"], p["label"]) for p in manifest["inputs"]] + spec["extra_inputs"]
+    spec = _llm_step_spec(node, manifest)
+    key_map = spec["key_map"]
+    node_config = node.get("config") or {}
+    system_prompt = node_config.get("systemPrompt") or manifest.get("defaults", {}).get(
+        "systemPrompt", ""
+    )
+    # Phase B④: custom.node처럼 매니페스트에 입력 포트가 없는 타입은 이 인스턴스의
+    # config.inputs에서 즉석 유도한다 — 다른 타입은 config.inputs를 절대 안 채우므로
+    # manifest["inputs"] 그대로 쓰인다(무변화).
+    input_ports = node_config.get("inputs") or manifest["inputs"]
+    input_keys = [(p["id"], p["label"]) for p in input_ports] + spec["extra_inputs"]
     policy_ids = loop_policy_ids or []
 
     async def step(state: AgentState) -> dict:
@@ -202,7 +249,10 @@ def _make_llm_step_node(
             call_policy=policy,
             usage_sink=usage,
         )
-        updates = spec["to_updates"](result, state)
+        output = {key_map.get(key, key): value for key, value in result.items()}
+        updates: dict = {}
+        for key, value in output.items():
+            write_state_value(updates, key, value)
         if policy_ids and usage:
             updates["loop_runtime"] = {
                 pid: {
@@ -211,7 +261,7 @@ def _make_llm_step_node(
                 }
                 for pid in policy_ids
             }
-        await emit(make_event(run_id, node_id, "node_end", output=spec["to_event_output"](result)))
+        await emit(make_event(run_id, node_id, "node_end", output=output))
         return updates
 
     return step
@@ -418,8 +468,7 @@ def _validate_required_inputs(nodes: list[dict]) -> None:
     for node in nodes:
         manifest = MANIFESTS_BY_TYPE.get(node["type"])
         if manifest and manifest.get("runtime") == "llm_step":
-            spec = LLM_STEP_TABLE.get(node["type"], {})
-            write_keys.update(spec.get("writes", []))
+            write_keys.update(_output_write_keys(node, manifest))
 
     for node in nodes:
         manifest = MANIFESTS_BY_TYPE.get(node["type"])
@@ -650,7 +699,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                     node, manifest, model, policy, emit, run_id, node_to_policies.get(node_id)
                 ),
             )
-        elif node_type == "review.intent":
+        elif manifest.get("runtime") == "review":
             _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             model, policy = _resolve_model(node, default_model_cfg)
             wired = set(_handle_targets(outgoing, node_id))
@@ -659,7 +708,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                 node_id,
                 _make_review_node(node, model, policy, emit, run_id, node_to_policies.get(node_id)),
             )
-        elif node_type == "human.checkpoint":
+        elif manifest.get("runtime") == "checkpoint":
             _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             routes = {"approve": END, "revise": END, "reject": END}
             routes.update(_handle_targets(outgoing, node_id))
@@ -667,7 +716,7 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                 node_id,
                 make_human_checkpoint(emit, run_id, routes=routes, node_id=node_id),
             )
-        elif node_type == "loop.guard":
+        elif manifest.get("runtime") == "loop_guard":
             loop_policy = _loop_policy_from_config(node)
             _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             targets = _handle_targets(outgoing, node_id)
@@ -708,15 +757,16 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
     for node in nodes:
         node_id = node["id"]
         node_type = node["type"]
+        manifest = MANIFESTS_BY_TYPE.get(node_type, {})
 
-        if node_type == "review.intent":
+        if manifest.get("runtime") == "review":
             graph.add_conditional_edges(
                 node_id, route_fns[node_id], _handle_targets(outgoing, node_id)
             )
             continue
-        # human.checkpoint / loop.guard는 Command(goto=...)로 스스로 라우팅하므로
+        # checkpoint/loop_guard 런타임은 Command(goto=...)로 스스로 라우팅하므로
         # plain edge를 추가하지 않는다.
-        if node_type in ("human.checkpoint", "loop.guard"):
+        if manifest.get("runtime") in ("checkpoint", "loop_guard"):
             continue
         if not outgoing.get(node_id):
             graph.add_edge(node_id, END)
