@@ -29,6 +29,7 @@ def _get(path: str, default=None):
 ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY: str | None = os.getenv("GOOGLE_API_KEY")
+OPENROUTER_API_KEY: str | None = os.getenv("OPENROUTER_API_KEY")
 
 # ── 서버 ─────────────────────────────────────────────────────────────────────────
 SERVER_HOST: str = _get("server.host", "0.0.0.0")
@@ -44,6 +45,11 @@ PRICING: dict[str, dict] = _get("models.pricing", {}) or {}  # USD / 1M tokens {
 # ── 로컬 모델 ─────────────────────────────────────────────────────────────────────
 LOCAL_BASE_URL: str = os.getenv("LOCAL_BASE_URL") or _get(
     "local.base_url", "http://localhost:11434/v1"
+)
+
+# ── OpenRouter ────────────────────────────────────────────────────────────────────
+OPENROUTER_BASE_URL: str = os.getenv("OPENROUTER_BASE_URL") or _get(
+    "openrouter.base_url", "https://openrouter.ai/api/v1"
 )
 
 # ── 실행 엔진 ─────────────────────────────────────────────────────────────────────

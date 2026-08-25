@@ -77,6 +77,8 @@ class ModelSettings:
     top_p: float | None = None
     stop: list[str] | None = None
     seed: int | None = None
+    # OpenRouter 전용 — provider별 reasoning 파라미터를 "low"/"medium"/"high"로 정규화해 받아줌.
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 
 @dataclass
@@ -126,7 +128,7 @@ def _provider_kwargs(provider: str, s: ModelSettings) -> dict:
             kw["stop_sequences"] = s.stop
         if s.seed is not None:
             logger.warning("Google은 seed를 지원하지 않음 — 무시 (model=%s)", s.model)
-    elif provider == "local":
+    elif provider in ("local", "openrouter"):
         if s.max_tokens is not None:
             kw["max_tokens"] = s.max_tokens
         if s.top_p is not None:
@@ -135,6 +137,8 @@ def _provider_kwargs(provider: str, s: ModelSettings) -> dict:
             kw["stop"] = s.stop
         if s.seed is not None:
             kw["seed"] = s.seed
+        if provider == "openrouter" and s.reasoning_effort is not None:
+            kw["extra_body"] = {"reasoning": {"effort": s.reasoning_effort}}
     return kw
 
 
@@ -193,7 +197,18 @@ def build_model(settings: ModelSettings) -> BaseChatModel:
         return ChatOpenAI(
             base_url=config.LOCAL_BASE_URL, api_key="local", **_provider_kwargs("local", settings)
         )
+    elif provider == "openrouter":
+        if not config.OPENROUTER_API_KEY:
+            raise ValueError("OPENROUTER_API_KEY is not set")
+        from langchain_openai import ChatOpenAI
+
+        return ChatOpenAI(
+            base_url=config.OPENROUTER_BASE_URL,
+            api_key=config.OPENROUTER_API_KEY,
+            **_provider_kwargs("openrouter", settings),
+        )
     else:
         raise ValueError(
-            f"Unknown provider: {provider!r}. Must be 'anthropic', 'openai', 'google', or 'local'."
+            f"Unknown provider: {provider!r}. Must be 'anthropic', 'openai', 'google', 'local', "
+            "or 'openrouter'."
         )

@@ -3,12 +3,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 import config as cfg
 import node_types as nt
-from events import WSEventEmitter
+import openrouter_catalog as orc
+from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
 from models import ModelSettings, build_model
@@ -28,13 +30,17 @@ app.add_middleware(
 
 
 def _load_models_config() -> list[dict]:
-    """config.yaml models.list에서 enabled 모델만 반환.
-    API 키 미설정 provider는 available=False 표시."""
+    """config.yaml models.list에서 enabled 모델만 반환 + OpenRouter 즐겨찾기를 동적 추가.
+    API 키 미설정 provider는 available=False 표시.
+
+    OpenRouter는 config.yaml에 정적으로 나열하지 않는다 — 모델이 수백 개라
+    openrouter_catalog.load_favorites()로 고른 것만 노출한다."""
     key_by_provider = {
         "anthropic": bool(cfg.ANTHROPIC_API_KEY),
         "openai": bool(cfg.OPENAI_API_KEY),
         "google": bool(cfg.GOOGLE_API_KEY),
         "local": True,
+        "openrouter": bool(cfg.OPENROUTER_API_KEY),
     }
 
     result = []
@@ -51,6 +57,19 @@ def _load_models_config() -> list[dict]:
                 "available": key_by_provider.get(provider, False),
                 "temperature": m.get("temperature", 0.7),
                 "maxTokens": m.get("max_tokens", 4096),
+            }
+        )
+
+    for model_id in orc.load_favorites():
+        result.append(
+            {
+                "id": model_id,
+                "provider": "openrouter",
+                "label": orc.cached_label(model_id),
+                "description": "",
+                "available": key_by_provider["openrouter"],
+                "temperature": 0.7,
+                "maxTokens": 8192,
             }
         )
     return result
@@ -92,6 +111,29 @@ async def delete_node_type(type_: str) -> dict:
     if not nt.delete_custom_manifest(type_):
         raise HTTPException(status_code=404, detail="Node type not found")
     return {"deleted": type_}
+
+
+# ─── OpenRouter 즐겨찾기 ─────────────────────────────────────────────────────────
+
+
+@app.get("/api/openrouter/catalog")
+async def get_openrouter_catalog() -> list[dict]:
+    """즐겨찾기 선택 화면용 — OpenRouter 전체 카탈로그(라이브, 캐시됨)."""
+    try:
+        return await orc.get_catalog()
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"OpenRouter catalog fetch failed: {e}") from e
+
+
+@app.get("/api/openrouter/favorites")
+async def get_openrouter_favorites() -> list[str]:
+    return orc.load_favorites()
+
+
+@app.put("/api/openrouter/favorites")
+async def put_openrouter_favorites(ids: list[str]) -> list[str]:
+    """노드 UI/Inspector 모델 슬롯에 노출할 OpenRouter 모델 id 목록을 갱신."""
+    return orc.save_favorites(ids)
 
 
 @app.get("/api/architectures")
@@ -201,13 +243,14 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
             (e for e in reversed(history) if e.event_type == "interrupt"),
             None,
         )
-        await ws.send_json(
+        await safe_send_json(
+            ws,
             {
                 "kind": "interrupt",
                 "runId": run_id,
                 "nodeId": last_interrupt.node_id if last_interrupt else "",
                 "payload": last_interrupt.output if last_interrupt else {},
-            }
+            },
         )
         return
 
@@ -215,7 +258,8 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
     # active_runs에 남겨두면 그래프 인스턴스가 무한정 쌓인다.
     active_runs.pop(run_id, None)
 
-    await ws.send_json(
+    await safe_send_json(
+        ws,
         {
             "kind": "run_complete",
             "runId": run_id,
@@ -224,7 +268,7 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
                 "reviewDelta": final.get("review_delta"),
                 "reviewBranch": final.get("review_branch"),
             },
-        }
+        },
     )
 
 
@@ -266,7 +310,7 @@ async def ws_run(ws: WebSocket):
                     active_runs.pop(oldest_id, None)
 
                 emitter = WSEventEmitter(ws, run_id, history)
-                await ws.send_json({"kind": "run_started", "runId": run_id})
+                await safe_send_json(ws, {"kind": "run_started", "runId": run_id})
 
                 try:
                     graph = dispatch_graph(arch, model_cfg, emitter, run_id)
@@ -288,16 +332,17 @@ async def ws_run(ws: WebSocket):
                 except ValueError as e:
                     active_runs.pop(run_id, None)
                     logger.warning("run %s rejected: %s", run_id, e)
-                    await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
+                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": str(e)})
                 except Exception as e:
                     active_runs.pop(run_id, None)
                     logger.exception("run %s failed", run_id)
-                    await ws.send_json(
+                    await safe_send_json(
+                        ws,
                         {
                             "kind": "error",
                             "runId": run_id,
                             "message": f"Execution error: {e}",
-                        }
+                        },
                     )
 
             elif kind == "resume":
@@ -306,12 +351,13 @@ async def ws_run(ws: WebSocket):
                 graph = active_runs.get(run_id)
 
                 if not graph:
-                    await ws.send_json(
+                    await safe_send_json(
+                        ws,
                         {
                             "kind": "error",
                             "runId": run_id,
                             "message": "Run not found",
-                        }
+                        },
                     )
                     continue
 
@@ -328,13 +374,13 @@ async def ws_run(ws: WebSocket):
                 except Exception as e:
                     active_runs.pop(run_id, None)
                     logger.exception("resume of run %s failed", run_id)
-                    await ws.send_json({"kind": "error", "runId": run_id, "message": str(e)})
+                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": str(e)})
 
             elif kind == "reconnect":
                 run_id = msg.get("runId", "")
                 history = run_history.get(run_id, [])
                 snapshot = [ev.to_frontend() for ev in history]
-                await ws.send_json({"kind": "state", "runId": run_id, "snapshot": snapshot})
+                await safe_send_json(ws, {"kind": "state", "runId": run_id, "snapshot": snapshot})
 
     except WebSocketDisconnect:
         pass

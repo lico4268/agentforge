@@ -1,6 +1,10 @@
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from starlette.websockets import WebSocketState
+
+from logging_config import logger
+
 # ─── Event model (frontend-compatible flat shape) ──────────────────────────────
 
 
@@ -134,6 +138,21 @@ def make_error_event(
 # ─── WebSocket emitter ─────────────────────────────────────────────────────────
 
 
+async def safe_send_json(ws: Any, payload: dict) -> None:
+    """ws.send_json이되, 클라이언트가 이미 연결을 끊은 뒤 호출돼도 조용히 무시한다.
+
+    실행 도중 탭이 백그라운드로 가거나 네트워크가 끊기면 흔히 발생 — 그 자체가
+    버그는 아니므로(특히 오래 걸리는 run 도중 클라이언트가 먼저 끊는 경우) 서버
+    로그를 못 쓰는 RuntimeError로 채우지 않는다."""
+    if getattr(ws, "client_state", None) != WebSocketState.CONNECTED:
+        logger.debug("safe_send_json: websocket already closed, dropping message")
+        return
+    try:
+        await ws.send_json(payload)
+    except RuntimeError:
+        logger.debug("safe_send_json: send raced with close, dropping message")
+
+
 class WSEventEmitter:
     def __init__(self, websocket: Any, run_id: str, history: list[ExecutionEvent]):
         self.ws = websocket
@@ -147,7 +166,7 @@ class WSEventEmitter:
             from workspace import write_node_output
 
             write_node_output(self.run_id, event.node_id, event.output)
-        await self.ws.send_json({"kind": "event", "event": event.to_frontend()})
+        await safe_send_json(self.ws, {"kind": "event", "event": event.to_frontend()})
 
 
 # ─── List emitter (for harness) ────────────────────────────────────────────────
