@@ -29,6 +29,9 @@ OPENROUTER_SUBAGENT_SETUP.md
 # Workspace (run output files)
 server/workspace/
 
+# OpenRouter 즐겨찾기 (로컬 런타임 상태)
+server/openrouter_favorites.json
+
 # Python
 server/.venv/
 **/__pycache__/

@@ -9,12 +9,15 @@ const TransportContext = createContext<Transport | null>(null)
 
 /**
  * 환경변수 VITE_WS_URL이 있으면 WebSocketTransport, 없으면 MockTransport.
- * 백엔드 연결: VITE_WS_URL=ws://localhost:8000/ws/run
+ * 실제 접속 주소는 현재 페이지의 host에서 유도한다(Vite 프록시 /ws → :8000) —
+ * 하드코딩된 host를 쓰면 LAN의 다른 기기(예: 태블릿)에서 접속했을 때
+ * 그 기기 자신의 localhost를 가리키게 되어 아무 반응 없이 조용히 끊긴다.
  */
 function createTransport(): Transport {
-  const wsUrl = import.meta.env.VITE_WS_URL as string | undefined
-  if (wsUrl) {
-    return new WebSocketTransport(wsUrl)
+  const enabled = import.meta.env.VITE_WS_URL as string | undefined
+  if (enabled) {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    return new WebSocketTransport(`${proto}://${window.location.host}/ws/run`)
   }
   return new MockTransport()
 }

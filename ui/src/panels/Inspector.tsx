@@ -638,17 +638,19 @@ function statusColor(status: string) {
 }
 
 const PROVIDERS = [
-  { label: 'Anthropic', value: 'anthropic' },
-  { label: 'OpenAI',    value: 'openai'    },
-  { label: 'Google',    value: 'google'    },
-  { label: 'Local',     value: 'local'     },
+  { label: 'Anthropic',  value: 'anthropic'  },
+  { label: 'OpenAI',     value: 'openai'     },
+  { label: 'Google',     value: 'google'     },
+  { label: 'Local',      value: 'local'      },
+  { label: 'OpenRouter', value: 'openrouter' },
 ] as const
 
 const DEFAULT_MODELS: Record<string, string> = {
-  anthropic: 'claude-haiku-4-5-20251001',
-  openai:    'gpt-4o',
-  google:    'gemini-3.5-flash',
-  local:     'llama3',
+  anthropic:  'claude-haiku-4-5-20251001',
+  openai:     'gpt-4o',
+  google:     'gemini-3.5-flash',
+  local:      'llama3',
+  openrouter: 'openrouter/auto',
 }
 
 let slotSeq = 0
@@ -1011,6 +1013,40 @@ function ModelSlotsEditor({
                 />
               </div>
 
+              {slot.provider === 'openrouter' && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] text-[#86948a]">Reasoning effort</span>
+                  <div className="flex gap-1">
+                    {([
+                      ['Off', undefined],
+                      ['Low', 'low'],
+                      ['Medium', 'medium'],
+                      ['High', 'high'],
+                    ] as const).map(([lbl, val]) => {
+                      const active = slot.reasoningEffort === val
+                      return (
+                        <button
+                          key={lbl}
+                          type="button"
+                          onClick={() => updateSlot(slot.id, { reasoningEffort: val })}
+                          className={
+                            'flex-1 rounded border px-1.5 py-1 font-mono text-[10px] transition-colors ' +
+                            (active
+                              ? 'border-[#4edea3]/60 bg-[#4edea3]/10 text-[#4edea3]'
+                              : 'border-[#3c4a42] text-[#86948a] hover:border-[#4edea3]/40')
+                          }
+                        >
+                          {lbl}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <span className="font-mono text-[9px] text-[#3c4a42]">
+                    OpenRouter가 하위 모델의 reasoning 파라미터로 정규화. 미지원 모델은 무시됨.
+                  </span>
+                </div>
+              )}
+
               {/* ── Advanced (생성) ── */}
               <CollapsibleSection title="Advanced" accent={accent}>
                 <InheritNumber
@@ -1043,7 +1079,7 @@ function ModelSlotsEditor({
                     이 문자열이 나오면 생성 중단. 빈 줄은 무시됨.
                   </span>
                 </label>
-                {(slot.provider === 'openai' || slot.provider === 'local') && (
+                {(slot.provider === 'openai' || slot.provider === 'local' || slot.provider === 'openrouter') && (
                   <InheritNumber
                     label="Seed"
                     value={slot.seed}

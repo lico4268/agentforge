@@ -6,6 +6,7 @@ import { useUiStore } from '@/stores/useUiStore'
 import { useExecutionStore } from '@/execution/useExecutionStore'
 import { loadModels } from '@/registry/loadModels'
 import { deriveLoopMembers } from '@/canvas/loop/deriveLoopMembers'
+import { OpenRouterFavoritesModal } from './OpenRouterFavoritesModal'
 import type { ModelConfig } from '@/types'
 
 const ARCH_OPTIONS = [
@@ -32,7 +33,8 @@ export function Toolbar() {
     : 0
 
   const [archName, setArchName] = useState<ArchOption>('gsm8k-treatment')
-  const [modelId, setModelId]   = useState<string>('gemini-3.5-flash')
+  const [modelId, setModelId]   = useState<string>('openrouter/auto')
+  const [favoritesOpen, setFavoritesOpen] = useState(false)
 
   const { data: models, isError: modelsError } = useQuery({
     queryKey: ['models'],
@@ -44,13 +46,17 @@ export function Toolbar() {
   const inputSample = nodes.find((n) => n.data.manifestType === 'io.input')?.data.config?.sample
   const task = typeof inputSample === 'string' ? inputSample.trim() : ''
 
+  // 'current' 캔버스는 노드별 Model Slots(Inspector)가 모델을 결정한다 — 상단 모델
+  // 선택은 그 값을 조용히 덮어쓰지 않도록 고정 아키텍처(baseline/treatment)에서만 쓴다.
+  const usesToolbarModel = archName !== 'current'
+
   const selectedModel: ModelConfig | undefined =
     models?.find((m) => m.id === modelId) ?? models?.[0]
 
   const isRunning = runStatus === 'running' || runStatus === 'paused'
 
   const onRun = () => {
-    if (!selectedModel) return
+    if (usesToolbarModel && !selectedModel) return
     reset()
     const name = archName === 'current' ? 'current-canvas' : archName
     const architecture = toArchitecture(name)
@@ -59,7 +65,9 @@ export function Toolbar() {
       kind: 'run',
       architecture,
       input: { task, task_tags: [] },
-      model: { provider: selectedModel.provider, model: selectedModel.id, temperature: 0 },
+      model: usesToolbarModel && selectedModel
+        ? { provider: selectedModel.provider, model: selectedModel.id, temperature: 0 }
+        : undefined,
     })
   }
 
@@ -96,8 +104,12 @@ export function Toolbar() {
 
         {/* Right controls */}
         <div className="flex shrink-0 items-center gap-2">
-          {/* Settings icon */}
-          <button className="flex h-8 w-8 items-center justify-center rounded text-[#86948a] transition-colors hover:bg-[#242c27] hover:text-[#dde4dd]">
+          {/* Settings icon — OpenRouter favorites */}
+          <button
+            onClick={() => setFavoritesOpen(true)}
+            title="OpenRouter favorites"
+            className="flex h-8 w-8 items-center justify-center rounded text-[#86948a] transition-colors hover:bg-[#242c27] hover:text-[#dde4dd]"
+          >
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>settings</span>
           </button>
 
@@ -114,22 +126,32 @@ export function Toolbar() {
             ))}
           </select>
 
-          {/* Model select */}
-          <select
-            value={selectedModel?.id ?? ''}
-            onChange={(e) => setModelId(e.target.value)}
-            disabled={!models}
-            className="rounded border border-[#3c4a42] bg-[#242c27] px-3 py-1.5 text-[12px] text-[#dde4dd] outline-none transition-colors focus:border-[#4edea3] disabled:opacity-50"
-          >
-            {!models && (
-              <option value="">{modelsError ? 'Load failed' : 'Loading…'}</option>
-            )}
-            {models?.map((m) => (
-              <option key={m.id} value={m.id} disabled={!m.available}>
-                {m.label}{!m.available ? ' (no key)' : ''}
-              </option>
-            ))}
-          </select>
+          {/* Model select — 고정 아키텍처(baseline/treatment) 전용. 'Current Canvas'는
+              노드별 Model Slots가 모델을 결정하므로 여기서 숨긴다(상충 방지). */}
+          {usesToolbarModel ? (
+            <select
+              value={selectedModel?.id ?? ''}
+              onChange={(e) => setModelId(e.target.value)}
+              disabled={!models}
+              className="rounded border border-[#3c4a42] bg-[#242c27] px-3 py-1.5 text-[12px] text-[#dde4dd] outline-none transition-colors focus:border-[#4edea3] disabled:opacity-50"
+            >
+              {!models && (
+                <option value="">{modelsError ? 'Load failed' : 'Loading…'}</option>
+              )}
+              {models?.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.available}>
+                  {m.label}{!m.available ? ' (no key)' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span
+              className="rounded border border-[#3c4a42]/60 px-3 py-1.5 font-mono text-[10px] text-[#86948a]"
+              title="Model Slots가 각 노드의 모델을 결정합니다 (Inspector)"
+            >
+              Model: per-node
+            </span>
+          )}
 
           {/* Run button */}
           <button
@@ -137,8 +159,7 @@ export function Toolbar() {
             disabled={
               isRunning ||
               !task ||
-              !selectedModel ||
-              !selectedModel.available ||
+              (usesToolbarModel && (!selectedModel || !selectedModel.available)) ||
               (archName === 'current' && nodeCount === 0)
             }
             className="flex items-center gap-1.5 rounded bg-[#4edea3] px-4 py-1.5 text-[12px] font-bold text-[#003824] shadow-[0_0_10px_rgba(78,222,163,0.25)] transition-all hover:bg-[#6ffbbe] hover:shadow-[0_0_16px_rgba(78,222,163,0.45)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
@@ -150,6 +171,8 @@ export function Toolbar() {
           </button>
         </div>
       </div>
+
+      <OpenRouterFavoritesModal open={favoritesOpen} onClose={() => setFavoritesOpen(false)} />
     </div>
   )
 }

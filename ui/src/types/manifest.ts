@@ -56,7 +56,7 @@ const RUNTIMES = ['llm_step', 'policy', 'review', 'checkpoint', 'model', 'io', '
 
 /** A model slot embedded inside a node (replaces the external model.binding connection). */
 export const FallbackModelSchema = z.object({
-  provider: z.enum(['anthropic', 'openai', 'google', 'local']),
+  provider: z.enum(['anthropic', 'openai', 'google', 'local', 'openrouter']),
   model: z.string(),
   temperature: z.number().optional(),
 })
@@ -64,7 +64,7 @@ export type FallbackModel = z.infer<typeof FallbackModelSchema>
 
 export const ModelSlotSchema = z.object({
   id: z.string(),
-  provider: z.enum(['anthropic', 'openai', 'google', 'local']),
+  provider: z.enum(['anthropic', 'openai', 'google', 'local', 'openrouter']),
   model: z.string(),
   role: z.string().default(''),
   /** 생성 설정 — 값이 없으면 모델 기본값(config.yaml) 상속. */
@@ -73,6 +73,8 @@ export const ModelSlotSchema = z.object({
   topP: z.number().optional(),
   stopSequences: z.array(z.string()).optional(),
   seed: z.number().optional(),
+  /** OpenRouter 전용 — provider별 reasoning 파라미터 정규화. */
+  reasoningEffort: z.enum(['low', 'medium', 'high']).optional(),
   /** 호출 정책 — 값이 없으면 전역 기본값 상속. */
   timeoutSeconds: z.number().optional(),
   retryCount: z.number().optional(),
