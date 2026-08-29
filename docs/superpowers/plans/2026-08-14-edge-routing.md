@@ -1,3 +1,5 @@
+> 📄 **완료된 작업 기록** — 당시 구현 계획서다. 현재 설계 문서가 아니며, 현재 방향은 [DIRECTION.md](../../../DIRECTION.md) 참고.
+
 # Edge Routing — Straight Forward Edges, Curved Loop-Back Only — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,3 +1,5 @@
+> 📄 **완료된 작업 기록** — 당시 진행 로그다. 현재 설계 문서가 아니며, 현재 방향은 [DIRECTION.md](../../DIRECTION.md) 참고.
+
 # Loop Control UX Plan
 
 ## 상태와 결정

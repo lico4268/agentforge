@@ -1,3 +1,5 @@
+> 📄 **완료된 작업 기록** — 당시 진행 로그다. 현재 설계 문서가 아니며, 현재 방향은 [DIRECTION.md](../../DIRECTION.md) 참고.
+
 # Radial Agent Canvas Worklog
 
 AgentForge 캔버스를 수직 파이프라인 편집기에서 방사형 실행 맵으로 전환하는 작업 기록이다.

@@ -1,6 +1,7 @@
 # Agentforge — 백엔드 설계 & 프론트엔드 연동 문서
 
-> 상태: Living doc (실제 구현 반영)
+> 상태: Living doc — **현재 코드 상태 서술**이지 목표 설계가 아니다.
+> 목표 설계는 [DIRECTION.md](./DIRECTION.md)가 우선한다 (노드 역할·분기 이름은 사용자가 정한다).
 > 최초 작성: 2026-06-26 · 전면 개정: 2026-06-30 · 부분 개정: 2026-07-03 (v0.3 compile_graph · 워크스페이스 · review/policy 재설계 반영)
 > 관련 문서: [CLAUDE.md](./CLAUDE.md) · [AGENTS.md](./AGENTS.md) · [ROADMAP.md](./ROADMAP.md) · [ui-architecture.md](./refer_data/docs/ui-architecture.md)
 

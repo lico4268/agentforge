@@ -1,3 +1,5 @@
+> 📄 **완료된 작업 기록** — 당시 진행 로그다. 현재 설계 문서가 아니며, 현재 방향은 [DIRECTION.md](../../DIRECTION.md) 참고.
+
 # Loop Engineering 조사 — Loop Control 구현 근거
 
 > 이 문서는 loop policy·compiler·runtime 설계의 기술 근거다. 화면 표현의 단일 최신 기준은 `LOOP_CONTROL_UX_PLAN.md`다.

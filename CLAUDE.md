@@ -2,6 +2,8 @@
 
 ComfyUI 스타일의 에이전트 아키텍처 빌더. 노드 캔버스에서 LLM 에이전트 파이프라인을 시각적으로 설계하고 실행한다.
 
+> **설계 방향은 [DIRECTION.md](./DIRECTION.md)가 최우선이다** — 다른 문서와 충돌하면 그쪽이 낡은 것이다.
+> `docs/superpowers/**`, `work/**`, `POLICY_*.md`는 과거 기록이며 현재 설계가 아니다.
 > 코딩·린트·import·타입 계약 규칙은 [AGENTS.md](./AGENTS.md)를 따른다. 진행 상태는 [ROADMAP.md](./ROADMAP.md) 참고.
 
 ---
@@ -148,7 +150,7 @@ dispatch_graph(architecture) → graphs/*.py의 LangGraph StateGraph 빌더
 
 ## refer_data 사용 지침
 
-- `refer_data/docs/` — 기능 구현 전 관련 스펙 문서를 먼저 참고한다.
+- `refer_data/docs/` — 초기 기획서. 참고하되 `DIRECTION.md`와 충돌하는 부분(노드 역할 고정, 분기 이름 `accept`/`refine`/`clarify` 고정)은 **무효**다.
 - `refer_data/papers/` — 알고리즘/아키텍처 설계 결정 시 참고 논문 확인.
 - 이 폴더는 **읽기 전용**이며 코드 생성의 근거 자료다. 수정하지 않는다.
 
