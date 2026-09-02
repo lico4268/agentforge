@@ -1,6 +1,7 @@
 import pytest
 
-from archfile import ArchError, parse_flow
+from archfile import ArchError, parse_arch, parse_flow
+from graphs.compile import compile_graph
 
 
 def test_simple_chain_splits_into_edges():
@@ -74,3 +75,164 @@ def test_trailing_arrow_raises():
         parse_flow("a --> b -->")
     assert exc.value.line == 1
     assert "trailing arrow" in str(exc.value)
+
+
+STARTER = """
+name: 테스트 그래프
+model: google/gemini-3.1-flash-lite
+
+flow: |
+  input --> 초안 --> 검토 --> output
+
+nodes:
+  초안:
+    in:  [task]
+    out: [draft]
+    prompt: 빠르게 답을 내라.
+  검토:
+    in:  [task, draft]
+    out: [answer]
+    model: anthropic/claude-opus-5
+    prompt: 허점을 짚어 고쳐라.
+"""
+
+
+def test_user_nodes_become_custom_node_type():
+    arch, _ = parse_arch(STARTER)
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["초안"]["type"] == "custom.node"
+    assert by_id["초안"]["config"]["systemPrompt"] == "빠르게 답을 내라."
+    assert by_id["초안"]["config"]["outputs"] == [{"id": "draft", "label": "draft"}]
+    assert by_id["초안"]["config"]["inputs"] == [{"id": "task", "label": "task"}]
+
+
+def test_boundary_nodes_get_predefined_types():
+    arch, _ = parse_arch(STARTER)
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["input"]["type"] == "io.input"
+    assert by_id["output"]["type"] == "io.output"
+
+
+def test_node_model_overrides_default():
+    arch, _ = parse_arch(STARTER)
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["초안"]["config"]["modelSlots"][0]["model"] == "gemini-3.1-flash-lite"
+    assert by_id["초안"]["config"]["modelSlots"][0]["provider"] == "google"
+    assert by_id["검토"]["config"]["modelSlots"][0]["model"] == "claude-opus-5"
+    assert by_id["검토"]["config"]["modelSlots"][0]["provider"] == "anthropic"
+
+
+def test_edges_carry_label_as_source_role():
+    arch, _ = parse_arch("""
+flow: |
+  a -->|ok| b
+nodes:
+  a: { out: [x], prompt: p }
+  b: { in: [x], out: [y], prompt: q }
+""")
+    e = arch["edges"][0]
+    assert e["source"] == "a"
+    assert e["target"] == "b"
+    assert e["sourceRole"] == "ok"
+    assert e["sourceHandle"] == "ok"
+
+
+def test_flow_node_missing_from_nodes_raises():
+    with pytest.raises(ArchError) as exc:
+        parse_arch("""
+flow: |
+  a --> ghost
+nodes:
+  a: { out: [x], prompt: p }
+""")
+    assert "ghost" in str(exc.value)
+    assert exc.value.line == 3
+
+
+def test_input_name_with_no_producer_raises():
+    with pytest.raises(ArchError) as exc:
+        parse_arch("""
+flow: |
+  a --> b
+nodes:
+  a: { out: [x], prompt: p }
+  b: { in: [나없음], out: [y], prompt: q }
+""")
+    assert "나없음" in str(exc.value)
+
+
+def test_optional_input_marker_skips_producer_check():
+    arch, _ = parse_arch("""
+flow: |
+  a --> b
+nodes:
+  a: { out: [x], prompt: p }
+  b: { in: [x, feedback?], out: [y], prompt: q }
+""")
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["b"]["config"]["inputs"] == [
+        {"id": "x", "label": "x"},
+        {"id": "feedback", "label": "feedback"},
+    ]
+
+
+def test_duplicate_output_name_warns_but_parses():
+    arch, warnings = parse_arch("""
+flow: |
+  a --> b --> output
+nodes:
+  a: { out: [answer], prompt: p }
+  b: { in: [answer], out: [answer], prompt: q }
+""")
+    assert arch is not None
+    assert any("answer" in w for w in warnings)
+
+
+def test_predefined_run_node():
+    arch, _ = parse_arch("""
+flow: |
+  a --> 승인 --> output
+nodes:
+  a: { out: [x], prompt: p }
+  승인: { run: human.checkpoint }
+""")
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["승인"]["type"] == "human.checkpoint"
+
+
+def test_unknown_run_value_raises():
+    with pytest.raises(ArchError) as exc:
+        parse_arch("""
+flow: |
+  a --> b
+nodes:
+  a: { out: [x], prompt: p }
+  b: { run: no.such.thing }
+""")
+    assert "no.such.thing" in str(exc.value)
+
+
+def test_node_order_follows_flow_first_appearance():
+    arch, _ = parse_arch("""
+flow: |
+  input --> b --> c --> output
+nodes:
+  b: { in: [task], out: [x], prompt: p }
+  c: { in: [x], out: [y], prompt: q }
+""")
+    assert [n["id"] for n in arch["nodes"]] == ["input", "b", "c", "output"]
+
+
+async def _noop_emit(_event):
+    return None
+
+
+def test_parsed_arch_compiles_with_compile_graph():
+    arch, _ = parse_arch(STARTER)
+    graph = compile_graph(
+        arch,
+        {"provider": "google", "model": "gemini-3.1-flash-lite", "temperature": 0},
+        _noop_emit,
+        "test-run",
+    )
+    assert graph is not None
