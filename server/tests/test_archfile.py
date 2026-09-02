@@ -515,3 +515,36 @@ nodes:
 """)
     by_id = {n["id"]: n for n in arch["nodes"]}
     assert by_id["승인"]["type"] == "human.checkpoint"
+
+
+def test_duplicate_branch_label_on_same_node_raises_with_line_number():
+    """같은 노드에서 라벨이 중복되면(둘 다 "ok") dict 컴프리헨션에서 하나로 뭉개져
+    다른 쪽 엣지가 도달 불가능해진다 — 파서가 두 번째 발생 줄 번호와 함께 거부한다."""
+    with pytest.raises(ArchError) as exc:
+        parse_arch("""
+flow: |
+  input --> 판단
+  판단 -->|ok| output
+  판단 -->|ok| other
+nodes:
+  판단: { in: [task], out: [verdict], prompt: p }
+  other: { run: output }
+""")
+    message = str(exc.value)
+    assert "판단" in message
+    assert "ok" in message
+    assert exc.value.line == 5
+
+
+def test_distinct_branch_labels_still_parse_fine():
+    """서로 다른 라벨 2개는 정상 분기 — 과잉 거부 방지용 가드 테스트."""
+    arch, _ = parse_arch("""
+flow: |
+  input --> 판단
+  판단 -->|ok| output
+  판단 -->|no| other
+nodes:
+  판단: { in: [task], out: [verdict], prompt: p }
+  other: { run: output }
+""")
+    assert {n["id"] for n in arch["nodes"]} == {"input", "판단", "output", "other"}

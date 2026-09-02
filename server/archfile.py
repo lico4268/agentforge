@@ -248,12 +248,19 @@ def _validate_inputs(raw_nodes: dict) -> None:
 def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> None:
     """compile.py `_branch_labels`(설계 §5)와 같은 규칙 — 나가는 엣지에 라벨이 둘
     이상이면 분기 노드다 — 을 파서에서 먼저 적용해, 분기할 수 없는 타입(io.input/
-    io.output)에 라벨이 둘 이상 달리면 줄 번호와 함께 거부한다.
+    io.output)에 라벨이 둘 이상 달리면 줄 번호와 함께 거부한다. 같은 노드에서 라벨이
+    중복되는 것도 여기서 함께 막는다 — 둘 다 "쓴 대로 실행되지 않는데 신호가 없는"
+    같은 부류의 함정이기 때문이다.
 
     flow_edges(사용자가 실제로 mermaid에 쓴 엣지)만 본다 — _insert_guards가 나중에
     끼워 넣는 합성 loopBack/exit 엣지는 여기 없으므로 자동 삽입 가드는 애초에
     대상이 아니고, 사용자가 직접 `{ run: loop.guard }`로 꺼낸 가드는 loop.guard
-    타입이라 애초에 분기 가능 목록에 있다."""
+    타입이라 애초에 분기 가능 목록에 있다.
+
+    라벨 중복 검사는 compile.py의 branch-wiring 루프에도 똑같이 있다(중복이 아니다) —
+    캔버스에서 저장된 architecture dict는 main.py의 dispatch_graph가 이 파서를 거치지
+    않고 곧장 compile_graph로 넘기므로, 거기서도 반드시 막아야 조용한 엣지 소실을
+    피할 수 있다. 여기(파서)는 arch.yaml 저자에게 줄 번호를 준다는 점만 다르다."""
     node_types = {n["id"]: n["type"] for n in nodes}
     labelled_by_source: dict[str, list[tuple[str, int]]] = {}
     for e in flow_edges:
@@ -264,15 +271,23 @@ def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> N
     for node_id, labelled in labelled_by_source.items():
         if len(labelled) < 2:
             continue
-        if node_types.get(node_id) in _BRANCH_CAPABLE_TYPES:
-            continue
-        labels = [label for label, _ in labelled]
-        raise ArchError(
-            f"node {node_id!r} has {len(labels)} labelled outgoing edges {labels} "
-            "but cannot branch — only user-defined nodes, human.checkpoint, and "
-            "loop.guard can",
-            labelled[0][1],
-        )
+        if node_types.get(node_id) not in _BRANCH_CAPABLE_TYPES:
+            labels = [label for label, _ in labelled]
+            raise ArchError(
+                f"node {node_id!r} has {len(labels)} labelled outgoing edges {labels} "
+                "but cannot branch — only user-defined nodes, human.checkpoint, and "
+                "loop.guard can",
+                labelled[0][1],
+            )
+        seen: dict[str, int] = {}
+        for label, line in labelled:
+            if label in seen:
+                raise ArchError(
+                    f"node {node_id!r} has the {label!r} label on two outgoing edges — "
+                    "each label must have exactly one outgoing edge",
+                    line,
+                )
+            seen[label] = line
 
 
 DEFAULT_MAX_ITERATIONS = 3

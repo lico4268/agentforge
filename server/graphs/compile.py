@@ -853,6 +853,23 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             # 그래프 구조로 분기가 판정된 사용자 노드(설계 §5) — route_fns가 아니라
             # __route__<id> 상태 키를 읽는 별도 라우터를 쓴다.
             labels = _branch_labels(node_id, edges)
+            # 라벨 중복 검사 — review.intent/human.checkpoint/loop.guard의 role 중복은
+            # 이미 _validate_branch_roles가 막는다(위); 이 구조적 분기 경로는 그걸
+            # 일반화한 것이라 같은 방어가 없으면 중복 라벨이 dict 컴프리헨션에서
+            # 조용히 하나로 뭉개져 나머지 엣지가 도달 불가능해진다. archfile.py의
+            # _validate_branch_capable도 같은 규칙을 파서에서 검사하지만(줄 번호
+            # 포함), main.py의 dispatch_graph는 캔버스에서 저장된 architecture dict를
+            # parse_arch 없이 곧장 compile_graph로 넘기므로 이 검사가 없으면 그
+            # 경로는 무방비다 — 둘 중 하나를 지워도 되는 중복이 아니다.
+            label_counts: dict[str, int] = {}
+            for label in labels:
+                label_counts[label] = label_counts.get(label, 0) + 1
+            for label, count in label_counts.items():
+                if count > 1:
+                    raise ValueError(
+                        f"node {node_id!r} has {count} edges assigned the {label!r} "
+                        "label — each label must have exactly one outgoing edge"
+                    )
             targets = {
                 (e.get("sourceRole") or ""): e["target"]
                 for e in edges

@@ -1512,3 +1512,35 @@ async def test_labelled_fanout_from_non_llm_step_node_still_runs_both(monkeypatc
     final = await graph.ainvoke(initial_state("2+2"), {"configurable": {"thread_id": "t-fanout"}})
     assert final.get("plan") == ["s1"]
     assert final.get("answer") == "4"
+
+
+async def test_duplicate_branch_label_raises_at_compile(monkeypatch):
+    """raw architecture dict(캔버스가 parse_arch 없이 저장한 것과 같은 모양)에서
+    분기 노드의 두 나가는 엣지가 같은 라벨("ok")을 쓰면 dict 컴프리헨션의
+    targets = {label: target ...}에서 하나가 조용히 뭉개진다 — archfile.py의
+    파서 쪽 검사(_validate_branch_capable)는 parse_arch를 거치지 않는 이 경로를
+    보호하지 못하므로, compile_graph 자체가 이 중복을 막아야 한다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node(
+                "판단",
+                "custom.node",
+                {
+                    "systemPrompt": "p",
+                    "inputs": [{"id": "task", "label": "task"}],
+                    "outputs": [{"id": "verdict", "label": "verdict"}],
+                },
+            ),
+            _node("output", "io.output"),
+            _node("other", "io.output"),
+        ],
+        [
+            _edge("input", "판단", "task"),
+            _edge("판단", "output", source_role="ok"),
+            _edge("판단", "other", source_role="ok"),
+        ],
+    )
+    with pytest.raises(ValueError, match="ok"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
