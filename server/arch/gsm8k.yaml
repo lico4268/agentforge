@@ -1,0 +1,27 @@
+name: GSM8K Treatment
+model: google/gemini-3.1-flash-lite
+
+flow: |
+  input --> planning --> reasoning --> review
+  review -->|ok|    output
+  review -->|retry| reasoning
+
+nodes:
+  planning:
+    in:  [task]
+    out: [plan]
+    prompt: |
+      문제를 풀 단계로 쪼개라. 각 단계 한 줄씩.
+
+  reasoning:
+    in:  [task, plan, feedback]
+    out: [answer]
+    prompt: |
+      계획을 따라 풀어라. 마지막 줄에 답만 숫자로 써라.
+
+  review:
+    in:  [task, answer]
+    out: [feedback]
+    prompt: |
+      답이 문제에 맞는지 확인해라. 맞으면 ok, 틀리면 retry로 보내고
+      feedback에 무엇이 틀렸는지 써라.

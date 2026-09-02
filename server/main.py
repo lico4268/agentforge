@@ -7,9 +7,11 @@ import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+import arch_files
 import config as cfg
 import node_types as nt
 import openrouter_catalog as orc
+from archfile import ArchError
 from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
@@ -92,6 +94,22 @@ async def get_models() -> list[dict]:
 @app.get("/api/nodes")
 async def get_nodes() -> list[dict]:
     return BUILTIN_MANIFESTS + nt.list_custom_manifests()
+
+
+@app.get("/api/arch")
+async def list_arch() -> list[dict]:
+    """server/arch/*.yaml 목록 — 사람이 에디터로 저작한 arch.yaml 파일들."""
+    return arch_files.list_arch_files()
+
+
+@app.get("/api/arch/{name}")
+async def get_arch(name: str) -> dict:
+    try:
+        return arch_files.read_arch_file(name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"arch file not found: {name}") from None
+    except (ArchError, ValueError) as err:
+        raise HTTPException(status_code=400, detail=str(err)) from None
 
 
 @app.get("/api/node-types")
@@ -296,7 +314,6 @@ async def ws_run(ws: WebSocket):
             kind = msg.get("kind")
 
             if kind == "run":
-                arch = msg.get("architecture") or {}
                 input_data = msg.get("input") or {}
                 model_cfg = msg.get("model") or {}
 
@@ -313,6 +330,14 @@ async def ws_run(ws: WebSocket):
                 await safe_send_json(ws, {"kind": "run_started", "runId": run_id})
 
                 try:
+                    # architecture(캔버스 JSON)와 archFile(server/arch/*.yaml 이름)은
+                    # 상호 배타적 — architecture가 명시(null이 아님)되면 그걸 우선한다.
+                    # ArchError/ValueError/FileNotFoundError는 아래 except에서 처리.
+                    arch = msg.get("architecture")
+                    if arch is None and msg.get("archFile"):
+                        arch = arch_files.read_arch_file(msg["archFile"])["architecture"]
+                    arch = arch or {}
+
                     graph = dispatch_graph(arch, model_cfg, emitter, run_id)
                     active_runs[run_id] = graph
 
@@ -329,6 +354,11 @@ async def ws_run(ws: WebSocket):
                     }
                     final = await graph.ainvoke(state0, config=config)
                     await _send_run_outcome(ws, run_id, final, history)
+                except FileNotFoundError:
+                    active_runs.pop(run_id, None)
+                    message = f"arch file not found: {msg.get('archFile')}"
+                    logger.warning("run %s rejected: %s", run_id, message)
+                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
                 except ValueError as e:
                     active_runs.pop(run_id, None)
                     logger.warning("run %s rejected: %s", run_id, e)
