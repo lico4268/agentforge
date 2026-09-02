@@ -176,6 +176,56 @@ nodes:
     ]
 
 
+def test_natural_language_question_marks_survive_byte_for_byte():
+    arch, _ = parse_arch("""
+flow: |
+  a --> 검토
+nodes:
+  a: { out: [task], prompt: p }
+  검토:
+    in:  [task]
+    out: [verdict]
+    prompt: 답이 맞나? 틀렸나? 확인해라.
+""")
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["검토"]["config"]["systemPrompt"] == "답이 맞나? 틀렸나? 확인해라."
+
+
+def test_block_style_optional_input_still_works():
+    arch, _ = parse_arch("""
+flow: |
+  a --> b
+nodes:
+  a: { out: [x], prompt: p }
+  b:
+    in:
+      - x
+      - feedback?
+    out: [y]
+    prompt: q
+""")
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["b"]["config"]["inputs"] == [
+        {"id": "x", "label": "x"},
+        {"id": "feedback", "label": "feedback"},
+    ]
+
+
+def test_already_quoted_optional_marker_matches_unquoted_form():
+    arch, _ = parse_arch("""
+flow: |
+  a --> b
+nodes:
+  a: { out: [x], prompt: p }
+  b: { in: [x, "feedback?"], out: [y], prompt: q }
+""")
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["b"]["config"]["inputs"] == [
+        {"id": "x", "label": "x"},
+        {"id": "feedback", "label": "feedback"},
+    ]
+
+
 def test_duplicate_output_name_warns_but_parses():
     arch, warnings = parse_arch("""
 flow: |

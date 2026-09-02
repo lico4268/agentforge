@@ -95,8 +95,18 @@ def _ports(names: list[str]) -> list[dict]:
 
 # PyYAML은 flow 시퀀스([a, b]) 안의 평범한 스칼라에 '?'를 허용하지 않는다(YAML 자체
 # 스펙 위반은 아니지만 PyYAML 파서가 이렇게 구현돼 있다) — 'feedback?' 같은 선택
-# 입력 마커를 파싱 전에 따옴표로 감싸 우회한다.
-_OPTIONAL_MARKER = re.compile(r'([^\s,\[\]{}"\']+\?)(?=[\s,\]}])')
+# 입력 마커를 파싱 전에 따옴표로 감싸 우회한다. in:/out: 플로우 시퀀스 대괄호
+# *안쪽만* 건드린다 — prompt: 등 자연어 텍스트의 물음표는 절대 손대지 않는다
+# (자연어 물음표가 훨씬 흔한 케이스라 여기서 실수하면 안 된다).
+_IN_OUT_FLOW_LIST = re.compile(r"(\b(?:in|out)\b\s*:\s*\[)([^\]\n]*)(\])")
+_BARE_OPTIONAL_TOKEN = re.compile(r'(?<!["\'])([^\s,\[\]"\']+\?)(?!["\'])')
+
+
+def _quote_optional_markers(text: str) -> str:
+    def fix_list(m: re.Match) -> str:
+        return m.group(1) + _BARE_OPTIONAL_TOKEN.sub(r'"\1"', m.group(2)) + m.group(3)
+
+    return _IN_OUT_FLOW_LIST.sub(fix_list, text)
 
 _FLOW_KEY = re.compile(r"^flow\s*:")
 
@@ -113,7 +123,7 @@ def _flow_line_offset(text: str) -> int:
 
 def parse_arch(text: str) -> tuple[dict, list[str]]:
     """arch.yaml 텍스트 → (Architecture dict, 경고 목록)."""
-    doc = yaml.safe_load(_OPTIONAL_MARKER.sub(r'"\1"', text)) or {}
+    doc = yaml.safe_load(_quote_optional_markers(text)) or {}
     flow_text = doc.get("flow") or ""
     raw_nodes = doc.get("nodes") or {}
     default_model = doc.get("model")
