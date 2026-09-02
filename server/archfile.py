@@ -261,19 +261,32 @@ def _back_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
     color = dict.fromkeys((n["id"] for n in nodes), WHITE)
     back: list[dict] = []
 
-    def visit(node_id: str) -> None:
-        color[node_id] = GRAY
-        for e in adjacency.get(node_id, []):
-            target_color = color.get(e["target"], WHITE)
-            if target_color == GRAY:
-                back.append(e)
-            elif target_color == WHITE:
-                visit(e["target"])
-        color[node_id] = BLACK
-
-    for n in nodes:
-        if color[n["id"]] == WHITE:
-            visit(n["id"])
+    # 재귀 DFS를 명시적 스택으로 편다 — 긴 직선 체인(수백~수천 노드)에서 파이썬 기본
+    # 재귀 한도(1000)를 넘겨 RecursionError로 파싱 전체가 죽는 걸 막는다. 프레임은
+    # [node_id, 다음에 볼 인접 엣지 인덱스] — 재귀 버전과 동일한 순서로 색을 칠하고
+    # 동일한 시점에 엣지를 훑으므로 back edge 판정 결과는 재귀 버전과 완전히 같다.
+    for start in nodes:
+        start_id = start["id"]
+        if color[start_id] != WHITE:
+            continue
+        color[start_id] = GRAY
+        stack: list[list] = [[start_id, 0]]
+        while stack:
+            frame = stack[-1]
+            node_id, i = frame
+            out_edges = adjacency[node_id]
+            if i < len(out_edges):
+                frame[1] += 1
+                e = out_edges[i]
+                target_color = color.get(e["target"], WHITE)
+                if target_color == GRAY:
+                    back.append(e)
+                elif target_color == WHITE:
+                    color[e["target"]] = GRAY
+                    stack.append([e["target"], 0])
+            else:
+                color[node_id] = BLACK
+                stack.pop()
 
     return back
 

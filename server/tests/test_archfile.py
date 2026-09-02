@@ -417,3 +417,19 @@ nodes:
 """)
     guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
     assert len(guards) == 1
+
+
+def test_long_straight_chain_does_not_recurse():
+    # 재귀 DFS였다면 파이썬 기본 재귀 한도(1000)를 넘는 이 직선 체인에서
+    # RecursionError로 파싱 전체가 죽었을 것 — 사이클이 전혀 없어도 노드 수만으로 터진다.
+    n = 2000
+    names = [f"n{i}" for i in range(n)]
+    flow_line = " --> ".join(["input", *names, "output"])
+    node_defs = "\n".join(f"  {name}: {{ prompt: p }}" for name in names)
+    text = f"flow: |\n  {flow_line}\nnodes:\n{node_defs}\n"
+
+    arch, _ = parse_arch(text)
+
+    guards = [nd for nd in arch["nodes"] if nd["type"] == "loop.guard"]
+    assert guards == []
+    assert len(arch["nodes"]) == n + 2
