@@ -433,3 +433,85 @@ def test_long_straight_chain_does_not_recurse():
     guards = [nd for nd in arch["nodes"] if nd["type"] == "loop.guard"]
     assert guards == []
     assert len(arch["nodes"]) == n + 2
+
+
+def test_labelled_fanout_from_input_raises_with_line_number():
+    """io.input은 라벨을 스스로 고를 방법이 없다 — 라벨 2개는 사용자 의도가 조용히
+    버려지는 함정(Task 3 다이아몬드 버그와 같은 부류)이므로 파서가 줄 번호와 함께
+    거부한다."""
+    with pytest.raises(ArchError) as exc:
+        parse_arch("""
+flow: |
+  input -->|a| x
+  input -->|b| y
+  x --> output
+  y --> output
+nodes:
+  x: { in: [task], out: [m], prompt: p }
+  y: { in: [task], out: [n], prompt: q }
+""")
+    message = str(exc.value)
+    assert "input" in message
+    assert "cannot branch" in message
+    # flow: 블록은 문서 3번째 줄에서 시작하고, "input -->|a| x"가 그 다음 줄이다.
+    assert exc.value.line == 3
+
+
+def test_single_labelled_edge_out_of_input_parses_fine():
+    """라벨 하나는 분기가 아니다 — 어디로 갈지 모호하지 않으므로 거부할 이유가 없다."""
+    arch, _ = parse_arch("""
+flow: |
+  input -->|start| x
+  x --> output
+nodes:
+  x: { in: [task], out: [m], prompt: p }
+""")
+    assert [n["id"] for n in arch["nodes"]] == ["input", "x", "output"]
+
+
+def test_looped_fixture_with_auto_inserted_guard_still_parses():
+    """__guard_1(자동 삽입)은 loopBack/exit 라벨 2개를 갖지만 loop.guard 타입이라
+    분기 가능 — LOOPED 픽스처가 여전히 깨끗하게 파싱돼야 한다."""
+    arch, warnings = parse_arch(LOOPED)
+    assert warnings == []
+    guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
+    assert len(guards) == 1
+    assert guards[0]["id"] == "__guard_1"
+
+
+def test_explicit_loop_guard_with_loopback_exit_labels_parses_fine():
+    """사용자가 직접 `{ run: loop.guard }`로 꺼낸 가드도 loopBack/exit 라벨 2개를
+    갖지만 loop.guard 타입이라 분기 가능 — test_explicit_guard_is_left_alone과 같은
+    모양이지만 이 파일의 분기-가능 검증 관점에서 명시적으로 확인해둔다."""
+    arch, _ = parse_arch("""
+flow: |
+  input --> 풀이 --> 검토
+  검토 -->|ok|    output
+  검토 -->|retry| retry5
+  retry5 -->|loopBack| 풀이
+  retry5 -->|exit|     output
+nodes:
+  풀이:   { in: [task], out: [answer], prompt: p }
+  검토:   { in: [answer], out: [verdict], prompt: q }
+  retry5: { run: loop.guard, max: 5 }
+""")
+    guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
+    assert [g["id"] for g in guards] == ["retry5"]
+
+
+def test_human_checkpoint_with_two_labelled_edges_parses_fine():
+    """human.checkpoint는 런타임(사람의 승인/거부)이 라벨을 정하므로 분기 가능.
+    reject를 별도 종단(output2)으로 보내 사이클(따라서 가드 삽입)을 피하고
+    분기-가능 검증만 순수하게 확인한다."""
+    arch, _ = parse_arch("""
+flow: |
+  input --> x --> 승인
+  승인 -->|approve| output
+  승인 -->|reject|  output2
+nodes:
+  x: { in: [task], out: [draft], prompt: p }
+  output2: { run: output }
+  승인: { run: human.checkpoint }
+""")
+    by_id = {n["id"]: n for n in arch["nodes"]}
+    assert by_id["승인"]["type"] == "human.checkpoint"

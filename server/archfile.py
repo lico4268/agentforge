@@ -80,6 +80,12 @@ PREDEFINED = {
 # config.inputs/outputs/systemPrompt를 그대로 읽는다 (설계 §4).
 USER_NODE_TYPE = "custom.node"
 
+# compile.py `_branch_labels`(설계 §5)가 분기로 인정하는 타입 — 라벨을 스스로 고를
+# 수단(LLM 구조화 출력 또는 런타임 고유 로직)이 있는 타입만 분기 노드가 될 수 있다.
+# io.input/io.output은 여기 없다 — 라벨을 낼 방법이 없으므로 라벨 2개 이상을 달면
+# 사용자 의도가 조용히 버려진다(Task 3 다이아몬드 버그와 같은 부류).
+_BRANCH_CAPABLE_TYPES = {USER_NODE_TYPE, "human.checkpoint", "loop.guard"}
+
 
 def _split_model(spec: str) -> tuple[str, str]:
     """'google/gemini-3.1-flash-lite' → ('google', 'gemini-3.1-flash-lite')."""
@@ -142,6 +148,7 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
             warnings.append(f"node {name!r} is defined but never used in flow:")
 
     _validate_inputs(raw_nodes)
+    _validate_branch_capable(nodes, flow_edges)
 
     edges = [
         {
@@ -236,6 +243,36 @@ def _validate_inputs(raw_nodes: dict) -> None:
                     f"node {name!r} reads {want!r} but no node writes it — "
                     "add it to some node's out:"
                 )
+
+
+def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> None:
+    """compile.py `_branch_labels`(설계 §5)와 같은 규칙 — 나가는 엣지에 라벨이 둘
+    이상이면 분기 노드다 — 을 파서에서 먼저 적용해, 분기할 수 없는 타입(io.input/
+    io.output)에 라벨이 둘 이상 달리면 줄 번호와 함께 거부한다.
+
+    flow_edges(사용자가 실제로 mermaid에 쓴 엣지)만 본다 — _insert_guards가 나중에
+    끼워 넣는 합성 loopBack/exit 엣지는 여기 없으므로 자동 삽입 가드는 애초에
+    대상이 아니고, 사용자가 직접 `{ run: loop.guard }`로 꺼낸 가드는 loop.guard
+    타입이라 애초에 분기 가능 목록에 있다."""
+    node_types = {n["id"]: n["type"] for n in nodes}
+    labelled_by_source: dict[str, list[tuple[str, int]]] = {}
+    for e in flow_edges:
+        if not e["label"]:
+            continue
+        labelled_by_source.setdefault(e["source"], []).append((e["label"], e["line"]))
+
+    for node_id, labelled in labelled_by_source.items():
+        if len(labelled) < 2:
+            continue
+        if node_types.get(node_id) in _BRANCH_CAPABLE_TYPES:
+            continue
+        labels = [label for label, _ in labelled]
+        raise ArchError(
+            f"node {node_id!r} has {len(labels)} labelled outgoing edges {labels} "
+            "but cannot branch — only user-defined nodes, human.checkpoint, and "
+            "loop.guard can",
+            labelled[0][1],
+        )
 
 
 DEFAULT_MAX_ITERATIONS = 3
