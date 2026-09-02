@@ -87,6 +87,29 @@ nodes:
    문자열이나 쓸 수 있고 분기 개수 제한도 없다.
 4. **사전 정의 노드는 `run:`으로만 쓴다.** `{ run: human.checkpoint }`,
    `{ run: loop.guard, max: 3 }`.
+5. **`in:`의 이름 뒤 `?`는 선택 입력이다.** 아직 아무 노드도 만들지 않은 값을
+   받겠다는 선언 — 없으면 빈 문자열이 된다. 루프 회차 간 피드백 전달에 쓴다(§5.1).
+
+### 3.3 이름이 곧 정체성
+
+노드 타입이 없으므로 **이름이 노드를 구분하는 유일한 수단**이다. 같은 일을 하는
+노드가 둘 있으면 하는 일로 이름을 나눠 짓는다 — 예전처럼 `reasoning` /
+`reasoning_2`로 같은 타입의 인스턴스를 구별할 필요가 없다.
+
+```yaml
+flow: |
+  input --> 초안 --> 검토 --> 재작성 --> output
+
+nodes:
+  초안:   { in: [task],                  out: [draft],    prompt: ... }
+  검토:   { in: [task, draft],           out: [critique], prompt: ... }
+  재작성: { in: [task, draft, critique], out: [answer],   prompt: ... }
+```
+
+주의 지점은 이름이 아니라 `out:`이다. 두 노드가 같은 출력 이름을 쓰면 `merge_vars`
+규칙상 뒤 노드가 앞 노드 값을 덮어쓴다. **파서는 이때 경고를 낸다** — 덮어쓰기가
+의도면 그대로 두고, 아니면 이름을 나누라는 뜻이다. 루프 안에서 같은 노드가 반복
+방문하며 자기 출력을 덮어쓰는 것은 정상이므로 경고 대상이 아니다.
 
 ### 3.2 mermaid를 쓰는 이유
 
@@ -147,6 +170,82 @@ _CONDITIONAL_ROUTING_TYPES = {"review.intent", "human.checkpoint", "loop.guard"}
 `human.checkpoint`/`loop.guard`는 LLM이 아니라 런타임이 라벨을 정하므로 현재 방식을
 유지한다.
 
+## 5.1 루프
+
+루프는 **뒤로 가는 화살표 하나**다. `loop.reentry`는 삭제되고, 화살표 자체가
+재진입이다.
+
+### 가드 자동 삽입
+
+무한 루프를 막는 예산(guard)이 필요하지만, 지금처럼 가드 없는 사이클을
+`ValueError`로 거부하지 않는다. 뒤로 가는 화살표를 발견하면 파서가 기본 가드를
+자동으로 끼운다(최대 3회, 소진 시 종말 노드로 탈출).
+
+```yaml
+flow: |
+  input --> reasoning --> review
+  review -->|ok|    output
+  review -->|retry| reasoning     # 이것만으로 동작. 기본 3회.
+```
+
+내부적으로는 `Architecture` dict에 `__guard_1` 노드가 삽입된다. `arch.yaml`에도
+mermaid 그림에도 나타나지 않으며, 그림에는 뒤로 가는 화살표에 `↻3` 배지만 붙는다.
+대시보드는 `guard: 3 (기본값)`으로 표시해 숨기지 않는다.
+
+**탈출 지점이 애매하면 에러다.** 나가는 엣지가 없는 노드가 둘 이상이면 자동으로
+고르지 않고, 가드를 명시하라고 알린다.
+
+예산을 직접 정하려면 가드를 이름 있는 노드로 꺼낸다. 그러면 소진 시 경로가 흐름에
+드러난다:
+
+```yaml
+flow: |
+  review -->|retry| retry3
+  retry3 -->|계속|  reasoning
+  retry3 -->|소진|  output
+
+nodes:
+  retry3: { run: loop.guard, max: 3 }   # 또는 maxTokens/maxCostUsd/maxDurationSec/stuck
+```
+
+가드 축 평가는 `server/nodes/loop_guard.py`의 5축 순수 함수를 그대로 쓴다.
+`LoopRuntimeState`가 policy_id별 키를 갖는 병합 리듀서(`state.py:24`)라 중첩
+루프도 그대로 동작한다.
+
+### 회차 구분
+
+같은 노드가 여러 번 방문되는 것을 그래프는 구분하지 않는다 — 노드는 하나다.
+구분은 실행 기록에서 이뤄지며, 필요한 장치는 이미 있다:
+
+- `workspace.py:43` `_seq_prefix` — 같은 node_id 재방문 시 시퀀스가 올라간다
+  (`001-reasoning.md`, `004-reasoning.md`)
+- `ExecutionEvent`에 `loop_runtime` 필드가 이미 있어 `iteration`이 WS로 나간다
+
+대시보드는 `reasoning #1`, `reasoning #2`로 줄을 쌓아 보여주고, mermaid 그림은
+노드 하나에 `#2` 배지만 붙인다. 그림은 구조지 기록이 아니다.
+
+### 회차 간 상태 전달
+
+같은 노드가 두 번 돌면 자기 출력을 덮어쓰므로, 2회차가 1회차와 달라지려면 앞
+회차의 판단이 입력으로 들어와야 한다. 선택 입력(`?`)으로 명시한다:
+
+```yaml
+nodes:
+  reasoning:
+    in:  [task, plan, feedback?]     # 1회차엔 빈 값
+    out: [answer]
+    prompt: |
+      계획을 따라 풀어라.
+      {{feedback}}
+
+  review:
+    in:  [task, answer]
+    out: [verdict, feedback]         # 여기서 나온 feedback이 2회차 입력
+```
+
+무엇이 회차를 넘어 전달되는지가 파일에 드러나며, 자동 누적은 하지 않는다(토큰
+증가가 통제 불가능해지므로).
+
 ## 6. 이미 열려 있는 seam
 
 이 설계가 성립하는 것은 앞선 작업 덕이다.
@@ -185,7 +284,12 @@ _CONDITIONAL_ROUTING_TYPES = {"review.intent", "human.checkpoint", "loop.guard"}
 
 - `in:`에 적힌 이름을 선행 노드의 `out:`에서 찾을 수 없음
 - `flow:`가 참조하는 노드가 `nodes:`에 정의되지 않음 (역도 마찬가지)
+- 루프 탈출 지점이 애매함 (종말 노드가 둘 이상인데 가드가 명시되지 않음)
 - 분기할 수 없는 노드(`human.checkpoint`/`loop.guard` 외 특수 노드)에 라벨 다수
+
+경고(거부하지 않음):
+
+- 서로 다른 두 노드가 같은 `out:` 이름을 씀 (§3.3)
 - 가드 없는 사이클 — 지금 `compile_graph`가 던지는 `ValueError`를 줄 번호에 매핑
 
 ## 9. 테스트
@@ -196,6 +300,10 @@ _CONDITIONAL_ROUTING_TYPES = {"review.intent", "human.checkpoint", "loop.guard"}
 - mermaid 체인 분해: `a --> b --> c`가 엣지 2개로
 - 라벨 파싱: 임의 문자열(한글 포함) 라벨이 그대로 보존됨
 - §8 에러 4종에 줄 번호가 붙는지
+
+- 가드 자동 삽입: 뒤로 가는 화살표만 있는 yaml이 `__guard_1`을 얻고, 종말 노드가
+  둘이면 에러
+- 중복 `out:` 이름에 경고가 나되 파싱은 성공하는지
 
 분기 일반화는 `test_compile.py`에 추가: 라벨 엣지 2개를 가진 사용자 정의 노드가
 `route` 필드를 얻고 조건부 라우팅으로 컴파일되는지.
