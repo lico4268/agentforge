@@ -337,3 +337,83 @@ def test_looped_arch_compiles():
         "test-run",
     )
     assert graph is not None
+
+
+def test_diamond_fan_in_is_not_mistaken_for_a_loop():
+    # a와 b가 각자 c로 모이는 순수 fan-in. flow 첫 등장 순서로는 (input, a, c, b, output)라
+    # b --> c가 "뒤로 가는" 것처럼 보이지만, 실제로는 사이클이 전혀 없다.
+    arch, _ = parse_arch("""
+flow: |
+  input --> a --> c
+  input --> b --> c
+  c --> output
+nodes:
+  a: { in: [task], out: [x], prompt: p }
+  b: { in: [task], out: [y], prompt: q }
+  c: { in: [x, y], out: [z], prompt: r }
+""")
+    guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
+    assert guards == []
+    pairs = [(e["source"], e["target"]) for e in arch["edges"]]
+    assert pairs == [
+        ("input", "a"),
+        ("a", "c"),
+        ("input", "b"),
+        ("b", "c"),
+        ("c", "output"),
+    ]
+
+
+def test_three_node_cycle_gets_exactly_one_guard():
+    arch, _ = parse_arch("""
+flow: |
+  input --> a --> b --> c --> a
+  c --> output
+nodes:
+  a: { in: [task], out: [x], prompt: p }
+  b: { in: [x], out: [y], prompt: q }
+  c: { in: [y], out: [z], prompt: r }
+""")
+    guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
+    assert len(guards) == 1
+
+
+def test_two_independent_loops_get_separately_numbered_guards():
+    arch, _ = parse_arch("""
+flow: |
+  input --> a --> b
+  b -->|ok|     output
+  b -->|retry1| a
+  input --> c --> d
+  d -->|ok2|    output
+  d -->|retry2| c
+nodes:
+  a: { in: [task], out: [x], prompt: p }
+  b: { in: [x], out: [y], prompt: q }
+  c: { in: [task], out: [m], prompt: r }
+  d: { in: [m], out: [n], prompt: s }
+""")
+    guards = {n["id"]: n for n in arch["nodes"] if n["type"] == "loop.guard"}
+    assert set(guards) == {"__guard_1", "__guard_2"}
+    by_src = {}
+    for e in arch["edges"]:
+        by_src.setdefault(e["source"], []).append(e)
+    guard1_targets = {e["sourceRole"]: e["target"] for e in by_src["__guard_1"]}
+    guard2_targets = {e["sourceRole"]: e["target"] for e in by_src["__guard_2"]}
+    assert guard1_targets == {"loopBack": "a", "exit": "output"}
+    assert guard2_targets == {"loopBack": "c", "exit": "output"}
+
+
+def test_cycle_in_unreachable_component_is_still_detected():
+    # input->output는 첫 DFS root에서 전부 방문되고 끝난다. x/y 사이클은 거기서 전혀
+    # 도달되지 않는 별도 컴포넌트라, root를 nodes 순서대로 전부 순회하지 않으면 놓친다.
+    arch, _ = parse_arch("""
+flow: |
+  input --> output
+  x --> y --> x
+nodes:
+  x: { out: [p], prompt: a }
+  y: { in: [p], out: [q], prompt: b }
+""")
+    guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
+    assert len(guards) == 1

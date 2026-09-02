@@ -242,11 +242,40 @@ DEFAULT_MAX_ITERATIONS = 3
 
 
 def _back_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
-    """flow의 등장 순서를 위상 근사로 삼아, 뒤로 가는 엣지를 고른다.
-    노드 순서는 첫 등장 순이므로 target이 source보다 앞서면 뒤로 가는 엣지다.
+    """DFS로 진짜 사이클을 찾는다 — 방문 중(gray, 현재 재귀 스택 위)인 노드로 향하는
+    엣지만 back edge다 (교과서 정의). 순수 도달가능성("v가 u에 닿는다")을 쓰면 안 된다:
+    fan-out 후 fan-in(다이아몬드)만으로도 사이클이 아닌 정방향 엣지가 뒤로 가는 것처럼
+    보이고(첫 등장 순서가 방문 경로에 좌우되므로), 반대로 사이클 하나에 엣지가 여러 개면
+    (3-cycle이면 3개) 전부 back edge로 잡혀 가드가 중복 삽입된다 — gray-stack 판정이라야
+    사이클 하나당 정확히 하나가 나온다.
+
+    DFS root와 각 노드의 인접 엣지는 결정성을 위해 각각 nodes/edges 리스트 순서대로
+    순회한다. 첫 root에서 닿지 않는 컴포넌트도 놓치지 않도록 방문 안 한 노드마다
+    새로 DFS를 시작한다.
     """
-    order = {n["id"]: i for i, n in enumerate(nodes)}
-    return [e for e in edges if order.get(e["target"], 0) <= order.get(e["source"], 0)]
+    adjacency: dict[str, list[dict]] = {n["id"]: [] for n in nodes}
+    for e in edges:
+        adjacency.setdefault(e["source"], []).append(e)
+
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = dict.fromkeys((n["id"] for n in nodes), WHITE)
+    back: list[dict] = []
+
+    def visit(node_id: str) -> None:
+        color[node_id] = GRAY
+        for e in adjacency.get(node_id, []):
+            target_color = color.get(e["target"], WHITE)
+            if target_color == GRAY:
+                back.append(e)
+            elif target_color == WHITE:
+                visit(e["target"])
+        color[node_id] = BLACK
+
+    for n in nodes:
+        if color[n["id"]] == WHITE:
+            visit(n["id"])
+
+    return back
 
 
 def _terminal_node_id(nodes: list[dict], edges: list[dict]) -> str:
