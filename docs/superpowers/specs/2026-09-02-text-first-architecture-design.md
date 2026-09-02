@@ -88,7 +88,12 @@ nodes:
 4. **사전 정의 노드는 `run:`으로만 쓴다.** `{ run: human.checkpoint }`,
    `{ run: loop.guard, max: 3 }`.
 5. **`in:`의 이름 뒤 `?`는 선택 입력이다.** 아직 아무 노드도 만들지 않은 값을
-   받겠다는 선언 — 없으면 빈 문자열이 된다. 루프 회차 간 피드백 전달에 쓴다(§5.1).
+   받겠다는 선언. 런타임 변경은 없다 — `llm_step.py:71`이 이미 `None` 값을 프롬프트
+   블록에서 건너뛴다. `?`는 "이 이름을 만드는 선행 노드가 없다"는 파서 검증을
+   면제하는 표시일 뿐이다. 루프 회차 간 피드백 전달에 쓴다(§5.1).
+
+`in:`의 값들은 `## <이름>` 블록으로 프롬프트에 붙는다 — 템플릿 문법(`{{...}}`)은
+없다.
 
 ### 3.3 이름이 곧 정체성
 
@@ -128,7 +133,12 @@ nodes:
 - `ui/src/app/starterArchitecture.ts`, `OpenRouterFavoritesModal.tsx`
 - `reactflow` 의존성
 - 백엔드 노드 타입: `planning.decompose`, `reasoning.cot`, `review.intent`,
-  `model.binding`, `custom.node`, `loop.reentry`
+  `model.binding`, `loop.reentry`
+
+`custom.node`는 **삭제하지 않는다.** "매니페스트가 빈 llm_step 노드"가 정확히 이
+설계가 필요로 하는 것이라, 파서가 사용자 정의 노드를 이 타입으로 뱉으면
+`compile_graph`가 지금 코드 그대로 컴파일한다. 사용자는 이 이름을 타이핑하지 않는다
+(파서 내부 표현일 뿐이다).
 
 `work/radial-agent-canvas/`의 Loop Scope 작업(Slice 6.5~10)은 이 삭제에 포함된다.
 캔버스 view-layer 전용 투영이었으므로 실행 계층에는 영향이 없다.
@@ -236,7 +246,6 @@ nodes:
     out: [answer]
     prompt: |
       계획을 따라 풀어라.
-      {{feedback}}
 
   review:
     in:  [task, answer]
