@@ -2,6 +2,7 @@
 
 import pytest
 from langgraph.types import Command
+from pydantic import ValidationError
 
 import graphs.compile as compile_mod
 import nodes.review as review_mod
@@ -1359,5 +1360,155 @@ async def test_compile_graph_or_join_still_compiles_and_runs(monkeypatch):
     )
     graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
     final = await graph.ainvoke(initial_state("2+2"), {"configurable": {"thread_id": "t-or"}})
+    assert final.get("plan") == ["s1"]
+    assert final.get("answer") == "4"
+
+
+def test_branch_labels_needs_two_labelled_edges():
+    """분기 판정은 타입이 아니라 라벨 달린 나가는 엣지 개수(설계 §5) — sourceRole
+    이 2개 이상 채워진 노드만 분기 노드다."""
+    edges = [
+        {"source": "a", "target": "b", "sourceRole": "ok"},
+        {"source": "a", "target": "c", "sourceRole": "no"},
+        {"source": "b", "target": "c", "sourceRole": ""},
+    ]
+    assert compile_mod._branch_labels("a", edges) == ["ok", "no"]
+    assert compile_mod._branch_labels("b", edges) == []
+
+
+def test_branch_labels_ignores_unlabelled_fanout():
+    """라벨 없는 fan-out(sourceRole == "")은 분기가 아니라 병렬 실행이다."""
+    edges = [
+        {"source": "a", "target": "b", "sourceRole": ""},
+        {"source": "a", "target": "c", "sourceRole": ""},
+    ]
+    assert compile_mod._branch_labels("a", edges) == []
+
+
+def test_branch_labels_ignores_source_handle_fallback():
+    """구 캔버스 아키텍처는 sourceRole 없이 sourceHandle만 있다(포트 이름, 예:
+    "plan"/"answer") — _resolved_role처럼 sourceHandle로 폴백하면 평범한 fan-out이
+    전부 분기로 오인된다. _branch_labels는 sourceRole만 봐야 한다."""
+    edges = [
+        {"source": "a", "target": "b", "sourceHandle": "plan"},
+        {"source": "a", "target": "c", "sourceHandle": "answer"},
+    ]
+    assert compile_mod._branch_labels("a", edges) == []
+
+
+def test_user_node_with_labels_gets_route_field_in_output_model():
+    """_effective_output_schema에 branch_labels를 넘기면 route 필드가 라벨
+    리스트 그대로 추가된다 — _build_output_model이 이걸 Literal로 바꾼다."""
+    from archfile import parse_arch
+
+    arch, _ = parse_arch(
+        """
+flow: |
+  input --> 판단
+  판단 -->|좋음| output
+  판단 -->|나쁨| output2
+nodes:
+  판단:   { in: [task], out: [verdict], prompt: p }
+  output2: { run: output }
+"""
+    )
+    node = next(n for n in arch["nodes"] if n["id"] == "판단")
+    schema = compile_mod._effective_output_schema(
+        node, compile_mod.MANIFESTS_BY_TYPE[node["type"]], branch_labels=["좋음", "나쁨"]
+    )
+    assert schema["verdict"] == "string"
+    assert schema["route"] == ["좋음", "나쁨"]
+
+
+def test_build_output_model_turns_label_list_into_literal():
+    """route 필드(list 값)는 Literal[...]이 돼 LLM이 그 라벨 중 하나만 낼 수 있다."""
+    model = compile_mod._build_output_model(
+        "custom.node", {"verdict": "string", "route": ["좋음", "나쁨"]}
+    )
+    instance = model(verdict="ok", route="좋음")
+    assert instance.model_dump() == {"verdict": "ok", "route": "좋음"}
+    with pytest.raises(ValidationError):
+        model(verdict="ok", route="모름")
+
+
+async def test_branching_user_node_compiles(monkeypatch):
+    """사용자 정의 노드(custom.node)가 라벨 2개로 fan-out하면 분기 노드로 컴파일된다
+    — review.intent/human.checkpoint/loop.guard가 아니어도 분기가 동작해야 한다."""
+    from archfile import parse_arch
+
+    _patch_model(monkeypatch)
+    arch, _ = parse_arch(
+        """
+flow: |
+  input --> 판단
+  판단 -->|좋음| output
+  판단 -->|나쁨| 재작업
+  재작업 --> output
+nodes:
+  판단:   { in: [task], out: [verdict], prompt: p }
+  재작업: { in: [task], out: [answer], prompt: q }
+"""
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "r1")
+    assert graph is not None
+
+
+async def test_branching_user_node_routes_on_llm_pick(monkeypatch):
+    """분기 노드가 route로 "나쁨"을 고르면 재작업 노드로, "좋음"을 고르면 output으로
+    간다 — __route__<id> 상태 키를 라우터가 읽는다는 것까지 실행으로 확인한다."""
+    from archfile import parse_arch
+
+    _patch_model(monkeypatch)
+
+    async def fake_run_llm_step(state, *, node_id, **kwargs):
+        if node_id == "판단":
+            return {"verdict": "meh", "route": "나쁨"}
+        if node_id == "재작업":
+            return {"answer": "fixed"}
+        return {}
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_run_llm_step)
+
+    arch, _ = parse_arch(
+        """
+flow: |
+  input --> 판단
+  판단 -->|좋음| output
+  판단 -->|나쁨| 재작업
+  재작업 --> output
+nodes:
+  판단:   { in: [task], out: [verdict], prompt: p }
+  재작업: { in: [task], out: [answer], prompt: q }
+"""
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "r1")
+    final = await graph.ainvoke(initial_state("task"), {"configurable": {"thread_id": "t-branch"}})
+    assert final["vars"]["verdict"] == "meh"
+    assert final.get("answer") == "fixed"
+
+
+async def test_labelled_fanout_from_non_llm_step_node_still_runs_both(monkeypatch):
+    """io.input처럼 llm_step이 아닌(구조화 출력이 없는) 노드에 설명용 라벨 2개가
+    우연히 달려도 분기로 오인해서는 안 된다 — 아무도 __route__<id>를 쓰지 않으므로
+    그러면 라우터가 항상 첫 라벨로만 떨어져 다른 쪽이 조용히 실행되지 않게 된다.
+    branch_node_ids는 runtime == "llm_step" 노드만 대상으로 삼아야 한다."""
+    _patch_model(monkeypatch)
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node("planning", "planning.decompose"),
+            _node("reasoning", "reasoning.cot"),
+            {**_node("output", "io.output"), "joinMode": "and"},
+        ],
+        [
+            _edge("input", "planning", source_role="a"),
+            _edge("input", "reasoning", source_role="b"),
+            _edge("planning", "output", "plan"),
+            _edge("reasoning", "output", "answer"),
+        ],
+    )
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+    final = await graph.ainvoke(initial_state("2+2"), {"configurable": {"thread_id": "t-fanout"}})
     assert final.get("plan") == ["s1"]
     assert final.get("answer") == "4"

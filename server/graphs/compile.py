@@ -6,7 +6,7 @@ StateGraph로 컴파일한다. v0.1의 고정 그래프(baseline.py/treatment.py
 """
 
 import time
-from typing import Any
+from typing import Any, Literal
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -22,7 +22,7 @@ from nodes.llm_step import run_llm_step
 from nodes.loop_guard import evaluate_loop_guard, next_runtime
 from nodes.policy import make_route_review
 from nodes.review import make_review
-from state import AgentState, write_state_value
+from state import AgentState, read_state_value, write_state_value
 
 MANIFESTS_BY_TYPE = {m["type"]: m for m in BUILTIN_MANIFESTS}
 
@@ -38,30 +38,45 @@ _OUTPUT_SCHEMA_TYPES: dict[str, Any] = {
 }
 
 
-def _build_output_model(node_type: str, output_schema: dict[str, str]) -> type[BaseModel]:
+def _build_output_model(node_type: str, output_schema: dict[str, Any]) -> type[BaseModel]:
     """llm_step 노드 매니페스트의 defaults.outputSchema에서 구조화 출력용 Pydantic
     모델을 즉석에서 만든다. 예전에는 노드 타입마다 PlanOut/ReasonOut처럼 직접 정의된
     클래스가 LLM_STEP_TABLE에 하드코딩돼 있었다 — 새 llm_step 타입을 캔버스/Inspector에서
     만들 때마다 이 파일을 고쳐야 했던 원인. 이제는 매니페스트만으로 충분하다.
+
+    스키마 값이 list면 분기 노드의 route 필드다 — Literal[...]로 다뤄 LLM이 그
+    라벨 중 하나만 낼 수 있게 강제한다 (설계 §5).
     """
-    fields = {key: (_OUTPUT_SCHEMA_TYPES[tag], ...) for key, tag in output_schema.items()}
+    fields: dict[str, Any] = {}
+    for key, tag in output_schema.items():
+        if isinstance(tag, list):
+            fields[key] = (Literal[tuple(tag)], ...)
+        else:
+            fields[key] = (_OUTPUT_SCHEMA_TYPES[tag], ...)
     name_parts = node_type.replace(".", "_").split("_")
     model_name = "".join(part.capitalize() for part in name_parts) + "Out"
     return create_model(model_name, **fields)
 
 
-def _effective_output_schema(node: dict, manifest: dict) -> dict[str, str]:
+def _effective_output_schema(
+    node: dict, manifest: dict, branch_labels: list[str] | None = None
+) -> dict[str, Any]:
     """이 노드 인스턴스가 실제로 쓸 outputSchema — 매니페스트에 명시돼 있으면 그대로,
     없으면(Phase B④: custom.node처럼 매니페스트가 완전히 비어있는 타입) 이 인스턴스의
     config.outputs 포트에서 즉석 유도한다(전부 string 취급 — 포트는 타입 없이 라벨만
-    갖는다는 Inspector UI 결정과 대응)."""
+    갖는다는 Inspector UI 결정과 대응).
+
+    branch_labels가 있으면 이 노드는 분기 노드다(설계 §5) — route 필드를 스키마에
+    더한다. 값은 라벨 리스트 그대로이고, _build_output_model이 이걸 Literal로 바꾼다."""
     defaults = manifest.get("defaults") or {}
-    output_schema = defaults.get("outputSchema")
-    if output_schema:
-        return output_schema
-    config = node.get("config") or {}
-    output_ports = config.get("outputs") or manifest.get("outputs") or []
-    return {p["id"]: "string" for p in output_ports}
+    output_schema = dict(defaults.get("outputSchema") or {})
+    if not output_schema:
+        config = node.get("config") or {}
+        output_ports = config.get("outputs") or manifest.get("outputs") or []
+        output_schema = {p["id"]: "string" for p in output_ports}
+    if branch_labels:
+        output_schema["route"] = branch_labels
+    return output_schema
 
 
 def _output_write_keys(node: dict, manifest: dict) -> list[str]:
@@ -73,15 +88,23 @@ def _output_write_keys(node: dict, manifest: dict) -> list[str]:
     return [key_map.get(key, key) for key in _effective_output_schema(node, manifest)]
 
 
-def _llm_step_spec(node: dict, manifest: dict) -> dict[str, Any]:
+def _llm_step_spec(
+    node: dict, manifest: dict, branch_labels: list[str] | None = None
+) -> dict[str, Any]:
     """매니페스트 defaults(+ Phase B④: 인스턴스 config)에서 llm_step 노드 실행에
     필요한 모든 것을 유도한다 — output_model(동적 Pydantic 모델), extra_inputs(포트에
     없는, state에서 직접 읽는 입력), writes, key_map(LLM 출력 필드명 → AgentState 키,
     다르면 outputKeyMap로 선언).
+
+    branch_labels가 있으면 이 노드는 분기 노드다 — route 필드를 스키마에 더하고,
+    노드마다 다른 상태 키(__route__<id>)에 쓰도록 key_map을 확장한다. 그래야 분기
+    노드가 여럿이어도 서로의 route 값을 덮어쓰지 않는다.
     """
     defaults = manifest.get("defaults") or {}
-    output_schema = _effective_output_schema(node, manifest)
+    output_schema = _effective_output_schema(node, manifest, branch_labels)
     key_map = defaults.get("outputKeyMap") or {}
+    if branch_labels:
+        key_map = {**key_map, "route": f"__route__{node['id']}"}
     extra_inputs = [(f["id"], f["label"]) for f in defaults.get("extraInputs") or []]
     return {
         "output_model": _build_output_model(node["type"], output_schema),
@@ -219,9 +242,10 @@ def _make_llm_step_node(
     emit: EventEmitter,
     run_id: str,
     loop_policy_ids: list[str] | None = None,
+    branch_labels: list[str] | None = None,
 ):
     node_id = node["id"]
-    spec = _llm_step_spec(node, manifest)
+    spec = _llm_step_spec(node, manifest, branch_labels)
     key_map = spec["key_map"]
     node_config = node.get("config") or {}
     system_prompt = node_config.get("systemPrompt") or manifest.get("defaults", {}).get(
@@ -378,6 +402,32 @@ def _validate_branch_roles(node_id: str, manifest: dict, outs: list[dict]) -> No
                 f"node {node_id!r} has {count} edges assigned the {role!r} role — "
                 "each role must have exactly one outgoing edge"
             )
+
+
+def _branch_labels(node_id: str, edges: list[dict]) -> list[str]:
+    """이 노드가 분기 노드인지를 타입이 아니라 그래프 구조로 판정한다 (설계 §5).
+
+    라벨(sourceRole) 달린 나가는 엣지가 둘 이상이면 분기 노드이고, 그 라벨들이
+    곧 LLM이 고를 선택지다. 라벨 없는 fan-out은 분기가 아니라 병렬 실행이다.
+
+    sourceRole만 본다 — sourceHandle로 폴백하면(_resolved_role처럼) 예전 캔버스가
+    저장한 아키텍처(sourceRole 없이 sourceHandle에 포트 id가 그대로 들어있는)의
+    평범한 fan-out 엣지가 전부 분기로 오인된다."""
+    labels = [e.get("sourceRole") or "" for e in edges if e["source"] == node_id]
+    labelled = [label for label in labels if label]
+    return labelled if len(labelled) >= 2 else []
+
+
+def _make_router(node_id: str, labels: list[str]):
+    """분기 노드가 상태에 쓴 __route__<id> 값을 읽어 라벨을 돌려준다.
+    값이 없거나 모르는 라벨이면 첫 번째 라벨로 떨어뜨린다 — 구조화 출력이
+    Literal을 강제하므로 정상 경로에서는 도달하지 않는다."""
+
+    def route(state: AgentState) -> str:
+        value = read_state_value(state, f"__route__{node_id}")
+        return value if value in labels else labels[0]
+
+    return route
 
 
 def _tarjan_scc(node_ids: list[str], edges: list[dict]) -> list[list[str]]:
@@ -596,7 +646,9 @@ def _make_loop_guard_node(
 _CONDITIONAL_ROUTING_TYPES = {"review.intent", "human.checkpoint", "loop.guard"}
 
 
-def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[list[str], str]]:
+def _build_plain_edge_plan(
+    nodes: list[dict], edges: list[dict], branch_node_ids: set[str] | None = None
+) -> list[tuple[list[str], str]]:
     """일반(비-분기) 엣지들을 (sources, target) 쌍의 리스트로 계획한다. 소스가
     2개 이상이면 리스트에 그대로 담기고, 호출부가 graph.add_edge(sources, target)로
     넘기면 LangGraph의 join-edge(모든 소스가 끝날 때까지 대기)가 된다. 소스가
@@ -610,12 +662,17 @@ def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[l
     가지면 joinMode 선언 자체를 요구하지 않고(항상 OR 취급), 그 target으로 가는
     나머지 plain 소스들도 개별 add_edge로 처리한다.
 
+    branch_node_ids(그래프 구조로 판정된 사용자 정의 분기 노드, 설계 §5)도
+    마찬가지로 제외된다 — compile_graph가 이들을 add_conditional_edges로 따로
+    배선하므로 여기서도 plain edge에 담기면 이중 배선이 된다.
+
     loop.reentry도 마찬가지다 — loop.guard의 loopBack이 도착하는 노드일 뿐, 그
     자신도 Command(goto=...) 점프의 하류에서만 실행되므로 다중 소스 타겟의 경우
     joinMode를 요구하지 않는다. 다른 passthrough 타입(io.input/io.output/
     model.binding)은 이 예외에 포함되지 않는다 — 이들은 정적으로 항상 실행되므로
     실제로 여러 소스가 한 target에 모이면 명시적 joinMode 결정이 여전히 필요하다.
     """
+    branch_node_ids = branch_node_ids or set()
     nodes_by_id = {n["id"]: n for n in nodes}
     plain_sources_by_target: dict[str, list[str]] = {}
     has_conditional_source: dict[str, bool] = {}
@@ -623,7 +680,7 @@ def _build_plain_edge_plan(nodes: list[dict], edges: list[dict]) -> list[tuple[l
     for e in edges:
         target = e["target"]
         source_type = nodes_by_id.get(e["source"], {}).get("type")
-        if source_type in _CONDITIONAL_ROUTING_TYPES:
+        if source_type in _CONDITIONAL_ROUTING_TYPES or e["source"] in branch_node_ids:
             has_conditional_source[target] = True
             continue
         if source_type == "loop.reentry":
@@ -676,6 +733,21 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         for member_id in sorted(_derive_loop_members(loop_node_id, continue_target, outgoing)):
             node_to_policies.setdefault(member_id, []).append(loop_node_id)
 
+    # 그래프 구조로 분기 노드를 판정한다(설계 §5) — review.intent/human.checkpoint/
+    # loop.guard는 런타임이 라벨을 정하므로 제외하고 기존 경로를 유지한다. llm_step
+    # 런타임만 대상인 이유: "LLM이 그중 하나를 고른다"가 분기의 정의이므로, 구조화
+    # 출력이 없는 io.input/io.output/model.binding/loop.reentry(passthrough)에
+    # 우연히 라벨 2개가 달려도(예: 사람이 읽기 좋으라고 붙인 설명용 라벨) 분기로
+    # 오인해 add_conditional_edges로 가로채면 안 된다 — 아무도 route를 쓰지 않으니
+    # 항상 첫 라벨로만 떨어져 다른 쪽 fan-out이 조용히 실행되지 않게 된다.
+    branch_node_ids = {
+        n["id"]
+        for n in nodes
+        if n["type"] not in _CONDITIONAL_ROUTING_TYPES
+        and MANIFESTS_BY_TYPE.get(n["type"], {}).get("runtime") == "llm_step"
+        and _branch_labels(n["id"], edges)
+    }
+
     graph = StateGraph(AgentState)
     route_fns: dict[str, Any] = {}
 
@@ -696,7 +768,16 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             graph.add_node(
                 node_id,
                 _make_llm_step_node(
-                    node, manifest, model, policy, emit, run_id, node_to_policies.get(node_id)
+                    node,
+                    manifest,
+                    model,
+                    policy,
+                    emit,
+                    run_id,
+                    node_to_policies.get(node_id),
+                    branch_labels=(
+                        _branch_labels(node_id, edges) if node_id in branch_node_ids else None
+                    ),
                 ),
             )
         elif manifest.get("runtime") == "review":
@@ -768,10 +849,21 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         # plain edge를 추가하지 않는다.
         if manifest.get("runtime") in ("checkpoint", "loop_guard"):
             continue
+        if node_id in branch_node_ids:
+            # 그래프 구조로 분기가 판정된 사용자 노드(설계 §5) — route_fns가 아니라
+            # __route__<id> 상태 키를 읽는 별도 라우터를 쓴다.
+            labels = _branch_labels(node_id, edges)
+            targets = {
+                (e.get("sourceRole") or ""): e["target"]
+                for e in edges
+                if e["source"] == node_id and e.get("sourceRole")
+            }
+            graph.add_conditional_edges(node_id, _make_router(node_id, labels), targets)
+            continue
         if not outgoing.get(node_id):
             graph.add_edge(node_id, END)
 
-    for sources, target in _build_plain_edge_plan(nodes, edges):
+    for sources, target in _build_plain_edge_plan(nodes, edges, branch_node_ids):
         if len(sources) > 1:
             graph.add_edge(sources, target)
         else:
