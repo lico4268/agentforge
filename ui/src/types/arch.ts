@@ -19,10 +19,13 @@ export type ArchListItem = z.infer<typeof ArchListItemSchema>
 
 /**
  * `architecture`(unknown) 중 대시보드가 실제로 읽는 최소 형태 — mermaid에 그대로
- * 넘길 `flow` 문자열뿐이다. 파싱 실패 시 Dashboard는 다이어그램을 그냥 생략한다
- * (설계 §3.2 — 변환 코드를 두지 않는다).
+ * 넘길 `flow` 문자열과, 다이어그램 색칠 대상을 정하는 권위 있는 노드 id 목록
+ * (`__guard_N` 합성 가드 포함 — 걸러내는 건 `deriveFlowStatuses`의 책임).
+ * 파싱 실패 시 Dashboard는 다이어그램을 그냥 생략한다(설계 §3.2 — 변환 코드를
+ * 두지 않는다).
  */
 export const ArchGraphSchema = z.object({
   flow: z.string().default(''),
+  nodes: z.array(z.object({ id: z.string() })).default([]),
 })
 export type ArchGraph = z.infer<typeof ArchGraphSchema>

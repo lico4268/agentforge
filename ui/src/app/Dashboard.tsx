@@ -20,7 +20,10 @@ export function Dashboard() {
   const [selectedName, setSelectedName] = useState<string | null>(null)
   const [task, setTask] = useState('')
 
-  const { data: archList } = useQuery({
+  const {
+    data: archList,
+    error: archListError,
+  } = useQuery({
     queryKey: ['arch-list'],
     queryFn: loadArchFiles,
     staleTime: 60_000,
@@ -45,9 +48,13 @@ export function Dashboard() {
 
   const graph = archFile ? ArchGraphSchema.safeParse(archFile.architecture) : null
   const flow = graph?.success ? graph.data.flow : ''
+  // 다이어그램 색칠 대상은 서버가 이미 파싱해준 architecture.nodes[].id에서만
+  // 뽑는다 — flow 문자열을 정규식으로 재토큰화하면 한글 등 비ASCII id를 못
+  // 잡는다(리뷰 finding 1). __guard_N 제외는 deriveFlowStatuses의 책임.
+  const nodeIds = graph?.success ? graph.data.nodes.map((n) => n.id) : []
 
   const entries = buildProgressEntries(events, pendingInterrupt)
-  const statuses = deriveFlowStatuses(entries, flow)
+  const statuses = deriveFlowStatuses(entries, nodeIds)
 
   const isBusy = runStatus === 'running' || runStatus === 'paused'
 
@@ -80,7 +87,9 @@ export function Dashboard() {
           onChange={(e) => setSelectedName(e.target.value)}
           className="rounded border border-[#3c4a42] bg-[#242c27] px-2 py-1"
         >
-          {!archList && <option value="">Loading…</option>}
+          {!archList && (
+            <option value="">{archListError ? 'Failed to load' : 'Loading…'}</option>
+          )}
           {archList?.map((f) => (
             <option key={f.name} value={f.name}>
               {f.name}
@@ -102,6 +111,18 @@ export function Dashboard() {
           {runStatus === 'paused' ? 'Waiting for review…' : runStatus === 'running' ? 'Running…' : 'Run'}
         </button>
       </header>
+
+      {archListError && (
+        <div className="shrink-0 rounded border border-[#ff8a80]/50 bg-[#ff8a80]/10 px-3 py-2 text-[#ff8a80]">
+          Failed to load arch file list: {(archListError as Error).message}
+        </div>
+      )}
+
+      {archList && archList.length === 0 && (
+        <div className="shrink-0 rounded border border-[#3c4a42] px-3 py-2 text-[#86948a]">
+          No arch files found in server/arch/.
+        </div>
+      )}
 
       {archError && (
         <div className="shrink-0 rounded border border-[#ff8a80]/50 bg-[#ff8a80]/10 px-3 py-2 text-[#ff8a80]">

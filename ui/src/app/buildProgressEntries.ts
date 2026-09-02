@@ -65,25 +65,27 @@ function findLastRunning(entries: ProgressEntry[], nodeId: string): number {
 }
 
 /**
- * FlowDiagram에 넘길 상태 맵 — entries 중 mermaid `flow` 문자열에 실제로 등장하는
- * nodeId만 남긴다. `__guard_N`처럼 flow에 없는 id를 그대로 넘기면 mermaid가 그
- * id로 된 빈 노드를 다이어그램에 몰래 추가해버린다(class 지시어가 미선언 노드를
- * 암묵적으로 생성) — 그림이 flow 문자열과 달라지는 것을 막기 위한 필터다.
+ * FlowDiagram에 넘길 상태 맵 — `nodeIds`(백엔드가 준 `architecture.nodes[].id`,
+ * 권위 있는 목록)에 실제로 있는 nodeId만 남긴다.
  *
- * ponytail: 진짜 파서 대신 단어 토큰 매칭이라 엣지 라벨 텍스트의 단어와 우연히
- * 같은 실제 nodeId가 있으면 과포함될 수 있다(해될 것 없음 — 실제 노드이므로 원래
- * 그려야 한다) — 반대로 실제 노드 id가 라벨에도 없이 완전히 걸러지는 방향의
- * 오탐은 나지 않는다. flow에 진짜 그래프 구조를 부여하려면 서버의 `nodes` 목록과
- * 대조해야 하는데, 그건 flow 문자열이 아닌 별도 데이터라 여기 책임 밖이다.
+ * 예전 구현은 `flow` mermaid 문자열을 정규식으로 토큰화해서 멤버십을 판단했는데,
+ * 노드 이름에 비ASCII 문자(한글 등, 설계 스펙 §3.3의 예시 자체가 `초안`/`검토`)가
+ * 오면 토큰 정규식이 그 글자들을 아예 못 잡아 다이어그램 색칠이 조용히 실패했다
+ * (리뷰 finding 1). `architecture.nodes`는 서버가 이미 파싱해서 준 권위 있는
+ * id 목록이라 재파싱이 필요 없다 — 이 목록을 직접 쓰면 이 문제가 클래스째 사라진다.
+ *
+ * `__guard_N`(루프 합성 가드)은 `architecture.nodes`에는 있지만 flow 문자열/
+ * 다이어그램에는 없으므로 (mermaid의 `class` 지시어가 미선언 노드를 암묵
+ * 생성해 그림에 낯선 상자를 만들지 않도록) 여기서 걸러낸다.
  */
 export function deriveFlowStatuses(
   entries: ProgressEntry[],
-  flow: string,
+  nodeIds: Iterable<string>,
 ): Record<string, 'running' | 'done' | 'failed'> {
-  const flowTokens = new Set(flow.match(/[A-Za-z0-9_.:-]+/g) ?? [])
+  const valid = new Set(Array.from(nodeIds).filter((id) => !id.startsWith('__guard_')))
   const out: Record<string, 'running' | 'done' | 'failed'> = {}
   for (const e of entries) {
-    if ((e.status === 'running' || e.status === 'done' || e.status === 'failed') && flowTokens.has(e.nodeId)) {
+    if ((e.status === 'running' || e.status === 'done' || e.status === 'failed') && valid.has(e.nodeId)) {
       out[e.nodeId] = e.status
     }
   }
