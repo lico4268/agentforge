@@ -1,6 +1,10 @@
-> ✅ **현재 진행 중인 스트림** — [DIRECTION.md](../../../DIRECTION.md)와 같은 줄기다(노드 역할을 사용자가 정한다).
-> 다만 이 문서의 분기 관련 서술(`accept`/`clarify`/`reject` 고정 색, `review.intent` 전용 처리)은
-> DIRECTION.md §2~4로 대체됐다 — 분기 이름·개수는 사용자가 정하고, 색은 이름이 아니라 인덱스로 배정한다.
+> 🔁 **2026-09-02 텍스트 우선 전환으로 대체됨** — 이 문서가 다루는 노드 캔버스(React
+> Flow)·Inspector·노드 팔레트·`custom.node`의 캔버스 인스턴스 편집 UX는 모두
+> 삭제됐다. 저작은 이제 `server/arch/*.yaml` 텍스트이고, 노드 역할을 사용자가
+> 정한다는 원칙(§2~4, [DIRECTION.md](../../../DIRECTION.md) §2~3)만 계승된다 —
+> 계승한 형태는 `custom.node`가 파서가 만드는 유일한 사용자 노드 타입이라는 점.
+> 현재 설계는 `2026-09-02-text-first-architecture-design.md`, 삭제 작업 기록은
+> `.superpowers/sdd/2026-09-02-text-first-architecture/task-7-report.md` 참고.
 
 # 프리폼 연결 + 노드 타입 템플릿 — 설계
 
