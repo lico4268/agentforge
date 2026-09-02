@@ -44,6 +44,7 @@ export function Dashboard() {
   const runId = useExecutionStore((s) => s.runId)
   const runStatus = useExecutionStore((s) => s.runStatus)
   const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
+  const runError = useExecutionStore((s) => s.runError)
   const reset = useExecutionStore((s) => s.reset)
 
   const graph = archFile ? ArchGraphSchema.safeParse(archFile.architecture) : null
@@ -136,6 +137,18 @@ export function Dashboard() {
             <li key={i}>{w}</li>
           ))}
         </ul>
+      )}
+
+      {/* 파일 로드 배너(위) 다음, 다이어그램/진행 목록(아래) 바로 위에 배치 —
+          "무엇을 실행했는데 왜 실패했는지"는 실행 결과이므로 그 결과를 보여줄
+          자리 바로 앞이 맞다. 파일 로드 에러와 동시에 떠도 서로 겹치지 않고
+          위아래로 쌓인다(경쟁하지 않음). 스토어의 runError를 그대로 읽으므로
+          reset()/다음 run_started가 오면 (둘 다 runError를 null로 되돌린다)
+          자동으로 사라진다 — 별도 dismiss 로직 없음. */}
+      {runError && (
+        <div className="shrink-0 rounded border border-[#ff8a80]/50 bg-[#ff8a80]/10 px-3 py-2 text-[#ff8a80]">
+          {runError}
+        </div>
       )}
 
       {flow && <FlowDiagram flow={flow} statuses={statuses} />}
