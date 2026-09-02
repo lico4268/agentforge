@@ -259,3 +259,81 @@ def test_parsed_arch_compiles_with_compile_graph():
         "test-run",
     )
     assert graph is not None
+
+
+LOOPED = """
+flow: |
+  input --> 풀이 --> 검토
+  검토 -->|ok|    output
+  검토 -->|retry| 풀이
+
+nodes:
+  풀이:  { in: [task, feedback], out: [answer], prompt: 풀어라 }
+  검토:  { in: [task, answer],    out: [verdict, feedback], prompt: 검토하라 }
+"""
+
+
+def test_back_edge_gets_default_guard_inserted():
+    arch, _ = parse_arch(LOOPED)
+    guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
+    assert len(guards) == 1
+    assert guards[0]["id"] == "__guard_1"
+    assert guards[0]["config"]["maxIterations"] == 3
+
+
+def test_inserted_guard_is_wired_between_and_to_terminal():
+    arch, _ = parse_arch(LOOPED)
+    by_src = {}
+    for e in arch["edges"]:
+        by_src.setdefault(e["source"], []).append(e)
+    # 검토 --retry--> __guard_1 로 바뀌었고 풀이로 직접 가지 않는다
+    retry = [e for e in by_src["검토"] if e["sourceRole"] == "retry"][0]
+    assert retry["target"] == "__guard_1"
+    guard_targets = {e["sourceRole"]: e["target"] for e in by_src["__guard_1"]}
+    assert guard_targets == {"loopBack": "풀이", "exit": "output"}
+
+
+def test_explicit_guard_is_left_alone():
+    arch, _ = parse_arch("""
+flow: |
+  input --> 풀이 --> 검토
+  검토 -->|ok|    output
+  검토 -->|retry| retry5
+  retry5 -->|loopBack| 풀이
+  retry5 -->|exit|     output
+nodes:
+  풀이:   { in: [task], out: [answer], prompt: p }
+  검토:   { in: [answer], out: [verdict], prompt: q }
+  retry5: { run: loop.guard, max: 5 }
+""")
+    guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
+    assert [g["id"] for g in guards] == ["retry5"]
+    assert guards[0]["config"]["maxIterations"] == 5
+
+
+def test_ambiguous_exit_raises():
+    with pytest.raises(ArchError) as exc:
+        parse_arch("""
+flow: |
+  input --> 풀이 --> 검토
+  검토 -->|a| out1
+  검토 -->|b| out2
+  검토 -->|retry| 풀이
+nodes:
+  풀이: { in: [task], out: [answer], prompt: p }
+  검토: { in: [answer], out: [v], prompt: q }
+  out1: { run: output }
+  out2: { run: output }
+""")
+    assert "exit" in str(exc.value).lower()
+
+
+def test_looped_arch_compiles():
+    arch, _ = parse_arch(LOOPED)
+    graph = compile_graph(
+        arch,
+        {"provider": "google", "model": "gemini-3.1-flash-lite", "temperature": 0},
+        _noop_emit,
+        "test-run",
+    )
+    assert graph is not None

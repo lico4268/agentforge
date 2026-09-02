@@ -154,6 +154,7 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
         }
         for i, e in enumerate(flow_edges)
     ]
+    nodes, edges = _insert_guards(nodes, edges)
     return {
         "version": "0.1",
         "metadata": {"name": doc.get("name") or "untitled"},
@@ -235,3 +236,79 @@ def _validate_inputs(raw_nodes: dict) -> None:
                     f"node {name!r} reads {want!r} but no node writes it — "
                     "add it to some node's out:"
                 )
+
+
+DEFAULT_MAX_ITERATIONS = 3
+
+
+def _back_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
+    """flow의 등장 순서를 위상 근사로 삼아, 뒤로 가는 엣지를 고른다.
+    노드 순서는 첫 등장 순이므로 target이 source보다 앞서면 뒤로 가는 엣지다.
+    """
+    order = {n["id"]: i for i, n in enumerate(nodes)}
+    return [e for e in edges if order.get(e["target"], 0) <= order.get(e["source"], 0)]
+
+
+def _terminal_node_id(nodes: list[dict], edges: list[dict]) -> str:
+    """나가는 엣지가 없는 노드. 정확히 하나여야 한다."""
+    sources = {e["source"] for e in edges}
+    terminals = [n["id"] for n in nodes if n["id"] not in sources]
+    if len(terminals) != 1:
+        raise ArchError(
+            f"cannot pick a loop exit target — found {len(terminals)} terminal nodes "
+            f"{sorted(terminals)}; declare the guard explicitly with "
+            "{ run: loop.guard, max: N } and wire its exit edge"
+        )
+    return terminals[0]
+
+
+def _insert_guards(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], list[dict]]:
+    """가드 없는 뒤로 가는 엣지마다 기본 가드를 끼운다 (설계 §5.1).
+
+    a -->|retry| b  ⇒  a -->|retry| __guard_N,
+                        __guard_N -->|loopBack| b, __guard_N -->|exit| <terminal>
+    """
+    guard_ids = {n["id"] for n in nodes if n["type"] == "loop.guard"}
+    pending = [e for e in _back_edges(nodes, edges) if e["source"] not in guard_ids]
+    if not pending:
+        return nodes, edges
+
+    terminal = _terminal_node_id(nodes, edges)
+    for i, edge in enumerate(pending, start=1):
+        gid = f"__guard_{i}"
+        nodes.append(
+            {
+                "id": gid,
+                "type": "loop.guard",
+                "position": {"x": 0, "y": 0},
+                "config": {
+                    "kind": "critiqueRevise",
+                    "maxIterations": DEFAULT_MAX_ITERATIONS,
+                    "onExhaustion": "exit",
+                    "synthetic": True,  # 대시보드가 "기본값"으로 표시하는 근거
+                },
+            }
+        )
+        loop_target = edge["target"]
+        edge["target"] = gid
+        edges.append(
+            {
+                "id": f"{gid}-back",
+                "source": gid,
+                "target": loop_target,
+                "sourceHandle": "loopBack",
+                "sourceRole": "loopBack",
+                "targetHandle": "in",
+            }
+        )
+        edges.append(
+            {
+                "id": f"{gid}-exit",
+                "source": gid,
+                "target": terminal,
+                "sourceHandle": "exit",
+                "sourceRole": "exit",
+                "targetHandle": "in",
+            }
+        )
+    return nodes, edges
