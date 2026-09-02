@@ -25,7 +25,9 @@ export class MockTransport implements Transport {
   }
 
   send(msg: ClientMessage) {
-    if (msg.kind === 'run') this.simulate(msg.architecture)
+    // archFile(텍스트 우선 대시보드)로 오는 run은 MockTransport가 시뮬레이션할
+    // 캔버스 그래프가 없으므로 조용히 무시한다 — MockTransport는 캔버스 개발용.
+    if (msg.kind === 'run' && msg.architecture) this.simulate(msg.architecture)
     if (msg.kind === 'stop') this.clearTimers()
   }
 

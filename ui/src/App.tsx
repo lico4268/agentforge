@@ -1,10 +1,10 @@
 import { Providers } from './app/providers'
-import { Layout } from './app/Layout'
+import { Dashboard } from './app/Dashboard'
 
 export default function App() {
   return (
     <Providers>
-      <Layout />
+      <Dashboard />
     </Providers>
   )
 }

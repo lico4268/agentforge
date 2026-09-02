@@ -10,7 +10,11 @@ import { ArchitectureSchema, ExecutionEventSchema } from '@/types'
 export const ClientMessageSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('run'),
-    architecture: ArchitectureSchema,
+    // 캔버스 시절 architecture(JSON)와, 텍스트 우선 arch.yaml 파일명 archFile은
+    // 상호 배타적 — 백엔드는 architecture가 있으면 그걸 우선한다(server/main.py
+    // ws_run). Dashboard는 archFile만 보낸다.
+    architecture: ArchitectureSchema.optional(),
+    archFile: z.string().optional(),
     input: z.object({
       task: z.string(),
       task_tags: z.array(z.string()).default([]),
