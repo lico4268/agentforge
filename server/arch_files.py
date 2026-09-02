@@ -34,10 +34,16 @@ def _resolve(name: str) -> Path:
 def list_arch_files() -> list[dict]:
     if not ARCH_DIR.exists():
         return []
-    return [
-        {"name": p.name, "size": p.stat().st_size}
-        for p in sorted(ARCH_DIR.glob("*.yaml"))
-    ]
+    result = []
+    for p in sorted(ARCH_DIR.glob("*.yaml")):
+        try:
+            size = p.stat().st_size
+        except OSError:
+            # 끊어진 심볼릭 링크 등 stat()이 실패하는 항목 하나 때문에 목록 전체가
+            # 죽으면 안 된다 — 그 항목만 건너뛴다.
+            continue
+        result.append({"name": p.name, "size": size})
+    return result
 
 
 def read_arch_file(name: str) -> dict:

@@ -548,3 +548,53 @@ nodes:
   other: { run: output }
 """)
     assert {n["id"] for n in arch["nodes"]} == {"input", "판단", "output", "other"}
+
+
+def test_yaml_syntax_error_raises_arch_error_with_line_and_pyyaml_message():
+    """yaml.safe_load 자체가 던지는 YAMLError(ValueError의 하위가 아님)를 삼켜
+    ArchError로 재포장하는지 — REST/WS 양쪽이 500 대신 줄 번호 있는 400/error를
+    받으려면 이게 parse_arch 안에서 한 번만 일어나야 한다."""
+    text = (
+        "name: x\n"
+        "flow: |\n"
+        "  a --> b\n"
+        "nodes:\n"
+        "  a: { out: [x], prompt: p\n"
+        "  b: { in: [x], out: [y], prompt: q }\n"
+    )
+    with pytest.raises(ArchError) as exc:
+        parse_arch(text)
+    assert exc.value.line == 6  # PyYAML의 problem_mark가 가리키는 실제 파일 줄(1-based)
+    assert "expected ',' or '}'" in str(exc.value)
+
+
+def test_yaml_syntax_error_line_number_is_not_double_corrected_when_flow_is_not_first_key():
+    """flow:가 문서 첫 키가 아닐 때도 problem_mark는 이미 문서 전체 기준이라
+    _flow_line_offset을 더하면 안 된다 — 더하면 줄 번호가 실제보다 커진다."""
+    text = (
+        "name: x\n"
+        "model: google/gemini-3.1-flash-lite\n"
+        "flow: |\n"
+        "  a --> b\n"
+        "nodes:\n"
+        "  a: { out: [x], prompt: p\n"
+        "  b: { in: [x], out: [y], prompt: q }\n"
+    )
+    with pytest.raises(ArchError) as exc:
+        parse_arch(text)
+    assert exc.value.line == 7  # 물리적 줄 번호 그대로 — flow: 오프셋(3)을 더하면 안 됨
+
+
+def test_valid_yaml_with_invalid_content_still_raises_domain_arch_error():
+    """YAML 문법은 멀쩡하지만 내용이 틀린 경우(존재하지 않는 out을 읽음)는 새
+    YAMLError 래퍼를 안 거치고 기존 도메인 ArchError 그대로 나와야 한다 — 래퍼가
+    이런 케이스까지 삼키거나 재분류하면 안 된다."""
+    text = """
+flow: |
+  input --> a --> output
+nodes:
+  a: { in: [nope], out: [x], prompt: p }
+"""
+    with pytest.raises(ArchError) as exc:
+        parse_arch(text)
+    assert "nope" in str(exc.value)

@@ -25,6 +25,24 @@ def test_list_arch_files(arch_dir):
     assert names == ["sample.yaml"]
 
 
+def test_list_arch_files_skips_dangling_symlink(arch_dir):
+    """stat()이 실패하는 항목(끊어진 심볼릭 링크) 하나 때문에 목록 전체가 500으로
+    죽으면 안 된다 — 그 항목만 건너뛰고 나머지는 정상 반환해야 한다."""
+    missing_target = arch_dir / "does_not_exist.yaml"
+    (arch_dir / "dangling.yaml").symlink_to(missing_target)
+    names = [f["name"] for f in arch_files.list_arch_files()]
+    assert names == ["sample.yaml"]
+
+
+def test_rest_list_skips_dangling_symlink(arch_dir):
+    missing_target = arch_dir / "does_not_exist.yaml"
+    (arch_dir / "dangling.yaml").symlink_to(missing_target)
+    client = TestClient(app)
+    resp = client.get("/api/arch")
+    assert resp.status_code == 200
+    assert resp.json() == [{"name": "sample.yaml", "size": len(SAMPLE.encode("utf-8"))}]
+
+
 def test_read_arch_file_returns_text_and_architecture(arch_dir):
     result = arch_files.read_arch_file("sample.yaml")
     assert result["name"] == "sample.yaml"
@@ -100,6 +118,62 @@ def test_rest_read_broken_yaml_400_with_line(arch_dir):
     resp = client.get("/api/arch/broken.yaml")
     assert resp.status_code == 400
     assert "ghost" in resp.json()["detail"]
+
+
+def test_rest_read_yaml_syntax_error_400_not_500_with_line(arch_dir):
+    """yaml.safe_load이 던지는 YAMLError(ValueError 아님)가 500으로 새지 않고,
+    parse_arch 안에서 ArchError로 재포장되어 줄 번호와 함께 400으로 나오는지."""
+    (arch_dir / "bad_syntax.yaml").write_text(
+        "flow: |\n  a --> b\nnodes:\n  a: { out: [x], prompt: p\n"
+        "  b: { in: [x], out: [y], prompt: q }\n",
+        encoding="utf-8",
+    )
+    client = TestClient(app)
+    resp = client.get("/api/arch/bad_syntax.yaml")
+    assert resp.status_code == 400
+    assert "line 5" in resp.json()["detail"]
+
+
+def test_ws_run_with_yaml_syntax_error_sends_clean_error_and_socket_stays_usable(arch_dir):
+    """YAML 문법 오류가 있는 archFile을 돌리면 WS가 죽지 않고 error 메시지를 보내며,
+    같은 소켓으로 이어지는 run이 정상 처리되는지."""
+    (arch_dir / "bad_syntax.yaml").write_text(
+        "flow: |\n  a --> b\nnodes:\n  a: { out: [x], prompt: p\n"
+        "  b: { in: [x], out: [y], prompt: q }\n",
+        encoding="utf-8",
+    )
+    import main
+
+    class FakeGraph:
+        async def ainvoke(self, state0, config):
+            return {"answer": "ok"}
+
+    def fake_dispatch(architecture, model_cfg, emit, run_id):
+        return FakeGraph()
+
+    # monkeypatch 없이 fixture를 벗어나므로 직접 patch/undo
+    original = main.dispatch_graph
+    main.dispatch_graph = fake_dispatch
+    try:
+        client = TestClient(app)
+        with client.websocket_connect("/ws/run") as ws:
+            ws.send_json(
+                {"kind": "run", "archFile": "bad_syntax.yaml", "input": {"task": "2+2"}}
+            )
+            msg = ws.receive_json()
+            if msg["kind"] == "run_started":
+                msg = ws.receive_json()
+            assert msg["kind"] == "error"
+            assert "line 5" in msg["message"]
+
+            # 소켓이 죽지 않고 이어지는 run을 정상 처리하는지 확인
+            ws.send_json({"kind": "run", "archFile": "sample.yaml", "input": {"task": "2+2"}})
+            msg2 = ws.receive_json()
+            if msg2["kind"] == "run_started":
+                msg2 = ws.receive_json()
+            assert msg2["kind"] == "run_complete"
+    finally:
+        main.dispatch_graph = original
 
 
 def test_rest_percent_encoded_slash_blocked_at_routing_layer(arch_dir):

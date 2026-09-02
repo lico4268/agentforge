@@ -114,7 +114,14 @@ def _flow_line_offset(text: str) -> int:
 
 def parse_arch(text: str) -> tuple[dict, list[str]]:
     """arch.yaml 텍스트 → (Architecture dict, 경고 목록)."""
-    doc = yaml.safe_load(text) or {}
+    try:
+        doc = yaml.safe_load(text) or {}
+    except yaml.YAMLError as e:
+        # problem_mark는 전체 문서 기준 0-based 줄 번호 — parse_flow의 결과와 달리
+        # _flow_line_offset을 더하면 안 된다(이미 파일 전체 기준이라 이중 보정이 됨).
+        mark = getattr(e, "problem_mark", None)
+        line = mark.line + 1 if mark is not None else None
+        raise ArchError(str(e), line) from e
     flow_text = doc.get("flow") or ""
     raw_nodes = doc.get("nodes") or {}
     default_model = doc.get("model")
