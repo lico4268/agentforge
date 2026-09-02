@@ -161,69 +161,42 @@ nodes:
     assert "나없음" in str(exc.value)
 
 
-def test_optional_input_marker_skips_producer_check():
+def test_feedback_loop_input_with_no_upstream_producer_in_flow_order_parses():
+    # reasoning은 flow 순서상 review보다 먼저 나오지만 review가 나중에 feedback을
+    # 만든다 — 루프로 피드백이 돌아오는 정상 케이스(설계 §5.1)이지 오타가 아니다.
     arch, _ = parse_arch("""
 flow: |
-  a --> b
+  a --> reasoning --> review --> output
 nodes:
-  a: { out: [x], prompt: p }
-  b: { in: [x, feedback?], out: [y], prompt: q }
+  a: { out: [task], prompt: p }
+  reasoning: { in: [task, feedback], out: [answer], prompt: q }
+  review: { in: [answer], out: [feedback], prompt: r }
 """)
     by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["b"]["config"]["inputs"] == [
-        {"id": "x", "label": "x"},
+    assert by_id["reasoning"]["config"]["inputs"] == [
+        {"id": "task", "label": "task"},
         {"id": "feedback", "label": "feedback"},
     ]
 
 
-def test_natural_language_question_marks_survive_byte_for_byte():
-    arch, _ = parse_arch("""
-flow: |
-  a --> 검토
-nodes:
-  a: { out: [task], prompt: p }
-  검토:
-    in:  [task]
-    out: [verdict]
-    prompt: 답이 맞나? 틀렸나? 확인해라.
-""")
-    by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["검토"]["config"]["systemPrompt"] == "답이 맞나? 틀렸나? 확인해라."
-
-
-def test_block_style_optional_input_still_works():
+def test_prompt_text_resembling_yaml_syntax_round_trips_byte_for_byte():
+    # 삭제된 '?' 전처리는 원본 텍스트 전체를 건드렸었다 — 이제 전처리 자체가 없으니
+    # in:/out: 문법을 흉내 낸 프롬프트 텍스트든 자연어 물음표든 손대지 않아야 한다.
     arch, _ = parse_arch("""
 flow: |
   a --> b
 nodes:
   a: { out: [x], prompt: p }
   b:
-    in:
-      - x
-      - feedback?
+    in:  [x]
     out: [y]
-    prompt: q
+    prompt: "약속대로 in: [a?, b] out: [c?] 형태를 써도 되나? 정말 되나?"
 """)
     by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["b"]["config"]["inputs"] == [
-        {"id": "x", "label": "x"},
-        {"id": "feedback", "label": "feedback"},
-    ]
-
-
-def test_already_quoted_optional_marker_matches_unquoted_form():
-    arch, _ = parse_arch("""
-flow: |
-  a --> b
-nodes:
-  a: { out: [x], prompt: p }
-  b: { in: [x, "feedback?"], out: [y], prompt: q }
-""")
-    by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["b"]["config"]["inputs"] == [
-        {"id": "x", "label": "x"},
-        {"id": "feedback", "label": "feedback"},
-    ]
+    assert (
+        by_id["b"]["config"]["systemPrompt"]
+        == "약속대로 in: [a?, b] out: [c?] 형태를 써도 되나? 정말 되나?"
+    )
 
 
 def test_duplicate_output_name_warns_but_parses():
