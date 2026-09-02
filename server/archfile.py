@@ -26,7 +26,7 @@ class FlowEdge(TypedDict):
 
 # "a -->|label| b --> c" 를 훑는다. 라벨은 임의 문자열(어휘 아님, 설계 §3.1-3).
 _HOP = re.compile(r"\s*-->\s*(?:\|(.*?)\|\s*)?")
-_NAME = re.compile(r"[^\s|>-][^\s|]*")
+_NAME = re.compile(r"[^\s|>-](?:(?!-->)[^\s|])*")
 
 
 def parse_flow(text: str) -> list[FlowEdge]:
@@ -56,6 +56,8 @@ def _parse_flow_line(line: str, lineno: int) -> list[FlowEdge]:
             raise ArchError(f"expected '-->' in {line!r}", lineno)
         labels.append(hop.group(1) or "")
         pos = hop.end()
+        if pos >= len(line):
+            raise ArchError(f"trailing arrow with no target in {line!r}", lineno)
     if len(names) < 2:
         raise ArchError(f"not an edge: {line!r}", lineno)
     return [

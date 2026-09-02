@@ -43,3 +43,34 @@ def test_label_only_on_first_hop_of_chain():
     edges = parse_flow("a -->|go| b --> c")
     assert edges[0]["label"] == "go"
     assert edges[1]["label"] == ""
+
+
+def test_unspaced_arrow_without_label():
+    edges = parse_flow("a-->b")
+    assert [(e["source"], e["target"], e["label"]) for e in edges] == [
+        ("a", "b", ""),
+    ]
+
+
+def test_unspaced_arrow_with_label():
+    edges = parse_flow("a-->|go|b")
+    assert edges[0] == {
+        "source": "a",
+        "target": "b",
+        "label": "go",
+        "line": 1,
+    }
+
+
+def test_hyphen_in_node_name():
+    edges = parse_flow("my-node --> other-node")
+    assert [(e["source"], e["target"], e["label"]) for e in edges] == [
+        ("my-node", "other-node", ""),
+    ]
+
+
+def test_trailing_arrow_raises():
+    with pytest.raises(ArchError) as exc:
+        parse_flow("a --> b -->")
+    assert exc.value.line == 1
+    assert "trailing arrow" in str(exc.value)
