@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import arch_files
 import config as cfg
-import node_types as nt
 import openrouter_catalog as orc
 from archfile import ArchError
 from events import WSEventEmitter, safe_send_json
@@ -93,7 +92,7 @@ async def get_models() -> list[dict]:
 
 @app.get("/api/nodes")
 async def get_nodes() -> list[dict]:
-    return BUILTIN_MANIFESTS + nt.list_custom_manifests()
+    return BUILTIN_MANIFESTS
 
 
 @app.get("/api/arch")
@@ -110,25 +109,6 @@ async def get_arch(name: str) -> dict:
         raise HTTPException(status_code=404, detail=f"arch file not found: {name}") from None
     except (ArchError, ValueError) as err:
         raise HTTPException(status_code=400, detail=str(err)) from None
-
-
-@app.get("/api/node-types")
-async def list_node_types() -> list[dict]:
-    """커스텀 노드 타입만(BUILTIN 제외) — Node Type Builder UI의 "내가 만든 타입" 목록용."""
-    return nt.list_custom_manifests()
-
-
-@app.post("/api/node-types")
-async def create_node_type(manifest: nt.NodeTypeManifest) -> dict:
-    """생성/수정(upsert, /api/architectures와 동일 관례) — 같은 type이면 덮어쓴다."""
-    return nt.save_custom_manifest(manifest)
-
-
-@app.delete("/api/node-types/{type_}")
-async def delete_node_type(type_: str) -> dict:
-    if not nt.delete_custom_manifest(type_):
-        raise HTTPException(status_code=404, detail="Node type not found")
-    return {"deleted": type_}
 
 
 # ─── OpenRouter 즐겨찾기 ─────────────────────────────────────────────────────────

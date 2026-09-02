@@ -32,112 +32,6 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "config": [],
     },
     {
-        "type": "model.binding",
-        "runtime": "model",
-        "category": "model",
-        "label": "Model",
-        "description": "공유 LLM 부품. llm_step의 model 포트에 연결.",
-        "inputs": [],
-        "outputs": [{"id": "model", "label": "Model", "dataType": "model"}],
-        "config": [
-            {
-                "key": "provider",
-                "label": "Provider",
-                "type": "select",
-                "default": "anthropic",
-                "options": [
-                    {"label": "Anthropic", "value": "anthropic"},
-                    {"label": "OpenAI", "value": "openai"},
-                    {"label": "Google", "value": "google"},
-                    {"label": "Local", "value": "local"},
-                ],
-            },
-            {
-                "key": "model",
-                "label": "Model ID",
-                "type": "model-id",
-                "default": "claude-haiku-4-5-20251001",
-                "description": "provider 선택에 따라 목록이 필터링됩니다.",
-            },
-            {"key": "temperature", "label": "Temperature", "type": "number", "default": 0},
-        ],
-    },
-    {
-        "type": "planning.decompose",
-        "runtime": "llm_step",
-        "category": "cognitive",
-        "label": "Planning",
-        "description": "task를 단계로 분해.",
-        "maxModelSlots": 2,
-        "inputs": [
-            {"id": "task", "label": "Task", "dataType": "text", "required": True},
-        ],
-        "outputs": [{"id": "plan", "label": "Plan", "dataType": "plan"}],
-        "config": [
-            {
-                "key": "strategy",
-                "label": "Strategy",
-                "type": "select",
-                "default": "decompose",
-                "options": [
-                    {"label": "Decompose", "value": "decompose"},
-                    {"label": "Goal-first", "value": "goal"},
-                    {"label": "Multi-step", "value": "multistep"},
-                ],
-            },
-            {
-                "key": "systemPrompt",
-                "label": "System prompt",
-                "type": "text",
-                "default": "Decompose the task into ordered steps and return as JSON.",
-            },
-        ],
-        "defaults": {
-            "systemPrompt": "Decompose the task into ordered steps and return as JSON.",
-            "outputSchema": {"steps": "string[]"},
-            "outputKeyMap": {"steps": "plan"},
-        },
-    },
-    {
-        "type": "reasoning.cot",
-        "runtime": "llm_step",
-        "category": "cognitive",
-        "label": "Reasoning",
-        "description": "Chain-of-thought 추론.",
-        "maxModelSlots": 2,
-        "inputs": [
-            {"id": "task", "label": "Task", "dataType": "text", "required": True},
-            {"id": "plan", "label": "Plan", "dataType": "plan", "required": False},
-        ],
-        "outputs": [
-            {"id": "answer", "label": "Answer", "dataType": "text"},
-            {"id": "confidence", "label": "Confidence", "dataType": "number"},
-        ],
-        "config": [
-            {
-                "key": "style",
-                "label": "Style",
-                "type": "select",
-                "default": "chain_of_thought",
-                "options": [
-                    {"label": "Chain of thought", "value": "chain_of_thought"},
-                    {"label": "Direct", "value": "direct"},
-                ],
-            },
-            {
-                "key": "systemPrompt",
-                "label": "System prompt",
-                "type": "text",
-                "default": "Solve the task step by step. Return your answer and confidence (0-1).",
-            },
-        ],
-        "defaults": {
-            "systemPrompt": "Solve the task step by step. Return your answer and confidence (0-1).",
-            "outputSchema": {"answer": "string", "confidence": "number"},
-            "extraInputs": [{"id": "feedback", "label": "Previous Feedback"}],
-        },
-    },
-    {
         "type": "custom.node",
         "runtime": "llm_step",
         "category": "cognitive",
@@ -147,37 +41,6 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "inputs": [],
         "outputs": [],
         "config": [],
-    },
-    {
-        "type": "review.intent",
-        "runtime": "review",
-        "category": "policy",
-        "label": "Review",
-        "description": "의도×기준 대조 리뷰. ReviewDelta 기반 accept/refine/clarify 3분기.",
-        "maxModelSlots": 2,
-        "inputs": [
-            {"id": "answer", "label": "Answer", "dataType": "text", "required": True},
-            {"id": "task", "label": "Task", "dataType": "text"},
-        ],
-        "outputs": [
-            {"id": "accept", "label": "Accept", "dataType": "any"},
-            {"id": "refine", "label": "Refine", "dataType": "any"},
-            {"id": "clarify", "label": "Clarify", "dataType": "any"},
-        ],
-        "config": [
-            {"key": "criteria", "label": "Acceptance criteria", "type": "string[]"},
-            {"key": "maxRetries", "label": "Max retries", "type": "number", "default": 2},
-            {"key": "escalateTags", "label": "Escalate tags", "type": "string[]"},
-        ],
-        "defaults": {
-            "outputSchema": {
-                "per_criterion": "object[]",
-                "misalignments": "string[]",
-                "elicit_questions": "string[]",
-                "proposed_criteria": "string[]",
-                "reroute_hint": "string",
-            },
-        },
     },
     {
         "type": "loop.guard",
@@ -221,19 +84,6 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                 ],
             },
         ],
-    },
-    {
-        "type": "loop.reentry",
-        "runtime": "passthrough",
-        "category": "policy",
-        "label": "Loop Start",
-        "description": (
-            "루프가 다시 도는 지점을 표시하는 시각 마커. 로직 없이 입력을 그대로 "
-            "통과시킨다 — loop.guard의 loopBack 포트를 여기로 연결."
-        ),
-        "inputs": [{"id": "in", "label": "In", "dataType": "any", "required": True}],
-        "outputs": [{"id": "out", "label": "Out", "dataType": "any"}],
-        "config": [],
     },
     {
         "type": "human.checkpoint",

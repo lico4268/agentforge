@@ -114,7 +114,7 @@ def _llm_step_spec(
     }
 
 
-PASSTHROUGH_TYPES = {"io.input", "io.output", "model.binding", "loop.reentry"}
+PASSTHROUGH_TYPES = {"io.input", "io.output", "model.binding"}
 
 
 def _make_passthrough_node(
@@ -643,7 +643,7 @@ def _make_loop_guard_node(
     return loop_guard
 
 
-_CONDITIONAL_ROUTING_TYPES = {"review.intent", "human.checkpoint", "loop.guard"}
+_CONDITIONAL_ROUTING_TYPES = {"human.checkpoint", "loop.guard"}
 
 
 def _build_plain_edge_plan(
@@ -655,22 +655,16 @@ def _build_plain_edge_plan(
     1개면 [source] 하나짜리 리스트 — 호출부는 graph.add_edge(source, target)로
     개별 등록한다 (설계 §4).
 
-    review.intent/human.checkpoint/loop.guard가 소스인 엣지는 여기서 완전히
-    제외된다 — 이 셋은 add_conditional_edges/Command(goto=...)로 스스로 라우팅하고
-    절대 일반 add_edge를 호출하지 않으므로, 이 노드들이 소스인 엣지는 애초에
-    LangGraph의 join-edge에 참여할 수 없다. 어떤 target이 이런 소스를 하나라도
-    가지면 joinMode 선언 자체를 요구하지 않고(항상 OR 취급), 그 target으로 가는
-    나머지 plain 소스들도 개별 add_edge로 처리한다.
+    human.checkpoint/loop.guard가 소스인 엣지는 여기서 완전히 제외된다 — 이 둘은
+    add_conditional_edges/Command(goto=...)로 스스로 라우팅하고 절대 일반
+    add_edge를 호출하지 않으므로, 이 노드들이 소스인 엣지는 애초에 LangGraph의
+    join-edge에 참여할 수 없다. 어떤 target이 이런 소스를 하나라도 가지면
+    joinMode 선언 자체를 요구하지 않고(항상 OR 취급), 그 target으로 가는 나머지
+    plain 소스들도 개별 add_edge로 처리한다.
 
     branch_node_ids(그래프 구조로 판정된 사용자 정의 분기 노드, 설계 §5)도
     마찬가지로 제외된다 — compile_graph가 이들을 add_conditional_edges로 따로
     배선하므로 여기서도 plain edge에 담기면 이중 배선이 된다.
-
-    loop.reentry도 마찬가지다 — loop.guard의 loopBack이 도착하는 노드일 뿐, 그
-    자신도 Command(goto=...) 점프의 하류에서만 실행되므로 다중 소스 타겟의 경우
-    joinMode를 요구하지 않는다. 다른 passthrough 타입(io.input/io.output/
-    model.binding)은 이 예외에 포함되지 않는다 — 이들은 정적으로 항상 실행되므로
-    실제로 여러 소스가 한 target에 모이면 명시적 joinMode 결정이 여전히 필요하다.
     """
     branch_node_ids = branch_node_ids or set()
     nodes_by_id = {n["id"]: n for n in nodes}
@@ -683,8 +677,6 @@ def _build_plain_edge_plan(
         if source_type in _CONDITIONAL_ROUTING_TYPES or e["source"] in branch_node_ids:
             has_conditional_source[target] = True
             continue
-        if source_type == "loop.reentry":
-            has_conditional_source[target] = True
         sources = plain_sources_by_target.setdefault(target, [])
         if e["source"] not in sources:
             sources.append(e["source"])
