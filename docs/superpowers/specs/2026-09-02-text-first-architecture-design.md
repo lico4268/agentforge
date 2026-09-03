@@ -84,7 +84,10 @@ nodes:
 2. **노드 = 이름 + 프롬프트 + `in`/`out`.** 타입을 고르지 않는다. 이름은 자유이며
    한글도 된다. `out:`은 개수 제한이 없다.
 3. **라벨은 어휘가 아니라 문자열이다.** 파서는 `ok`/`retry`가 뭔지 모른다. 아무
-   문자열이나 쓸 수 있고 분기 개수 제한도 없다.
+   문자열이나 쓸 수 있고 분기 개수 제한도 없다 — 단, 사용자가 정의하는 노드에
+   한해서다. `loop.guard`는 라벨을 스스로 정하는 런타임이라 `loopBack`/`exit`
+   고정 어휘를 요구하고, `human.checkpoint`도 마찬가지로 `approve`/`revise`/
+   `reject` 고정 어휘를 요구한다(§5.1, §5).
 4. **사전 정의 노드는 `run:`으로만 쓴다.** `{ run: human.checkpoint }`,
    `{ run: loop.guard, max: 3 }`.
 5. **`in:`의 이름은 `nodes:` 전체 어딘가의 `out:`이 만들면 된다.** flow 순서상
@@ -122,7 +125,11 @@ nodes:
 
 - 파서가 정규식 하나로 끝난다 (`(\w+)\s*-->(?:\|(.*?)\|)?\s*(\w+)` + 체인 분해)
 - 그림 렌더링에 변환 코드가 0줄이다 — `flow:` 문자열을 mermaid에 그대로 넘긴다
-- GitHub·Obsidian·노션·Claude 대화창에 붙여넣으면 그대로 그려진다
+- GitHub·Obsidian·노션·Claude 대화창에 붙여넣으면 그대로 그려진다 — 단, 그
+  렌더러들은 `flowchart LR` 같은 헤더가 있어야 그린다(우리 프론트는 없으면
+  자동으로 붙여준다). `flow:` 블록 첫 줄에 헤더를 직접 적어두면(파서가 첫
+  줄의 `flowchart`/`graph` 지시문은 건너뛴다) 우리 대시보드에서도, 외부에
+  붙여넣어도 똑같이 그려진다.
 
 ## 4. 삭제 / 유지
 
@@ -213,12 +220,15 @@ mermaid 그림에도 나타나지 않으며, 그림에는 뒤로 가는 화살�
 ```yaml
 flow: |
   review -->|retry| retry3
-  retry3 -->|계속|  reasoning
-  retry3 -->|소진|  output
+  retry3 -->|loopBack| reasoning
+  retry3 -->|exit|     output
 
 nodes:
   retry3: { run: loop.guard, max: 3 }   # 또는 maxTokens/maxCostUsd/maxDurationSec/stuck
 ```
+
+`loopBack`/`exit`는 `loop.guard`가 요구하는 고정 어휘다(§3.1 규칙 3) — 임의
+문자열을 쓸 수 없다.
 
 가드 축 평가는 `server/nodes/loop_guard.py`의 5축 순수 함수를 그대로 쓴다.
 `LoopRuntimeState`가 policy_id별 키를 갖는 병합 리듀서(`state.py:24`)라 중첩
