@@ -38,6 +38,22 @@ nodes:
 """
 
 
+# item 4 — arch.yaml의 name: 이 하드코딩된 고정 그래프 이름과 우연히 같으면
+# dispatch_graph가 이 파일을 통째로 무시하고 고정 그래프(baseline/treatment.py)를
+# 돌려버린다. 실제로 배포된 arch.yaml의 name은 "GSM8K Treatment"라 대소문자만
+# 다르며, 리네임 한 번이면 이 함정을 밟는다.
+RESERVED_NAME_ARCH_YAML = """
+name: gsm8k-treatment
+flow: |
+  input --> 풀이 --> output
+nodes:
+  풀이:
+    in:  [task]
+    out: [answer]
+    prompt: 풀어라
+"""
+
+
 def _drain(ws) -> tuple[list[dict], dict]:
     events: list[dict] = []
     while True:
@@ -113,3 +129,31 @@ def test_arch_file_loop_exits_through_the_guard_when_iterations_run_out(tmp_path
     guard_events = [e for e in events if e.get("loopRuntime")]
     assert [e["loopRuntime"]["iteration"] for e in guard_events] == [1, 2, 3, 4]
     assert guard_events[-1]["loopRuntime"]["exitReason"] == "maxIterations"
+
+
+def test_arch_file_named_gsm8k_treatment_runs_its_own_graph_not_the_fixed_one(
+    tmp_path, monkeypatch
+):
+    """arch.yaml의 name:이 하드코딩된 고정 그래프 이름("gsm8k-treatment")과 같아도
+    이 파일은 flow: 를 가진 실제 arch.yaml이므로 자기 자신의 그래프로 컴파일돼야
+    한다 — dispatch_graph가 name만 보고 고정 baseline/treatment.py로 새치기하면
+    안 된다(item 4). 고정 treatment 그래프에는 없는 노드 id("풀이")가 이벤트에
+    나타나는지로 확인한다."""
+    (tmp_path / "reserved.yaml").write_text(RESERVED_NAME_ARCH_YAML, encoding="utf-8")
+    monkeypatch.setattr(arch_files, "ARCH_DIR", tmp_path)
+    monkeypatch.setattr(workspace_mod, "WORKSPACE_DIR", tmp_path)
+    monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
+
+    async def fake_llm_step(state, *, node_id, **kwargs):
+        if node_id == "풀이":
+            return {"answer": "4"}
+        return {}
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
+
+    with TestClient(app) as client, client.websocket_connect("/ws/run") as ws:
+        events, outcome = _run(ws, "reserved.yaml", "2+2")
+
+    assert outcome["kind"] == "run_complete", outcome
+    assert outcome["result"]["answer"] == "4"
+    assert any(e["nodeId"] == "풀이" for e in events)

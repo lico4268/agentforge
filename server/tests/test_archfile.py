@@ -46,6 +46,28 @@ def test_label_only_on_first_hop_of_chain():
     assert edges[1]["label"] == ""
 
 
+def test_leading_flowchart_directive_is_skipped():
+    """item 5(§3.2): `flow:` 블록을 GitHub/Obsidian 등에 그대로 붙여넣어 mermaid로
+    렌더하려면 `flowchart LR` 같은 헤더가 필요한데, 이 줄은 화살표가 없어 예전에는
+    파서가 "expected '-->'"로 거부했다 — 첫 줄에 한해 `flowchart`/`graph` 지시문을
+    건너뛴다."""
+    edges = parse_flow("flowchart LR\n  a --> b")
+    assert [(e["source"], e["target"], e["label"]) for e in edges] == [("a", "b", "")]
+
+
+def test_leading_graph_directive_is_skipped():
+    """mermaid의 구식 `graph` 지시문(`flowchart`의 별칭)도 첫 줄이면 건너뛴다."""
+    edges = parse_flow("graph TD\n  a --> b")
+    assert [(e["source"], e["target"], e["label"]) for e in edges] == [("a", "b", "")]
+
+
+def test_flowchart_directive_only_skipped_as_first_line():
+    """지시문은 첫 줄에서만 유효하다 — 노드 이름으로 "flowchart"를 쓰는 극단적
+    케이스까지 삼키면 안 된다."""
+    with pytest.raises(ArchError):
+        parse_flow("a --> b\nflowchart LR")
+
+
 def test_unspaced_arrow_without_label():
     edges = parse_flow("a-->b")
     assert [(e["source"], e["target"], e["label"]) for e in edges] == [

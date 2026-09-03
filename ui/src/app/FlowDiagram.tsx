@@ -20,8 +20,12 @@ export function FlowDiagram({
     const classes = Object.entries(statuses)
       .map(([nodeId, status]) => `class ${nodeId} ${status}`)
       .join('\n')
+    // arch.yaml 저자가 flow: 블록 첫 줄에 이미 flowchart/graph 지시문을 적어뒀으면
+    // (GitHub/Obsidian에 그대로 붙여넣어 렌더되게 하려고, 설계 §3.2) 우리가 또
+    // 하나 앞에 붙이지 않는다 — mermaid는 지시문 두 줄을 허용하지 않는다.
+    const hasDirective = /^\s*(flowchart|graph)\b/.test(flow)
     const source = [
-      'flowchart LR',
+      ...(hasDirective ? [] : ['flowchart LR']),
       flow,
       'classDef running fill:#2563eb,color:#fff',
       'classDef done fill:#16a34a,color:#fff',

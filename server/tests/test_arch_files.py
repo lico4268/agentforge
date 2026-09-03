@@ -215,6 +215,52 @@ def test_ws_run_accepts_arch_file_name(arch_dir, monkeypatch):
     assert {n["id"] for n in captured["architecture"]["nodes"]} == {"input", "풀이", "output"}
 
 
+def test_ws_run_architecture_wins_over_arch_file_when_both_given(arch_dir, monkeypatch):
+    """item 7: ws_run의 주석("architecture와 archFile은 상호 배타적 — architecture가
+    명시되면 그걸 우선한다")이 실제로 지켜지는지 아무 테스트도 안 고정하고 있었다.
+    둘 다 오면 archFile(sample.yaml, 노드 "풀이")을 읽지 않고 인라인 architecture
+    (노드 "직접명시")를 그대로 dispatch_graph에 넘겨야 한다."""
+    import main
+
+    captured = {}
+
+    class FakeGraph:
+        async def ainvoke(self, state0, config):
+            return {"answer": "ok"}
+
+    def fake_dispatch(architecture, model_cfg, emit, run_id):
+        captured["architecture"] = architecture
+        return FakeGraph()
+
+    monkeypatch.setattr(main, "dispatch_graph", fake_dispatch)
+
+    inline_architecture = {
+        "version": "0.1",
+        "metadata": {"name": "인라인"},
+        "nodes": [
+            {"id": "직접명시", "type": "io.output", "position": {"x": 0, "y": 0}, "config": {}}
+        ],
+        "edges": [],
+    }
+
+    client = TestClient(app)
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json(
+            {
+                "kind": "run",
+                "architecture": inline_architecture,
+                "archFile": "sample.yaml",
+                "input": {"task": "2+2"},
+            }
+        )
+        while True:
+            msg = ws.receive_json()
+            if msg["kind"] == "run_complete":
+                break
+
+    assert captured["architecture"] == inline_architecture
+
+
 def test_ws_run_with_missing_arch_file_sends_error(arch_dir):
     client = TestClient(app)
     with client.websocket_connect("/ws/run") as ws:

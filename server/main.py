@@ -78,8 +78,8 @@ def _load_models_config() -> list[dict]:
 
 # ─── 아키텍처 파일 저장소 (v0.1 파일 기반) ─────────────────────────────────────
 
-ARCH_DIR = Path(__file__).parent / "architectures"
-ARCH_DIR.mkdir(exist_ok=True)
+ARCHITECTURE_JSON_DIR = Path(__file__).parent / "architectures"
+ARCHITECTURE_JSON_DIR.mkdir(exist_ok=True)
 
 # ─── REST 엔드포인트 ─────────────────────────────────────────────────────────────
 
@@ -137,7 +137,7 @@ async def put_openrouter_favorites(ids: list[str]) -> list[str]:
 @app.get("/api/architectures")
 async def list_architectures() -> list[dict]:
     result = []
-    for f in ARCH_DIR.glob("*.json"):
+    for f in ARCHITECTURE_JSON_DIR.glob("*.json"):
         try:
             result.append(json.loads(f.read_text()))
         except Exception:
@@ -149,14 +149,14 @@ async def list_architectures() -> list[dict]:
 async def save_architecture(body: dict) -> dict:
     arch_id = body.get("id") or str(uuid.uuid4())
     body["id"] = arch_id
-    path = ARCH_DIR / f"{arch_id}.json"
+    path = ARCHITECTURE_JSON_DIR / f"{arch_id}.json"
     path.write_text(json.dumps(body, ensure_ascii=False, indent=2))
     return body
 
 
 @app.get("/api/architectures/{arch_id}")
 async def get_architecture(arch_id: str) -> dict:
-    path = ARCH_DIR / f"{arch_id}.json"
+    path = ARCHITECTURE_JSON_DIR / f"{arch_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Architecture not found")
     return json.loads(path.read_text())
@@ -209,16 +209,24 @@ def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
     """
     v0.1: 'gsm8k-baseline'/'gsm8k-treatment' 이름은 고정 그래프 빌더에 디스패치.
     v0.3: 그 외는 compile_graph(architecture)로 캔버스를 직접 컴파일 (§8 seam).
+
+    고정 이름 매칭은 "flow" 키가 없는 architecture(고정 그래프 자신을 가리키는
+    호출, 또는 옛 캔버스 JSON)에만 적용한다 — archfile.parse_arch가 만든
+    architecture는 항상 "flow" 키를 갖는다(원본 mermaid 문자열, 프론트 렌더용).
+    이 구분이 없으면 사용자의 arch.yaml이 우연히 name: gsm8k-treatment/-baseline과
+    같아지는 순간(배포된 파일의 name은 "GSM8K Treatment" — 대소문자만 다르다)
+    그 파일 전체가 무시되고 고정 그래프가 대신 돈다, 아무 경고도 없이(item 4).
     """
     arch_name = (architecture.get("metadata") or {}).get("name", "")
     merged = {**DEFAULT_MODEL_CFG, **model_cfg}
+    is_fixed_graph_candidate = "flow" not in architecture
 
-    if arch_name == "gsm8k-baseline":
+    if is_fixed_graph_candidate and arch_name == "gsm8k-baseline":
         model = build_model(_model_settings(merged))
         from graphs.baseline import build_baseline
 
         return build_baseline(model=model, emit=emit, run_id=run_id)
-    elif arch_name == "gsm8k-treatment":
+    elif is_fixed_graph_candidate and arch_name == "gsm8k-treatment":
         model = build_model(_model_settings(merged))
         from graphs.treatment import build_treatment
 

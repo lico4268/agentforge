@@ -26,9 +26,17 @@ class FlowEdge(TypedDict):
     line: int
 
 
-# "a -->|label| b --> c" 를 훑는다. 라벨은 임의 문자열(어휘 아님, 설계 §3.1-3).
+# "a -->|label| b --> c" 를 훑는다. 라벨은 대부분 임의 문자열이다 — 예외는 사용자가
+# 만들 수 없는 loop.guard(loopBack/exit)와 human.checkpoint(approve/revise/reject)
+# 뿐이다(설계 §3.1-3).
 _HOP = re.compile(r"\s*-->\s*(?:\|(.*?)\|\s*)?")
 _NAME = re.compile(r"[^\s|>-](?:(?!-->)[^\s|])*")
+
+# mermaid 문서의 첫 줄에 오는 `flowchart LR`/`graph TD` 같은 지시문. `flow:` 블록을
+# GitHub/Obsidian 등에 그대로 붙여넣어 mermaid로 렌더하려면 이 헤더가 필요한데,
+# 우리 파서에는 화살표가 없는 줄이라 예전에는 "expected '-->'"로 거부됐다 — 첫
+# 줄에 한해 건너뛴다(설계 §3.2).
+_DIRECTIVE = re.compile(r"^(flowchart|graph)\b")
 
 
 def parse_flow(text: str, line_offset: int = 0) -> list[FlowEdge]:
@@ -41,10 +49,15 @@ def parse_flow(text: str, line_offset: int = 0) -> list[FlowEdge]:
     (BLOCKING 2: 예전에는 성공한 엣지에만 사후 보정을 더해서, 실패 경로는 블록
     상대 줄 번호가 그대로 새 나갔다)."""
     edges: list[FlowEdge] = []
+    seen_content = False
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("%%"):
             continue
+        if not seen_content:
+            seen_content = True
+            if _DIRECTIVE.match(line):
+                continue
         edges.extend(_parse_flow_line(line, lineno + line_offset))
     return edges
 
