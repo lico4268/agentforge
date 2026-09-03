@@ -16,12 +16,10 @@ from pydantic import BaseModel, create_model
 import config
 from events import EventEmitter, make_event
 from manifests import BUILTIN_MANIFESTS
-from models import CallPolicy, Criterion, ModelSettings, build_model
+from models import CallPolicy, ModelSettings, build_model
 from nodes.checkpoint import make_human_checkpoint
 from nodes.llm_step import run_llm_step
 from nodes.loop_guard import evaluate_loop_guard, next_runtime
-from nodes.policy import make_route_review
-from nodes.review import make_review
 from state import AgentState, read_state_value, write_state_value
 
 MANIFESTS_BY_TYPE = {m["type"]: m for m in BUILTIN_MANIFESTS}
@@ -289,33 +287,6 @@ def _make_llm_step_node(
         return updates
 
     return step
-
-
-def _make_review_node(
-    node: dict,
-    model,
-    policy: CallPolicy,
-    emit: EventEmitter,
-    run_id: str,
-    loop_policy_ids: list[str] | None = None,
-):
-    node_cfg = node.get("config") or {}
-    seed_criteria = [
-        Criterion(id=f"cfg-{i + 1}", text=text).model_dump()
-        for i, text in enumerate(node_cfg.get("criteria") or [])
-        if isinstance(text, str) and text.strip()
-    ]
-    return make_review(
-        model=model,
-        emit=emit,
-        run_id=run_id,
-        node_id=node["id"],
-        max_retries=int(node_cfg.get("maxRetries", config.MAX_RETRIES)),
-        escalate_tags=set(node_cfg.get("escalateTags") or config.ESCALATE_TAGS),
-        seed_criteria=seed_criteria,
-        call_policy=policy,
-        loop_policy_ids=loop_policy_ids,
-    )
 
 
 def _filter_control_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
@@ -741,7 +712,6 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
     }
 
     graph = StateGraph(AgentState)
-    route_fns: dict[str, Any] = {}
 
     for node in nodes:
         node_id = node["id"]
@@ -771,15 +741,6 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
                         _branch_labels(node_id, edges) if node_id in branch_node_ids else None
                     ),
                 ),
-            )
-        elif manifest.get("runtime") == "review":
-            _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
-            model, policy = _resolve_model(node, default_model_cfg)
-            wired = set(_handle_targets(outgoing, node_id))
-            route_fns[node_id] = make_route_review(wired)
-            graph.add_node(
-                node_id,
-                _make_review_node(node, model, policy, emit, run_id, node_to_policies.get(node_id)),
             )
         elif manifest.get("runtime") == "checkpoint":
             _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
@@ -832,11 +793,6 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
         node_type = node["type"]
         manifest = MANIFESTS_BY_TYPE.get(node_type, {})
 
-        if manifest.get("runtime") == "review":
-            graph.add_conditional_edges(
-                node_id, route_fns[node_id], _handle_targets(outgoing, node_id)
-            )
-            continue
         # checkpoint/loop_guard 런타임은 Command(goto=...)로 스스로 라우팅하므로
         # plain edge를 추가하지 않는다.
         if manifest.get("runtime") in ("checkpoint", "loop_guard"):
