@@ -550,6 +550,38 @@ nodes:
     assert {n["id"] for n in arch["nodes"]} == {"input", "판단", "output", "other"}
 
 
+def test_malformed_arrow_inside_flow_block_reports_correct_physical_line():
+    """BLOCKING 2: offset을 parse_flow 호출 *후*에 성공 엣지에만 더하던 예전 코드는,
+    parse_flow 안에서 던져진 ArchError(블록 기준 상대 줄 번호)를 보정 없이 그대로
+    새 나가게 했다 — flow:가 문서 첫 키가 아닌 문서에서 실제로 어긋난다. line_offset을
+    parse_flow에 미리 넘기면 에러 경로도 성공 경로와 같은 보정을 받는다."""
+    text = (
+        "name: x\n"
+        "model: google/gemini-3.1-flash-lite\n"
+        "flow: |\n"
+        "  input --> a\n"
+        "  a --> b\n"
+        "  this is not an edge\n"
+        "  b --> output\n"
+        "nodes:\n"
+        "  a: { in: [task], out: [x], prompt: p }\n"
+        "  b: { in: [x], out: [y], prompt: q }\n"
+    )
+    with pytest.raises(ArchError) as exc:
+        parse_arch(text)
+    assert exc.value.line == 6  # "  this is not an edge"의 실제 물리적 줄
+    assert "this is not an edge" in str(exc.value)
+
+
+def test_inline_flow_scalar_malformed_line_reports_correct_physical_line():
+    """`flow: "..."` 인라인 스칼라는 블록 스칼라와 달리 내용이 flow: 와 같은 물리적
+    줄에 있다 — 오프셋 계산이 블록/인라인을 구분하지 않으면 한 줄 밀린다."""
+    text = 'name: x\nflow: "a --> b -->"\nnodes:\n  a: { out: [x], prompt: p }\n'
+    with pytest.raises(ArchError) as exc:
+        parse_arch(text)
+    assert exc.value.line == 2  # flow: 와 같은 물리적 줄
+
+
 def test_yaml_syntax_error_raises_arch_error_with_line_and_pyyaml_message():
     """yaml.safe_load 자체가 던지는 YAMLError(ValueError의 하위가 아님)를 삼켜
     ArchError로 재포장하는지 — REST/WS 양쪽이 500 대신 줄 번호 있는 400/error를
@@ -598,3 +630,26 @@ nodes:
     with pytest.raises(ArchError) as exc:
         parse_arch(text)
     assert "nope" in str(exc.value)
+
+
+def test_branch_node_with_unlabelled_edge_also_raises_with_line_number():
+    """분기 노드(라벨 2개 이상)에 라벨 없는 나가는 엣지가 하나라도 더 있으면 그
+    엣지는 compile.py의 어디에도 안 걸려 조용히 사라진다(BLOCKING 1) — 파서가
+    그 엣지의 줄 번호와 함께 거부한다."""
+    with pytest.raises(ArchError) as exc:
+        parse_arch("""
+flow: |
+  input --> judge
+  judge -->|ok| output
+  judge -->|retry| fix
+  judge --> logger
+  fix --> judge
+  logger --> output
+nodes:
+  judge: { in: [task], out: [verdict], prompt: p }
+  fix: { in: [task], out: [verdict], prompt: q }
+  logger: { in: [verdict], out: [logged], prompt: r }
+""")
+    message = str(exc.value)
+    assert "judge" in message
+    assert exc.value.line == 6  # "judge --> logger" 의 실제 줄

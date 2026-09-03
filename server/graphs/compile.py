@@ -801,6 +801,19 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
             # 그래프 구조로 분기가 판정된 사용자 노드(설계 §5) — route_fns가 아니라
             # __route__<id> 상태 키를 읽는 별도 라우터를 쓴다.
             labels = _branch_labels(node_id, edges)
+            # 라벨 없는 나가는 엣지가 하나라도 섞여 있으면 그 엣지는 아래 targets
+            # dict에도(sourceRole 없어서) _build_plain_edge_plan에도(source가
+            # branch_node_ids라 통째로 제외) 안 걸려 조용히 사라진다(BLOCKING 1) —
+            # archfile.py의 _validate_branch_capable과 같은 규칙, 여기서는 parse_arch
+            # 없이 곧장 넘어오는 raw architecture dict(dispatch_graph) 경로를 지킨다.
+            unlabelled = [e for e in outgoing.get(node_id, []) if not e.get("sourceRole")]
+            if unlabelled:
+                raise ValueError(
+                    f"node {node_id!r} branches ({len(labels)} labelled outgoing edges) "
+                    f"but also has {len(unlabelled)} unlabelled outgoing edge(s) to "
+                    f"{[e['target'] for e in unlabelled]} — assign a role in Inspector "
+                    "or it will silently never run"
+                )
             # 라벨 중복 검사 — review.intent/human.checkpoint/loop.guard의 role 중복은
             # 이미 _validate_branch_roles가 막는다(위); 이 구조적 분기 경로는 그걸
             # 일반화한 것이라 같은 방어가 없으면 중복 라벨이 dict 컴프리헨션에서

@@ -1412,3 +1412,47 @@ async def test_duplicate_branch_label_raises_at_compile(monkeypatch):
     )
     with pytest.raises(ValueError, match="ok"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_branch_node_with_unlabelled_edge_raises_at_compile(monkeypatch):
+    """분기 노드(라벨 2개 이상 나가는 엣지)에 라벨 없는 나가는 엣지가 하나라도 더
+    있으면, 그 엣지는 _build_plain_edge_plan에서도(source가 branch_node_ids라 제외)
+    add_conditional_edges의 targets dict에서도(sourceRole 없어서 안 걸림) 어디에도
+    안 걸려 조용히 사라진다(BLOCKING 1) — main.py의 dispatch_graph는 캔버스에서 저장된
+    raw architecture dict를 archfile.py의 파서 없이 곧장 여기로 넘기므로, 이 경로는
+    compile_graph 자체가 거부해야 한다."""
+    _patch_model(monkeypatch)
+    arch = _arch(
+        [
+            _node("input", "io.input", {"sample": "2+2"}),
+            _node(
+                "judge",
+                "custom.node",
+                {
+                    "systemPrompt": "p",
+                    "inputs": [{"id": "task", "label": "task"}],
+                    "outputs": [{"id": "verdict", "label": "verdict"}],
+                },
+            ),
+            _node("output", "io.output"),
+            _node(
+                "fix",
+                "custom.node",
+                {
+                    "systemPrompt": "q",
+                    "inputs": [{"id": "task", "label": "task"}],
+                    "outputs": [{"id": "answer", "label": "answer"}],
+                },
+            ),
+            _node("logger", "io.output"),
+        ],
+        [
+            _edge("input", "judge", "task"),
+            _edge("judge", "output", source_role="ok"),
+            _edge("judge", "fix", source_role="retry"),
+            _edge("judge", "logger"),  # sourceRole 없음 — 오늘은 조용히 사라진다
+            _edge("fix", "output"),
+        ],
+    )
+    with pytest.raises(ValueError, match="judge"):
+        compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")

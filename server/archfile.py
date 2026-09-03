@@ -31,13 +31,21 @@ _HOP = re.compile(r"\s*-->\s*(?:\|(.*?)\|\s*)?")
 _NAME = re.compile(r"[^\s|>-](?:(?!-->)[^\s|])*")
 
 
-def parse_flow(text: str) -> list[FlowEdge]:
+def parse_flow(text: str, line_offset: int = 0) -> list[FlowEdge]:
+    """text(YAML 블록 스칼라로 추출된 flow: 내용)를 훑어 엣지를 만든다.
+
+    line_offset은 text의 1번째 줄이 원본 문서에서 실제로 몇 번째 줄인지를 알려준다
+    (기본 0 — text 자체가 이미 파일 전체라고 가정하는 parse_flow 직접 호출/테스트용).
+    parse_arch는 이 값을 _flow_line_offset으로 미리 계산해 넘긴다 — 그래야 안에서
+    던져지는 ArchError도 성공 경로의 엣지들과 똑같이 파일 기준 줄 번호를 갖는다
+    (BLOCKING 2: 예전에는 성공한 엣지에만 사후 보정을 더해서, 실패 경로는 블록
+    상대 줄 번호가 그대로 새 나갔다)."""
     edges: list[FlowEdge] = []
     for lineno, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip()
         if not line or line.startswith("%%"):
             continue
-        edges.extend(_parse_flow_line(line, lineno))
+        edges.extend(_parse_flow_line(line, lineno + line_offset))
     return edges
 
 
@@ -99,16 +107,26 @@ def _ports(names: list[str]) -> list[dict]:
     return [{"id": n, "label": n} for n in names]
 
 
-_FLOW_KEY = re.compile(r"^flow\s*:")
+_FLOW_KEY = re.compile(r"^flow\s*:\s*(.*)$")
 
 
 def _flow_line_offset(text: str) -> int:
-    """`flow:` 키가 원본 문서의 몇 번째 줄에 있는지. parse_flow는 블록 스칼라로
-    추출된 문자열만 보고 1번 줄부터 세므로, ArchError.line을 사용자가 보는 실제
-    파일 줄 번호로 되돌리려면 이 오프셋을 더해야 한다."""
+    """flow: 블록의 1번째 줄이 원본 문서에서 몇 번째 줄인지 (parse_flow의 line_offset
+    인자로 그대로 넘긴다).
+
+    블록 스칼라(`flow: |`)는 내용이 flow: 다음 줄부터 시작하므로 offset은 flow: 가
+    있는 줄 번호 그대로(내용 1번째 줄 + offset = flow: 줄 + 1). 인라인 스칼라
+    (`flow: "a --> b"`)는 내용이 flow: 와 같은 물리적 줄에 있으므로 offset은
+    한 줄 적어야 한다(내용 1번째 줄 + offset = flow: 줄) — 이 구분이 없으면
+    인라인 스칼라의 줄 번호가 하나씩 밀린다."""
     for i, line in enumerate(text.splitlines(), start=1):
-        if _FLOW_KEY.match(line):
-            return i
+        m = _FLOW_KEY.match(line)
+        if not m:
+            continue
+        rest = m.group(1).strip()
+        if rest and rest[0] not in "|>":
+            return i - 1  # 인라인 스칼라 — 내용이 이 줄에 있다
+        return i  # 블록 스칼라(| 또는 >) — 내용은 다음 줄부터
     return 0
 
 
@@ -126,10 +144,7 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
     raw_nodes = doc.get("nodes") or {}
     default_model = doc.get("model")
 
-    flow_edges = parse_flow(flow_text)
-    offset = _flow_line_offset(text)
-    for e in flow_edges:
-        e["line"] += offset
+    flow_edges = parse_flow(flow_text, _flow_line_offset(text))
     # 노드 리스트 순서 = flow에 처음 등장한 순서. dict.fromkeys는 삽입 순서를 보존하므로
     # set 컴프리헨션(해시 순서 — 프로세스마다 무작위)보다 이걸 쓴다. Task 3의 back-edge
     # (루프) 판별이 이 순서를 위상 근사로 쓰기 때문에 결정적이어야 한다.
@@ -270,10 +285,12 @@ def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> N
     피할 수 있다. 여기(파서)는 arch.yaml 저자에게 줄 번호를 준다는 점만 다르다."""
     node_types = {n["id"]: n["type"] for n in nodes}
     labelled_by_source: dict[str, list[tuple[str, int]]] = {}
+    unlabelled_by_source: dict[str, list[int]] = {}
     for e in flow_edges:
-        if not e["label"]:
-            continue
-        labelled_by_source.setdefault(e["source"], []).append((e["label"], e["line"]))
+        if e["label"]:
+            labelled_by_source.setdefault(e["source"], []).append((e["label"], e["line"]))
+        else:
+            unlabelled_by_source.setdefault(e["source"], []).append(e["line"])
 
     for node_id, labelled in labelled_by_source.items():
         if len(labelled) < 2:
@@ -295,6 +312,16 @@ def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> N
                     line,
                 )
             seen[label] = line
+        # 라벨 2개 이상(분기 확정)인데 라벨 없는 나가는 엣지가 하나라도 더 있으면
+        # 그 엣지는 compile.py의 어디에도(plain edge 계획도, 분기 targets dict도)
+        # 안 걸려 조용히 사라진다(BLOCKING 1) — 나가자마자 거부한다.
+        if node_id in unlabelled_by_source:
+            raise ArchError(
+                f"node {node_id!r} branches ({len(labelled)} labelled outgoing edges) "
+                "but also has an unlabelled outgoing edge — label it or it will "
+                "silently never run",
+                unlabelled_by_source[node_id][0],
+            )
 
 
 DEFAULT_MAX_ITERATIONS = 3
