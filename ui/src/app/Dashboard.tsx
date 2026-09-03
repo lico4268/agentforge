@@ -4,6 +4,7 @@ import { useTransport } from '@/transport/TransportContext'
 import { useExecutionStore } from '@/execution/useExecutionStore'
 import { loadArchFiles, loadArchFile } from '@/registry/loadArchFiles'
 import { ArchGraphSchema } from '@/types/arch'
+import { LogPanel } from '@/panels/LogPanel'
 import { FlowDiagram } from './FlowDiagram'
 import { NodeProgress } from './NodeProgress'
 import { buildProgressEntries, deriveFlowStatuses } from './buildProgressEntries'
@@ -45,6 +46,7 @@ export function Dashboard() {
   const runStatus = useExecutionStore((s) => s.runStatus)
   const pendingInterrupt = useExecutionStore((s) => s.pendingInterrupt)
   const runError = useExecutionStore((s) => s.runError)
+  const runResult = useExecutionStore((s) => s.runResult)
   const reset = useExecutionStore((s) => s.reset)
 
   const graph = archFile ? ArchGraphSchema.safeParse(archFile.architecture) : null
@@ -151,10 +153,30 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* 실행이 끝난 뒤 최종 답을 화면 어딘가에서 볼 수 없으면(예전에는 마지막
+          노드를 펼쳐야만 보였다) 에이전트 파이프라인을 돌리는 도구로서 미완성이다
+          — 미니멀리즘과는 별개 문제(BLOCKING 3). runResult는 run_complete WS
+          메시지 그대로이므로 reset()/다음 run이 시작하면 자동으로 사라진다. */}
+      {runResult && (
+        <div className="shrink-0 rounded border border-[#4edea3]/50 bg-[#4edea3]/10 px-3 py-2 text-[#dde4dd]">
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
+            Result
+          </div>
+          <div className="whitespace-pre-wrap">{String(runResult.answer ?? '(no answer)')}</div>
+        </div>
+      )}
+
       {flow && <FlowDiagram flow={flow} statuses={statuses} />}
 
       <div className="min-h-0 flex-1 overflow-auto">
         <NodeProgress entries={entries} onResume={onResume} />
+      </div>
+
+      {/* 실행 로그 + run 아티팩트(server/workspace.py의 노드별 .md, 토큰 사용량)
+          뷰어 — Task 7이 이걸 유일하게 렌더하던 Layout.tsx를 지우면서 화면에서
+          사라졌었다(BLOCKING 3). workspace.py/REST가 죽은 코드가 되는 걸 막는다. */}
+      <div className="h-64 shrink-0 overflow-hidden rounded border border-[#3c4a42]/50">
+        <LogPanel />
       </div>
     </div>
   )
