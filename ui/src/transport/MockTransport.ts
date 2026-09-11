@@ -25,7 +25,23 @@ export class MockTransport implements Transport {
   }
 
   send(msg: ClientMessage) {
-    if (msg.kind === 'run') this.simulate(msg.architecture)
+    if (msg.kind === 'run') {
+      if (msg.architecture) {
+        this.simulate(msg.architecture)
+      } else if (msg.archFile) {
+        // archFile(텍스트 우선 대시보드)로 오는 run은 MockTransport가 시뮬레이션할
+        // 캔버스 그래프가 없다 — 조용히 무시하면 Run 버튼이 아무 반응 없이 죽어
+        // 보인다(리뷰 finding 3, 이게 사람이 이 기능을 눈으로 확인할 때 제일 먼저
+        // 누르는 버튼이다). 실제 백엔드가 필요하다고 명시적으로 알려준다.
+        this.handlers.forEach((h) =>
+          h({
+            kind: 'error',
+            message:
+              "Mock transport can't run arch.yaml files — set VITE_WS_URL to a running backend (see ui/.env).",
+          }),
+        )
+      }
+    }
     if (msg.kind === 'stop') this.clearTimers()
   }
 

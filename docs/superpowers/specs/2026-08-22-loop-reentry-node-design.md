@@ -1,4 +1,11 @@
-> 📚 **낡은 설계** — [DIRECTION.md](../../../DIRECTION.md)로 대체됐다. 분기 이름·노드 역할 고정에 관한 서술은 현재 방향과 다르다. 당시 판단 근거를 찾을 때만 읽는다.
+> 🔁 **2026-09-02 텍스트 우선 전환으로 대체됨** — 이 문서가 도입한 `loop.reentry`
+> 노드(및 그것이 존재하던 이유인 캔버스 시각 마커 문제 전체)는 캔버스 저작이
+> 폐기되면서 함께 사라졌다. `server/manifests.py`의 `loop.reentry` 매니페스트,
+> `graphs/compile.py`의 `PASSTHROUGH_TYPES` 특례, `_build_plain_edge_plan`의
+> loop.reentry 예외 분기를 모두 제거했다 — arch.yaml에는 루프 재진입을 그릴 필요
+> 자체가 없다(`flow:`의 뒤로 가는 화살표를 파서가 자동으로 `loop.guard`로 감싼다).
+> 현재 설계는 `2026-09-02-text-first-architecture-design.md`, 삭제 작업 기록은
+> `.superpowers/sdd/2026-09-02-text-first-architecture/task-7-report.md` 참고.
 
 # Loop 재진입 마커 — synthetic 오버레이 대신 진짜 노드
 

@@ -7,9 +7,10 @@ import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+import arch_files
 import config as cfg
-import node_types as nt
 import openrouter_catalog as orc
+from archfile import ArchError
 from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
@@ -77,8 +78,8 @@ def _load_models_config() -> list[dict]:
 
 # ─── 아키텍처 파일 저장소 (v0.1 파일 기반) ─────────────────────────────────────
 
-ARCH_DIR = Path(__file__).parent / "architectures"
-ARCH_DIR.mkdir(exist_ok=True)
+ARCHITECTURE_JSON_DIR = Path(__file__).parent / "architectures"
+ARCHITECTURE_JSON_DIR.mkdir(exist_ok=True)
 
 # ─── REST 엔드포인트 ─────────────────────────────────────────────────────────────
 
@@ -91,26 +92,23 @@ async def get_models() -> list[dict]:
 
 @app.get("/api/nodes")
 async def get_nodes() -> list[dict]:
-    return BUILTIN_MANIFESTS + nt.list_custom_manifests()
+    return BUILTIN_MANIFESTS
 
 
-@app.get("/api/node-types")
-async def list_node_types() -> list[dict]:
-    """커스텀 노드 타입만(BUILTIN 제외) — Node Type Builder UI의 "내가 만든 타입" 목록용."""
-    return nt.list_custom_manifests()
+@app.get("/api/arch")
+async def list_arch() -> list[dict]:
+    """server/arch/*.yaml 목록 — 사람이 에디터로 저작한 arch.yaml 파일들."""
+    return arch_files.list_arch_files()
 
 
-@app.post("/api/node-types")
-async def create_node_type(manifest: nt.NodeTypeManifest) -> dict:
-    """생성/수정(upsert, /api/architectures와 동일 관례) — 같은 type이면 덮어쓴다."""
-    return nt.save_custom_manifest(manifest)
-
-
-@app.delete("/api/node-types/{type_}")
-async def delete_node_type(type_: str) -> dict:
-    if not nt.delete_custom_manifest(type_):
-        raise HTTPException(status_code=404, detail="Node type not found")
-    return {"deleted": type_}
+@app.get("/api/arch/{name}")
+async def get_arch(name: str) -> dict:
+    try:
+        return arch_files.read_arch_file(name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"arch file not found: {name}") from None
+    except (ArchError, ValueError) as err:
+        raise HTTPException(status_code=400, detail=str(err)) from None
 
 
 # ─── OpenRouter 즐겨찾기 ─────────────────────────────────────────────────────────
@@ -139,7 +137,7 @@ async def put_openrouter_favorites(ids: list[str]) -> list[str]:
 @app.get("/api/architectures")
 async def list_architectures() -> list[dict]:
     result = []
-    for f in ARCH_DIR.glob("*.json"):
+    for f in ARCHITECTURE_JSON_DIR.glob("*.json"):
         try:
             result.append(json.loads(f.read_text()))
         except Exception:
@@ -151,14 +149,14 @@ async def list_architectures() -> list[dict]:
 async def save_architecture(body: dict) -> dict:
     arch_id = body.get("id") or str(uuid.uuid4())
     body["id"] = arch_id
-    path = ARCH_DIR / f"{arch_id}.json"
+    path = ARCHITECTURE_JSON_DIR / f"{arch_id}.json"
     path.write_text(json.dumps(body, ensure_ascii=False, indent=2))
     return body
 
 
 @app.get("/api/architectures/{arch_id}")
 async def get_architecture(arch_id: str) -> dict:
-    path = ARCH_DIR / f"{arch_id}.json"
+    path = ARCHITECTURE_JSON_DIR / f"{arch_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Architecture not found")
     return json.loads(path.read_text())
@@ -211,16 +209,24 @@ def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
     """
     v0.1: 'gsm8k-baseline'/'gsm8k-treatment' 이름은 고정 그래프 빌더에 디스패치.
     v0.3: 그 외는 compile_graph(architecture)로 캔버스를 직접 컴파일 (§8 seam).
+
+    고정 이름 매칭은 "flow" 키가 없는 architecture(고정 그래프 자신을 가리키는
+    호출, 또는 옛 캔버스 JSON)에만 적용한다 — archfile.parse_arch가 만든
+    architecture는 항상 "flow" 키를 갖는다(원본 mermaid 문자열, 프론트 렌더용).
+    이 구분이 없으면 사용자의 arch.yaml이 우연히 name: gsm8k-treatment/-baseline과
+    같아지는 순간(배포된 파일의 name은 "GSM8K Treatment" — 대소문자만 다르다)
+    그 파일 전체가 무시되고 고정 그래프가 대신 돈다, 아무 경고도 없이(item 4).
     """
     arch_name = (architecture.get("metadata") or {}).get("name", "")
     merged = {**DEFAULT_MODEL_CFG, **model_cfg}
+    is_fixed_graph_candidate = "flow" not in architecture
 
-    if arch_name == "gsm8k-baseline":
+    if is_fixed_graph_candidate and arch_name == "gsm8k-baseline":
         model = build_model(_model_settings(merged))
         from graphs.baseline import build_baseline
 
         return build_baseline(model=model, emit=emit, run_id=run_id)
-    elif arch_name == "gsm8k-treatment":
+    elif is_fixed_graph_candidate and arch_name == "gsm8k-treatment":
         model = build_model(_model_settings(merged))
         from graphs.treatment import build_treatment
 
@@ -296,7 +302,6 @@ async def ws_run(ws: WebSocket):
             kind = msg.get("kind")
 
             if kind == "run":
-                arch = msg.get("architecture") or {}
                 input_data = msg.get("input") or {}
                 model_cfg = msg.get("model") or {}
 
@@ -313,6 +318,14 @@ async def ws_run(ws: WebSocket):
                 await safe_send_json(ws, {"kind": "run_started", "runId": run_id})
 
                 try:
+                    # architecture(캔버스 JSON)와 archFile(server/arch/*.yaml 이름)은
+                    # 상호 배타적 — architecture가 명시(null이 아님)되면 그걸 우선한다.
+                    # ArchError/ValueError/FileNotFoundError는 아래 except에서 처리.
+                    arch = msg.get("architecture")
+                    if arch is None and msg.get("archFile"):
+                        arch = arch_files.read_arch_file(msg["archFile"])["architecture"]
+                    arch = arch or {}
+
                     graph = dispatch_graph(arch, model_cfg, emitter, run_id)
                     active_runs[run_id] = graph
 
@@ -329,6 +342,11 @@ async def ws_run(ws: WebSocket):
                     }
                     final = await graph.ainvoke(state0, config=config)
                     await _send_run_outcome(ws, run_id, final, history)
+                except FileNotFoundError:
+                    active_runs.pop(run_id, None)
+                    message = f"arch file not found: {msg.get('archFile')}"
+                    logger.warning("run %s rejected: %s", run_id, message)
+                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
                 except ValueError as e:
                     active_runs.pop(run_id, None)
                     logger.warning("run %s rejected: %s", run_id, e)
