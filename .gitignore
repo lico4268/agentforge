@@ -57,6 +57,7 @@ npm-debug.log*
 
 # Docs / Refer
 refer_data/
+docs/superpowers/
 .gstack/
 
 # Git worktrees (subagent-driven-development scratch workspaces)
