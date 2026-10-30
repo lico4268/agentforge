@@ -293,3 +293,11 @@ def test_shipped_gsm8k_yaml_parses_and_compiles():
         _emit,
         "r1",
     ) is not None
+
+
+def test_shipped_arch_files_compile():
+    """Every example in server/arch/ must pass `agentforge check`."""
+    import cli
+
+    for path in sorted(arch_files.ARCH_DIR.glob("*.yaml")):
+        assert cli.main(["check", str(path)]) == 0, path.name

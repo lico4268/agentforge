@@ -1,0 +1,73 @@
+---
+name: agentforge
+description: Build, run, and resume LLM agent pipelines written as arch.yaml with the agentforge CLI. Use when the same multi-step flow will run many times, needs cheap or mixed (non-Claude) models per step, or needs per-node cost numbers. Do not use for one-off tasks — do those directly.
+---
+
+# agentforge
+
+agentforge runs an LLM pipeline described in a single `arch.yaml` file and reports
+per-node tokens and cost.
+
+## When to use / when not to
+
+Use it when the flow will run many times, when steps should use cheap or non-Claude models,
+or when you need per-node cost numbers.
+
+Do not use it for a one-off task: if the work will run once, just do it directly.
+
+## arch.yaml grammar
+
+```yaml
+name: My pipeline
+model: anthropic/claude-haiku-4-5-20251001   # default model, provider/model
+
+flow: |                    # plain mermaid; input and output are built in
+  input --> draft --> gate
+  gate -->|approve| output
+  gate -->|reject| output
+
+nodes:
+  draft:
+    in:  [task]            # state keys read; `task` is prefilled with --task
+    out: [answer]          # state keys written
+    prompt: |
+      Write a short answer to the task.
+    # optional: model, temperature, max_tokens, join: all|any
+  gate: {run: human.checkpoint}
+```
+
+- `flow:` is mermaid `a --> b` / `a -->|label| b`. Nodes not listed under `nodes:` must be
+  `input`/`output`.
+- Node keys: `in`, `out`, `prompt`, `model` (`provider/model`), `temperature`, `max_tokens`,
+  `join`.
+- A node with 2 or more labelled outgoing edges is an LLM branch: the model picks one label.
+- A node with 2 or more plain incoming edges needs `join: all` (wait for every one) or
+  `join: any` (run on each).
+- `run: human.checkpoint` pauses for a person; its edge labels are `approve`, `revise`,
+  `reject`.
+- `run: loop.guard` with `max: N` bounds a loop (labels `loopBack` / `exit`). Cycles get a
+  guard inserted automatically if you do not write one.
+
+Examples: `server/arch/gsm8k.yaml` (branch + retry loop), `server/arch/draft-approve.yaml`
+(human checkpoint).
+
+## Working loop
+
+1. Write the arch.yaml.
+2. `agentforge check <file.yaml>` until it prints `ok`.
+3. `agentforge run <file.yaml> --task "<text>" [--model provider/model] [--json]`.
+4. If it exits 3 (paused), read the `question` and `choices` it prints, ask the user in chat,
+   then `agentforge resume <run_id> --choice <label> [--note "<text>"] [--json]`.
+5. Read only the summary. For a specific node's full output:
+   `agentforge show <run_id> <node>` (`agentforge show <run_id>` reprints the summary).
+6. Report the result and the per-node cost to the user.
+
+Runs are stored under `server/workspace/<run_id>/` (`run.json`, `events.jsonl`, per-node `.md`).
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | done |
+| 3 | paused at a checkpoint — ask the user, then `resume` |
+| 1 | error (bad yaml, unknown run, disallowed `--choice`, node failure) |

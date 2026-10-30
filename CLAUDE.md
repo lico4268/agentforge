@@ -26,6 +26,8 @@ agentforge/
 │   ├── harness.py           # Benchmark harness (run_dataset + gsm8k_grader + Report) — measures pass@1
 │   ├── workspace.py         # Run artifacts — saves/reads node_end output as workspace/<run_id>/*.md
 │   ├── config.py            # Loads config.yaml + .env (API keys)
+│   ├── cli.py               # `agentforge` CLI — check/run/resume/show (exit 0 done / 3 paused / 1 error)
+│   ├── runner.py            # Shared start/resume core (SQLite checkpointer) used by CLI and server
 │   ├── archfile.py           # parse_arch — arch.yaml (mermaid flow + node defs) → Architecture dict
 │   ├── arch_files.py         # List/read server/arch/*.yaml (file-based, GET /api/arch[/​{name}])
 │   ├── arch/                 # Human-authored arch.yaml files (e.g. gsm8k.yaml)
@@ -72,6 +74,8 @@ agentforge/
 │       └── CoALA (Cognitive Architectures for Language Agents) 2023.pdf
 │
 ├── backend-architecture.md  # Detailed backend design & frontend integration document
+├── agentforge               # Repo-root wrapper: `agentforge serve` → start.sh, anything else → server/cli.py
+├── skills/agentforge/       # Claude Code skill (SKILL.md) that drives the CLI
 ├── start.sh                 # Combined dev server startup script
 └── CLAUDE.md                # This file
 ```
@@ -102,7 +106,10 @@ DATABASE_URL=sqlite:///./agentforge.db
 ./start.sh
 ```
 
-Starts the backend (FastAPI) and frontend (Vite) together. `Ctrl+C` stops both.
+Starts the backend (FastAPI) and frontend (Vite) together. `Ctrl+C` stops both. `agentforge serve` does the same.
+
+Headless CLI (no servers): `agentforge check|run|resume|show` — see `skills/agentforge/SKILL.md`.
+`run`/`resume` exit 0 when done, 3 when paused at a human checkpoint, 1 on error.
 
 | Process | URL | Environment |
 |---------|-----|-------------|
