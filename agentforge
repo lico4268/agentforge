@@ -1,7 +1,3 @@
 #!/usr/bin/env bash
-# Linux launcher for Agentforge. This works regardless of the current directory.
-
-set -euo pipefail
-
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-exec "$SCRIPT_DIR/start.sh" "$@"
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+exec "$here/server/.venv/bin/python" "$here/server/cli.py" "$@"
