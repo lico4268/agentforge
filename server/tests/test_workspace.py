@@ -118,3 +118,25 @@ def test_same_node_multiple_writes():
     # sequence numbers differ
     names = sorted(f["name"] for f in files)
     assert names[0] < names[1]
+
+
+def test_persist_event_appends_jsonl_and_writes_node_md(tmp_workspace):
+    from events import make_event
+
+    ws.persist_event("r1", make_event("r1", "draft", "node_start"))
+    ws.persist_event("r1", make_event("r1", "draft", "node_end", output={"answer": "hi"}))
+    lines = ws.read_events("r1")
+    assert [e["eventType"] for e in lines] == ["node_start", "node_end"]
+    assert lines[1]["output"] == {"answer": "hi"}
+    assert [f["nodeId"] for f in ws.list_run_files("r1")] == ["draft"]
+
+
+def test_read_events_missing_run_is_empty(tmp_workspace):
+    assert ws.read_events("nope") == []
+
+
+def test_run_record_round_trip_and_update(tmp_workspace):
+    ws.write_run_record("r1", {"runId": "r1", "status": "running"})
+    ws.update_run_record("r1", status="paused")
+    assert ws.read_run_record("r1") == {"runId": "r1", "status": "paused"}
+    assert ws.read_run_record("nope") is None

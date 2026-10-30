@@ -4,6 +4,7 @@ from typing import Any, Protocol
 from starlette.websockets import WebSocketState
 
 from logging_config import logger
+from workspace import persist_event
 
 # ─── Event model (frontend-compatible flat shape) ──────────────────────────────
 
@@ -161,12 +162,20 @@ class WSEventEmitter:
 
     async def __call__(self, event: ExecutionEvent) -> None:
         self.history.append(event)
-        # Persist node_end event output to the workspace as a .md file
-        if event.event_type == "node_end" and event.output is not None:
-            from workspace import write_node_output
-
-            write_node_output(self.run_id, event.node_id, event.output)
+        persist_event(self.run_id, event)
         await safe_send_json(self.ws, {"kind": "event", "event": event.to_frontend()})
+
+
+class FileEventEmitter:
+    """Headless emitter: persists every event to the run's events.jsonl and collects them."""
+
+    def __init__(self, run_id: str) -> None:
+        self.run_id = run_id
+        self.events: list[ExecutionEvent] = []
+
+    async def __call__(self, event: ExecutionEvent) -> None:
+        self.events.append(event)
+        persist_event(self.run_id, event)
 
 
 # ─── List emitter (for harness) ────────────────────────────────────────────────

@@ -12,9 +12,12 @@ and reads content via GET /api/runs/{run_id}/files/{name} to render Markdown.
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from logging_config import logger
+
+if TYPE_CHECKING:
+    from events import ExecutionEvent
 
 WORKSPACE_DIR = Path(__file__).parent / "workspace"
 
@@ -137,3 +140,35 @@ def read_run_file(run_id: str, name: str) -> dict | None:
         "name": path.name,
         "content": path.read_text(encoding="utf-8"),
     }
+
+
+def persist_event(run_id: str, event: "ExecutionEvent") -> None:
+    """Append the event to events.jsonl; also write the node .md file for node_end with output."""
+    with (_run_dir(run_id) / "events.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(event.to_frontend(), ensure_ascii=False) + "\n")
+    if event.event_type == "node_end" and event.output is not None:
+        write_node_output(run_id, event.node_id, event.output)
+
+
+def read_events(run_id: str) -> list[dict]:
+    """Return all events recorded for the run. [] if none."""
+    path = WORKSPACE_DIR / run_id / "events.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def write_run_record(run_id: str, record: dict) -> None:
+    (_run_dir(run_id) / "run.json").write_text(
+        json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def read_run_record(run_id: str) -> dict | None:
+    path = WORKSPACE_DIR / run_id / "run.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def update_run_record(run_id: str, **fields: Any) -> None:
+    """Merge fields into the existing run.json (KeyError-free: starts from {} if missing)."""
+    write_run_record(run_id, {**(read_run_record(run_id) or {}), **fields})

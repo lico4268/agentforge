@@ -52,3 +52,23 @@ def test_to_frontend_includes_loop_runtime_camelcase():
 def test_to_frontend_omits_loop_runtime_when_absent():
     ev = make_event("run-1", "reasoning", "node_start")
     assert "loopRuntime" not in ev.to_frontend()
+
+
+async def test_file_event_emitter_persists_and_collects(tmp_workspace):
+    from events import FileEventEmitter
+    from workspace import read_events
+
+    em = FileEventEmitter("r1")
+    await em(make_event("r1", "draft", "node_end", output={"answer": "x"}))
+    assert len(em.events) == 1 and read_events("r1")[0]["nodeId"] == "draft"
+
+
+async def test_ws_event_emitter_persists_events(tmp_workspace):
+    from types import SimpleNamespace
+
+    from events import WSEventEmitter
+    from workspace import read_events
+
+    em = WSEventEmitter(SimpleNamespace(client_state=None), "r2", [])
+    await em(make_event("r2", "n", "node_start"))
+    assert [e["eventType"] for e in read_events("r2")] == ["node_start"]

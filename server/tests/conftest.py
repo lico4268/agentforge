@@ -22,3 +22,13 @@ def client() -> TestClient:
     from main import app
 
     return TestClient(app)
+
+
+@pytest.fixture
+def tmp_workspace(tmp_path, monkeypatch) -> Path:
+    """Redirect workspace.WORKSPACE_DIR to a temp dir (read at call time by workspace functions)."""
+    import workspace
+
+    path = tmp_path / "workspace"
+    monkeypatch.setattr(workspace, "WORKSPACE_DIR", path)
+    return path
