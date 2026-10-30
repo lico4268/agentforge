@@ -670,7 +670,7 @@ def _build_plain_edge_plan(
             if join_mode not in ("and", "or"):
                 raise ValueError(
                     f"node {target!r} has {len(sources)} incoming plain edges and no "
-                    "joinMode — choose 'and' or 'or' in Inspector"
+                    "joinMode — add join: all or join: any to the node in arch.yaml"
                 )
             if join_mode == "and":
                 plan.append((sources, target))

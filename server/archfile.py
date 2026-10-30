@@ -143,8 +143,10 @@ def _flow_line_offset(text: str) -> int:
     return 0
 
 
-def parse_arch(text: str) -> tuple[dict, list[str]]:
-    """arch.yaml text → (Architecture dict, list of warnings)."""
+def parse_arch(text: str, default_model: str | None = None) -> tuple[dict, list[str]]:
+    """arch.yaml text → (Architecture dict, list of warnings).
+
+    default_model, if given, replaces the top-level model: (a node's own model: still wins)."""
     try:
         doc = yaml.safe_load(text) or {}
     except yaml.YAMLError as e:
@@ -157,16 +159,14 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
         raise ArchError(str(e), line) from e
     flow_text = doc.get("flow") or ""
     raw_nodes = doc.get("nodes") or {}
-    default_model = doc.get("model")
+    default_model = default_model or doc.get("model")
 
     flow_edges = parse_flow(flow_text, _flow_line_offset(text))
     # Node list order = order of first appearance in flow. dict.fromkeys preserves insertion order,
     # so use it rather than a set comprehension (hash order — random per process). Task 3's
     # back-edge
     # (loop) detection uses this order as a topological approximation, so it must be deterministic.
-    referenced = dict.fromkeys(
-        n for e in flow_edges for n in (e["source"], e["target"])
-    )
+    referenced = dict.fromkeys(n for e in flow_edges for n in (e["source"], e["target"]))
 
     nodes: list[dict] = []
     produced: dict[str, str] = {}  # out name → id of the node that produces it
@@ -175,9 +175,7 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
     for name in referenced:
         spec = raw_nodes.get(name)
         if spec is None and name not in PREDEFINED:
-            line = next(
-                e["line"] for e in flow_edges if name in (e["source"], e["target"])
-            )
+            line = next(e["line"] for e in flow_edges if name in (e["source"], e["target"]))
             raise ArchError(f"node {name!r} is used in flow but not defined in nodes:", line)
         nodes.append(_build_node(name, spec or {}, default_model, produced, warnings))
 
@@ -187,6 +185,7 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
 
     _validate_inputs(raw_nodes)
     _validate_branch_capable(nodes, flow_edges)
+    _validate_fan_in(nodes, flow_edges, raw_nodes)
 
     edges = [
         {
@@ -220,7 +219,10 @@ def _build_node(
         config = {k: v for k, v in spec.items() if k != "run"}
         if "max" in config:
             config["maxIterations"] = config.pop("max")
-        return {"id": name, "type": type_, "position": {"x": 0, "y": 0}, "config": config}
+        node = {"id": name, "type": type_, "position": {"x": 0, "y": 0}, "config": config}
+        if "join" in config:
+            node["joinMode"] = _join_mode(name, config.pop("join"))
+        return node
 
     outs = spec.get("out") or []
     for out in outs:
@@ -232,6 +234,11 @@ def _build_node(
         produced[out] = name
 
     model_spec = spec.get("model") or default_model
+    if not model_spec and ("temperature" in spec or "max_tokens" in spec):
+        raise ArchError(
+            f"node {name!r} sets temperature/max_tokens but has no model — "
+            "add model: to the node or the file"
+        )
     slots = []
     if model_spec:
         provider, model = _split_model(model_spec)
@@ -240,11 +247,13 @@ def _build_node(
                 "id": f"slot-{name}",
                 "provider": provider,
                 "model": model,
-                "temperature": 0,
+                "temperature": spec.get("temperature", 0),
                 "role": "",
             }
         ]
-    return {
+        if "max_tokens" in spec:
+            slots[0]["maxTokens"] = spec["max_tokens"]
+    node = {
         "id": name,
         "type": USER_NODE_TYPE,
         "position": {"x": 0, "y": 0},
@@ -256,6 +265,15 @@ def _build_node(
             "modelSlots": slots,
         },
     }
+    if "join" in spec:
+        node["joinMode"] = _join_mode(name, spec["join"])
+    return node
+
+
+def _join_mode(name: str, value: object) -> str:
+    if value not in ("all", "any"):
+        raise ArchError(f"node {name!r}: join must be 'all' or 'any', got {value!r}")
+    return "and" if value == "all" else "or"
 
 
 # Same meaning as compile.py's _PRESEEDED_STATE_KEYS — values already in state when the run starts.
@@ -339,6 +357,40 @@ def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> N
                 "silently never run",
                 unlabelled_by_source[node_id][0],
             )
+
+
+def _validate_fan_in(nodes: list[dict], flow_edges: list[FlowEdge], raw_nodes: dict) -> None:
+    """A node fed by 2+ distinct plain sources needs join: all|any. Same exemptions as
+    compile._build_plain_edge_plan: checkpoint/guard sources are ignored, and any labelled
+    incoming edge means the target is a branch merge (no join needed)."""
+    node_types = {n["id"]: n["type"] for n in nodes}
+    labelled_targets = {e["target"] for e in flow_edges if e["label"]}
+    # Back edges are re-routed through a guard (_insert_guards), so they are not plain fan-in.
+    back = {id(e) for e in _back_edges(nodes, flow_edges)}  # type: ignore[arg-type]
+    sources: dict[str, dict[str, int]] = {}  # target -> {source: line of first edge}
+    lines: dict[str, list[int]] = {}
+    for e in flow_edges:
+        if (
+            e["label"]
+            or id(e) in back
+            or node_types.get(e["source"]) in ("human.checkpoint", "loop.guard")
+        ):
+            continue
+        first = sources.setdefault(e["target"], {})
+        if e["source"] not in first:
+            first[e["source"]] = e["line"]
+            lines.setdefault(e["target"], []).append(e["line"])
+    for target, by_source in sources.items():
+        if len(by_source) < 2 or target in labelled_targets:
+            continue
+        spec = raw_nodes.get(target)
+        if isinstance(spec, dict) and "join" in spec:
+            continue
+        raise ArchError(
+            f"node {target!r} has {len(by_source)} incoming edges — add join: all "
+            "(wait for every one) or join: any (run on each)",
+            lines[target][1],
+        )
 
 
 DEFAULT_MAX_ITERATIONS = 3

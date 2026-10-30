@@ -1460,3 +1460,33 @@ async def test_branch_node_with_unlabelled_edge_raises_at_compile(monkeypatch):
     )
     with pytest.raises(ValueError, match="judge"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "run-1")
+
+
+async def test_yaml_fan_in_with_join_all_runs_judge_once(monkeypatch):
+    from archfile import parse_arch
+    from tests.arch_samples import FAN_IN
+
+    monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
+    calls = []
+
+    async def fake(state, *, node_id, output_model, **_):
+        calls.append(node_id)
+        return {k: f"{node_id}:{k}" for k in output_model.model_fields}
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", fake)
+    arch, _ = parse_arch(FAN_IN % ", join: all")
+    graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "r")
+    await graph.ainvoke(initial_state("t"), {"configurable": {"thread_id": "fan-in"}})
+    assert calls.count("judge") == 1
+
+
+def test_missing_join_mode_error_points_to_yaml_not_inspector():
+    from archfile import parse_arch
+    from tests.arch_samples import FAN_IN
+
+    arch, _ = parse_arch(FAN_IN % ", join: all")
+    for n in arch["nodes"]:
+        n.pop("joinMode", None)
+    with pytest.raises(ValueError) as e:
+        compile_mod._build_plain_edge_plan(arch["nodes"], arch["edges"])
+    assert "join:" in str(e.value) and "Inspector" not in str(e.value)

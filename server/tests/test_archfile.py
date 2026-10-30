@@ -376,7 +376,7 @@ flow: |
 nodes:
   a: { in: [task], out: [x], prompt: p }
   b: { in: [task], out: [y], prompt: q }
-  c: { in: [x, y], out: [z], prompt: r }
+  c: { in: [x, y], out: [z], prompt: r, join: all }
 """)
     guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
     assert guards == []
@@ -693,3 +693,65 @@ nodes:
     message = str(exc.value)
     assert "judge" in message
     assert exc.value.line == 6  # actual line of "judge --> logger"
+
+
+# --- join / temperature / max_tokens / default_model ---
+from tests.arch_samples import FAN_IN, LINEAR_YAML  # noqa: E402
+
+
+def _node(arch, id_):
+    return next(n for n in arch["nodes"] if n["id"] == id_)
+
+
+def test_join_all_maps_to_join_mode_and():
+    arch, _ = parse_arch(FAN_IN % ", join: all")
+    assert _node(arch, "judge")["joinMode"] == "and"
+
+
+def test_join_any_maps_to_join_mode_or():
+    arch, _ = parse_arch(FAN_IN % ", join: any")
+    assert _node(arch, "judge")["joinMode"] == "or"
+
+
+def test_fan_in_without_join_is_rejected_with_line():
+    with pytest.raises(ArchError) as e:
+        parse_arch(FAN_IN % "")
+    assert e.value.line == 6
+    assert "join: all" in str(e.value) and "judge" in str(e.value)
+
+
+def test_invalid_join_value_is_rejected():
+    with pytest.raises(ArchError, match="join"):
+        parse_arch(FAN_IN % ", join: both")
+
+
+def test_predefined_node_join_goes_top_level():
+    text = FAN_IN.replace("judge --> output", "judge --> output\n  a --> output").replace(
+        "nodes:\n", "nodes:\n  output: {join: any}\n"
+    )
+    arch, _ = parse_arch(text % ", join: all")
+    out = _node(arch, "output")
+    assert out["joinMode"] == "or" and "join" not in out["config"]
+
+
+def test_temperature_and_max_tokens_go_into_slot():
+    text = LINEAR_YAML.replace("prompt: p", "prompt: p, temperature: 0.7, max_tokens: 2000")
+    slot = _node(parse_arch(text)[0], "draft")["config"]["modelSlots"][0]
+    assert slot["temperature"] == 0.7 and slot["maxTokens"] == 2000
+
+
+def test_temperature_defaults_to_zero_and_max_tokens_absent():
+    slot = _node(parse_arch(LINEAR_YAML)[0], "draft")["config"]["modelSlots"][0]
+    assert slot["temperature"] == 0 and "maxTokens" not in slot
+
+
+def test_temperature_without_any_model_is_rejected():
+    text = LINEAR_YAML.replace("model: anthropic/claude-haiku-4-5-20251001\n", "")
+    with pytest.raises(ArchError, match="model"):
+        parse_arch(text.replace("prompt: p", "prompt: p, temperature: 0.7"))
+
+
+def test_default_model_argument_overrides_doc_model():
+    arch, _ = parse_arch(LINEAR_YAML, default_model="google/gemini-3.5-flash")
+    slot = _node(arch, "draft")["config"]["modelSlots"][0]
+    assert (slot["provider"], slot["model"]) == ("google", "gemini-3.5-flash")
