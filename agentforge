@@ -1,3 +1,14 @@
 #!/usr/bin/env bash
+# Agentforge launcher. No args or `serve` starts the dev servers; anything else is the CLI.
+# Works from any directory and through symlinks.
+
+set -euo pipefail
+
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+if [ $# -eq 0 ]; then
+  exec "$here/start.sh"
+elif [ "$1" = serve ]; then
+  shift
+  exec "$here/start.sh" "$@"
+fi
 exec "$here/server/.venv/bin/python" "$here/server/cli.py" "$@"
