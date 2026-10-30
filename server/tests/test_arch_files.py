@@ -158,9 +158,7 @@ def test_ws_run_with_yaml_syntax_error_sends_clean_error_and_socket_stays_usable
     try:
         client = TestClient(app)
         with client.websocket_connect("/ws/run") as ws:
-            ws.send_json(
-                {"kind": "run", "archFile": "bad_syntax.yaml", "input": {"task": "2+2"}}
-            )
+            ws.send_json({"kind": "run", "archFile": "bad_syntax.yaml", "input": {"task": "2+2"}})
             msg = ws.receive_json()
             if msg["kind"] == "run_started":
                 msg = ws.receive_json()
@@ -274,12 +272,14 @@ def test_ws_run_with_missing_arch_file_sends_error(arch_dir):
     assert "nope.yaml" in msg["message"]
 
 
-def test_shipped_gsm8k_yaml_parses_and_compiles():
+def test_shipped_gsm8k_yaml_parses_and_compiles(monkeypatch):
     """A real file committed to the repo — mismatch between docs and code is caught here."""
     from pathlib import Path
 
     from archfile import parse_arch
     from graphs.compile import compile_graph
+
+    monkeypatch.setattr("graphs.compile.build_model", lambda s: None)
 
     async def _emit(_e):
         return None
@@ -287,17 +287,22 @@ def test_shipped_gsm8k_yaml_parses_and_compiles():
     text = (Path(__file__).parent.parent / "arch" / "gsm8k.yaml").read_text(encoding="utf-8")
     arch, warnings = parse_arch(text)
     assert warnings == []
-    assert compile_graph(
-        arch,
-        {"provider": "google", "model": "gemini-3.1-flash-lite", "temperature": 0},
-        _emit,
-        "r1",
-    ) is not None
+    assert (
+        compile_graph(
+            arch,
+            {"provider": "google", "model": "gemini-3.1-flash-lite", "temperature": 0},
+            _emit,
+            "r1",
+        )
+        is not None
+    )
 
 
-def test_shipped_arch_files_compile():
+def test_shipped_arch_files_compile(monkeypatch):
     """Every example in server/arch/ must pass `agentforge check`."""
     import cli
+
+    monkeypatch.setattr("graphs.compile.build_model", lambda s: None)
 
     for path in sorted(arch_files.ARCH_DIR.glob("*.yaml")):
         assert cli.main(["check", str(path)]) == 0, path.name

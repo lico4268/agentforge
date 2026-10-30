@@ -57,8 +57,21 @@ def test_run_checkpoint_exits_3_and_prints_next_command(tmp_workspace, fake_llm,
     out = capsys.readouterr().out
     assert rc == 3
     assert "paused at gate" in out
-    assert "choices: approve | revise | reject" in out
+    assert "choices: approve | reject" in out
     assert "agentforge resume" in out
+
+
+def test_resume_rejects_unwired_choice(tmp_workspace, fake_llm, tmp_path, capsys):
+    rc, rid = _paused(tmp_path, capsys)
+    assert main(["resume", rid, "--choice", "revise"]) == 1
+    assert read_run_record(rid)["status"] == "paused"
+
+
+def test_run_compile_failure_prints_error_line(tmp_workspace, tmp_path, capsys):
+    p = _write(tmp_path, LINEAR_YAML.split("\n", 1)[1])  # drop the file-level model
+    rc = main(["run", str(p), "--task", "t", "--model", "bogus/x"])
+    assert rc == 1
+    assert "error:" in capsys.readouterr().err
 
 
 def test_resume_finishes_paused_run(tmp_workspace, fake_llm, tmp_path, capsys):

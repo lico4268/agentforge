@@ -75,3 +75,21 @@ async def test_resume_unknown_run_raises(tmp_workspace):
             await resume_run(
                 "nope", {"action": "approve"}, emit=FileEventEmitter("nope"), checkpointer=cp
             )
+
+
+async def test_resume_without_checkpoint_errors_without_llm(tmp_workspace, fake_llm):
+    arch, _ = parse_arch(CHECKPOINT_YAML)
+    async with open_checkpointer() as cp:
+        await start_run(
+            arch, run_id="r9", task="t", model_cfg={}, emit=FileEventEmitter("r9"), checkpointer=cp
+        )
+    from runner import checkpoint_db
+
+    checkpoint_db().unlink()
+    calls = list(fake_llm.calls)
+    async with open_checkpointer() as cp:
+        out = await resume_run(
+            "r9", {"action": "approve"}, emit=FileEventEmitter("r9"), checkpointer=cp
+        )
+    assert out.status == "error" and "no checkpoint" in out.error
+    assert fake_llm.calls == calls and read_run_record("r9")["status"] == "error"

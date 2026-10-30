@@ -763,10 +763,13 @@ def compile_graph(
         elif manifest.get("runtime") == "checkpoint":
             _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             routes = {"approve": END, "revise": END, "reject": END}
-            routes.update(_handle_targets(outgoing, node_id))
+            wired = _handle_targets(outgoing, node_id)
+            routes.update(wired)
             graph.add_node(
                 node_id,
-                make_human_checkpoint(emit, run_id, routes=routes, node_id=node_id),
+                make_human_checkpoint(
+                    emit, run_id, routes=routes, node_id=node_id, actions=list(wired) or None
+                ),
             )
         elif manifest.get("runtime") == "loop_guard":
             loop_policy = _loop_policy_from_config(node)

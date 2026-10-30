@@ -9,6 +9,7 @@ def make_human_checkpoint(
     run_id: str,
     routes: dict[str, str] | None = None,
     node_id: str = "human_checkpoint",
+    actions: list[str] | None = None,
 ):
     routes = routes or {"approve": "output", "revise": "reasoning", "reject": "output"}
 
@@ -22,7 +23,7 @@ def make_human_checkpoint(
                 "reviewDelta": state.get("review_delta"),
                 "criteria": state.get("criteria"),
             },
-            "actions": ["approve", "revise", "reject"],
+            "actions": actions or ["approve", "revise", "reject"],
         }
 
         await emit(make_event(run_id, node_id, "interrupt", output=payload))

@@ -239,6 +239,12 @@ def _build_node(
             f"node {name!r} sets temperature/max_tokens but has no model — "
             "add model: to the node or the file"
         )
+    temp = spec.get("temperature", 0)
+    if isinstance(temp, bool) or not isinstance(temp, int | float):
+        raise ArchError(f"node {name!r}: temperature must be a number, got {temp!r}")
+    mt = spec.get("max_tokens")
+    if "max_tokens" in spec and (isinstance(mt, bool) or not isinstance(mt, int) or mt <= 0):
+        raise ArchError(f"node {name!r}: max_tokens must be a positive integer, got {mt!r}")
     slots = []
     if model_spec:
         provider, model = _split_model(model_spec)
@@ -247,7 +253,7 @@ def _build_node(
                 "id": f"slot-{name}",
                 "provider": provider,
                 "model": model,
-                "temperature": spec.get("temperature", 0),
+                "temperature": temp,
                 "role": "",
             }
         ]

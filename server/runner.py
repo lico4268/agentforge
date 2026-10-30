@@ -99,6 +99,12 @@ async def resume_run(
     rec = workspace.read_run_record(run_id)
     if rec is None:
         raise LookupError(f"unknown run: {run_id}")
+    if checkpointer is not None and not await checkpointer.aget_tuple(
+        {"configurable": {"thread_id": run_id}}
+    ):
+        err = f"no checkpoint for run {run_id}"
+        workspace.update_run_record(run_id, status="error", error=err)
+        return RunOutcome(run_id, "error", None, err)
     workspace.update_run_record(run_id, status="running", error=None)
     return await _invoke(
         rec["architecture"], rec["modelCfg"], run_id, Command(resume=decision), emit, checkpointer

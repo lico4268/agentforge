@@ -146,6 +146,7 @@ def _report(run_id: str, status: str, as_json: bool) -> int:
     summary = summarize(workspace.read_events(run_id), _hidden(run_id))
     if status == "error":  # node raised without emitting an error event: blame the open visit
         err = (workspace.read_run_record(run_id) or {}).get("error") or ""
+        _err(err)
         for v in summary["visits"]:
             if v["status"] == "running":
                 v["status"], v["preview"] = "failed", err

@@ -755,3 +755,19 @@ def test_default_model_argument_overrides_doc_model():
     arch, _ = parse_arch(LINEAR_YAML, default_model="google/gemini-3.5-flash")
     slot = _node(arch, "draft")["config"]["modelSlots"][0]
     assert (slot["provider"], slot["model"]) == ("google", "gemini-3.5-flash")
+
+
+@pytest.mark.parametrize("field,val", [("temperature", "hot"), ("max_tokens", "lots")])
+def test_bad_model_param_types_raise(field, val):
+    text = f"""flow: |
+  input --> a --> output
+nodes:
+  a:
+    model: anthropic/x
+    {field}: {val}
+    in: [task]
+    out: [answer]
+    prompt: p
+"""
+    with pytest.raises(ArchError, match=field):
+        parse_arch(text)

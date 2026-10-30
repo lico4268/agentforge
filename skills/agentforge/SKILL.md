@@ -36,15 +36,16 @@ nodes:
   gate: {run: human.checkpoint}
 ```
 
-- `flow:` is mermaid `a --> b` / `a -->|label| b`. Nodes not listed under `nodes:` must be
-  `input`/`output`.
+- `flow:` is mermaid `a --> b` / `a -->|label| b`. Nodes not listed under `nodes:` must be a built-in:
+  `input`, `output`, `human.checkpoint` or `loop.guard`.
 - Node keys: `in`, `out`, `prompt`, `model` (`provider/model`), `temperature`, `max_tokens`,
   `join`.
 - A node with 2 or more labelled outgoing edges is an LLM branch: the model picks one label.
 - A node with 2 or more plain incoming edges needs `join: all` (wait for every one) or
   `join: any` (run on each).
-- `run: human.checkpoint` pauses for a person; its edge labels are `approve`, `revise`,
-  `reject`.
+- `run: human.checkpoint` pauses for a person; the choices offered are the edge labels
+  wired from it (e.g. only `approve` / `reject`). `--note` is recorded in the run log but not fed
+  to any node. In `draft-approve.yaml` a `reject` still flows to `output`.
 - `run: loop.guard` with `max: N` bounds a loop (labels `loopBack` / `exit`). Cycles get a
   guard inserted automatically if you do not write one.
 
@@ -54,13 +55,17 @@ Examples: `server/arch/gsm8k.yaml` (branch + retry loop), `server/arch/draft-app
 ## Working loop
 
 1. Write the arch.yaml.
-2. `agentforge check <file.yaml>` until it prints `ok`.
+2. `agentforge check <file.yaml>` until it prints `ok`. Add `--model provider/m` to also catch a missing provider API key
+   before running.
 3. `agentforge run <file.yaml> --task "<text>" [--model provider/model] [--json]`.
 4. If it exits 3 (paused), read the `question` and `choices` it prints, ask the user in chat,
    then `agentforge resume <run_id> --choice <label> [--note "<text>"] [--json]`.
 5. Read only the summary. For a specific node's full output:
    `agentforge show <run_id> <node>` (`agentforge show <run_id>` reprints the summary).
 6. Report the result and the per-node cost to the user.
+
+Run long pipelines with a long Bash timeout or in the background: a killed run stays
+`running` and cannot be resumed.
 
 Runs are stored under `server/workspace/<run_id>/` (`run.json`, `events.jsonl`, per-node `.md`).
 
