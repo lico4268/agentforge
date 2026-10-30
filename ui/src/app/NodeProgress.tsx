@@ -10,8 +10,8 @@ export type ProgressEntry = {
 
 const MARK = { running: '▸', done: '✓', failed: '✗', paused: '⏸', skipped: '·' } as const
 
-/** 같은 노드가 여러 번 방문되면 #1, #2로 번호를 붙인다. 한 번뿐이면 번호 없음
- * — 루프가 없는 그래프에 잡음을 더하지 않는다 (설계 §5.1 회차 구분). */
+/** If the same node is visited multiple times, number the visits #1, #2. A single visit gets no number
+ * — no added noise for graphs without loops (design §5.1 per-iteration distinction). */
 function label(entries: ProgressEntry[], index: number): string {
   const { nodeId } = entries[index]
   const total = entries.filter((e) => e.nodeId === nodeId).length
@@ -21,10 +21,10 @@ function label(entries: ProgressEntry[], index: number): string {
 }
 
 /**
- * 실행 이벤트를 노드별 방문 목록으로 나열한다. `entries`는 diagram과 무관하게
- * 이벤트가 있었던 모든 nodeId를 그대로 보여준다 — 루프의 합성 가드 노드
- * (`__guard_N`, flow 문자열/다이어그램에는 없음)도 여기서는 평범한 항목 하나로
- * 나온다. 다이어그램 색칠(FlowDiagram)에서만 그런 id를 걸러낸다.
+ * Lists execution events as a per-node visit list. `entries` shows every nodeId that had
+ * events, independent of the diagram — a loop's synthetic guard node
+ * (`__guard_N`, not in the flow string/diagram) also appears here as an ordinary entry.
+ * Only diagram colouring (FlowDiagram) filters such ids out.
  */
 export function NodeProgress({
   entries,

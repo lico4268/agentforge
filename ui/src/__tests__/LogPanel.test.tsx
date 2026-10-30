@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { LogPanel } from '@/panels/LogPanel'
 
-// 스모크 테스트: 스토어에 이벤트가 없으면 빈 상태 안내를 렌더한다.
+// Smoke test: with no events in the store, renders the empty-state message.
 describe('LogPanel', () => {
-  it('이벤트가 없으면 안내 문구를 보여준다', () => {
+  it('shows the guidance text when there are no events', () => {
     render(<LogPanel />)
     expect(screen.getByText(/No events yet/i)).toBeInTheDocument()
-    // Log 탭이 기본 활성 탭
+    // The Log tab is the default active tab
     expect(screen.getByRole('button', { name: /Log/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Files/i })).toBeInTheDocument()
   })

@@ -1,8 +1,8 @@
-"""baseline 그래프 회귀 테스트.
+"""Regression test for the baseline graph.
 
-과거 버그: reasoning/output 노드가 도메인 필드(answer/confidence/verdict)를
-make_event에 top-level kwarg로 넘겨 ExecutionEvent.__init__에서 TypeError가 났다.
-이제는 output={...}으로 감싸야 한다. LLM 호출(run_llm_step)은 목으로 대체한다 (AGENTS.md §6).
+Past bug: the reasoning/output nodes passed domain fields (answer/confidence/verdict) to
+make_event as top-level kwargs, causing a TypeError in ExecutionEvent.__init__.
+They must now be wrapped as output={...}. The LLM call (run_llm_step) is mocked (AGENTS.md §6).
 """
 
 import graphs.baseline as baseline
@@ -21,7 +21,7 @@ async def test_baseline_emits_valid_node_end_events(monkeypatch):
 
     state0 = initial_state(task="2+2", task_tags=[])
     config = {"configurable": {"thread_id": "run-1"}}
-    # 버그가 있으면 여기서 TypeError가 난다.
+    # If the bug is present, a TypeError is raised here.
     await graph.ainvoke(state0, config=config)
 
     by_node = {(e.node_id, e.event_type) for e in emitter.events}

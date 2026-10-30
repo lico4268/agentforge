@@ -1,5 +1,5 @@
 """
-v0.1 벤치마크 하니스: run_dataset + GSM8K grader + Report
+v0.1 benchmark harness: run_dataset + GSM8K grader + Report
 """
 
 import re
@@ -23,17 +23,17 @@ class Report(BaseModel):
     pass_at_1: float
     avg_tokens: float
     avg_cost: float
-    refine_rate: float  # 리뷰 판정 중 refine(재작업) 비율
-    clarify_rate: float  # 리뷰 판정 중 clarify(인간 개입) 비율 — batch 강등 포함
-    demotion_rate: float  # batch에서 clarify → accept 강등 비율 (문항당)
-    error_rate: float  # 문항 실행 중 예외 발생 비율
-    card_match_rate: float  # 매칭 카드 ≥1개인 문항 비율
+    refine_rate: float  # fraction of review verdicts that are refine (rework)
+    clarify_rate: float  # fraction of clarify verdicts (human intervention), incl. batch demotions
+    demotion_rate: float  # fraction (per item) of clarify → accept demotions in batch mode
+    error_rate: float  # fraction of items that raised an exception during execution
+    card_match_rate: float  # fraction of items with at least 1 matched card
 
 
 def gsm8k_grader(answer: str | None, gold: str) -> bool:
     if not answer:
         return False
-    # 천단위 콤마 제거 후 숫자 추출 — 마지막 숫자를 수치로 비교 ("72.0" == "72")
+    # Strip thousands commas then extract numbers — compare last number numerically ("72.0" == "72")
     nums_answer = re.findall(r"-?\d+(?:\.\d+)?", answer.replace(",", ""))
     nums_gold = re.findall(r"-?\d+(?:\.\d+)?", gold.replace(",", ""))
     if not nums_answer or not nums_gold:
@@ -58,7 +58,7 @@ async def run_dataset(
     demotion_count = 0
     error_count = 0
     card_match_count = 0
-    consecutive = 0  # 연속 예외 카운터 — 성공 문항이 나오면 리셋
+    consecutive = 0  # consecutive-exception counter — resets when an item succeeds
     abort_threshold = 5
 
     for item in items:
@@ -87,7 +87,7 @@ async def run_dataset(
                 ) from exc
             continue
 
-        # 예외 없이 완료한 문항이면 연속 실패 카운터 리셋
+        # Item completed without an exception, so reset the consecutive-failure counter
         consecutive = 0
 
         if final.get("matched_cards"):
@@ -96,7 +96,7 @@ async def run_dataset(
         ok = grader(final.get("answer"), item.gold)
         results.append(ok)
 
-        # 이벤트에서 지표 집계 — 리뷰 판정은 node_end 이벤트의 policy_decision 필드로 나온다
+        # Aggregate metrics from events — review verdict is in node_end's policy_decision field
         for ev in emitter.events:
             if ev.token_usage:
                 total_tokens += ev.token_usage.get("total_tokens", 0)

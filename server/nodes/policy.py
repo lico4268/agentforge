@@ -13,19 +13,19 @@ def compute_review_branch(
     escalate_tags: set[str] | None = None,
     ignore_batch: bool = False,
 ) -> ReviewBranch:
-    """순수 함수: ReviewDelta 내용 → accept/refine/clarify. 점수·confidence 없음.
+    """Pure function: ReviewDelta content → accept/refine/clarify. No score/confidence.
 
-    - must_pass unmet        → refine (재시도 소진 시 clarify)
-    - unsure / misalignment / elicit 질문 → clarify
-    - 전부 met (should_pass unmet 허용)   → accept
-    - ESCALATE_TAGS 매칭 시 accept 금지 → clarify
-    - batch_mode: clarify → accept 강등 (interrupt 불가 환경, ignore_batch로 원판정 조회)
+    - must_pass unmet        → refine (clarify once retries are exhausted)
+    - unsure / misalignment / elicit question → clarify
+    - all met (should_pass unmet allowed)   → accept
+    - accept forbidden when ESCALATE_TAGS match → clarify
+    - batch_mode: demote clarify → accept (no-interrupt envs; ignore_batch gives the raw verdict)
     """
     escalate = ESCALATE_TAGS if escalate_tags is None else escalate_tags
     delta = state.get("review_delta")
 
     if delta is None:
-        branch: ReviewBranch = "clarify"  # 리뷰 없이 통과 금지
+        branch: ReviewBranch = "clarify"  # no passing without review
     else:
         severity_by_id = {
             c.get("id"): c.get("severity", "must_pass") for c in (state.get("criteria") or [])
@@ -56,12 +56,12 @@ def compute_review_branch(
 
 
 def make_route_review(wired: set[str] | None = None):
-    """LangGraph conditional_edges용 sync 라우터.
+    """Sync router for LangGraph conditional_edges.
 
-    review 노드가 state["review_branch"]에 저장한 판정을 읽는다 — 노드에서
-    retries가 증가한 뒤 재계산하면 판정이 어긋날 수 있어 재계산하지 않는다.
-    wired가 주어지면 (캔버스 컴파일) 연결된 핸들로만 라우팅하고,
-    미연결 브랜치는 보수적 순서(clarify > refine > accept)로 폴백한다.
+    Reads the verdict the review node stored in state["review_branch"] — recomputing after
+    retries is incremented in the node could make the verdict inconsistent, so we don't recompute.
+    If wired is given (canvas compile), route only to connected handles,
+    and fall back for unconnected branches in a conservative order (clarify > refine > accept).
     """
 
     def route_review(state: AgentState) -> str:

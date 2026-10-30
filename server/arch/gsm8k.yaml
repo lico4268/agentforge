@@ -11,17 +11,17 @@ nodes:
     in:  [task]
     out: [plan]
     prompt: |
-      문제를 풀 단계로 쪼개라. 각 단계 한 줄씩.
+      Break the problem into steps to solve it. One line per step.
 
   reasoning:
     in:  [task, plan, feedback]
     out: [answer]
     prompt: |
-      계획을 따라 풀어라. 마지막 줄에 답만 숫자로 써라.
+      Follow the plan and solve it. Write only the final answer as a number on the last line.
 
   review:
     in:  [task, answer]
     out: [feedback]
     prompt: |
-      답이 문제에 맞는지 확인해라. 맞으면 ok, 틀리면 retry로 보내고
-      feedback에 무엇이 틀렸는지 써라.
+      Check whether the answer fits the problem. If it does, send ok; if wrong, send retry and
+      write in feedback what was wrong.

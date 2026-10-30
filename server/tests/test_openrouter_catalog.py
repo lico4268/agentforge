@@ -1,5 +1,5 @@
-"""OpenRouter 즐겨찾기 파일 저장 + 캐시 라벨 조회. 카탈로그 fetch(네트워크)는 목 없이 테스트
-하지 않는다 (AGENTS.md §6) — get_catalog()의 HTTP 부분은 REST 통합 테스트 범위 밖."""
+"""OpenRouter favorites file storage + cached label lookup. The catalog fetch (network) is
+not tested without a mock (AGENTS.md §6) — get_catalog()'s HTTP part is out of scope here."""
 
 import openrouter_catalog as orc
 

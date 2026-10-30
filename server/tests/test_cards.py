@@ -1,4 +1,4 @@
-"""cards 모듈 테스트 — 카드 파싱/로드."""
+"""Tests for the cards module — card parsing/loading."""
 
 from pathlib import Path
 

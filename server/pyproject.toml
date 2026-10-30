@@ -45,7 +45,7 @@ exclude = [".venv", "*.egg-info"]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-# stdlib → 서드파티 → 로컬. 로컬 모듈을 first-party로 인식시킨다.
+# stdlib → third-party → local. Make local modules recognized as first-party.
 known-first-party = ["config", "events", "harness", "manifests", "models", "state", "logging_config", "graphs", "nodes"]
 
 [tool.pytest.ini_options]

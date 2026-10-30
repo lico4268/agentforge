@@ -1,4 +1,4 @@
-"""graphs/compile.py 단위 테스트 — Architecture → StateGraph 컴파일. LLM은 목(AGENTS.md §6)."""
+"""Unit tests for graphs/compile.py — Architecture -> StateGraph. LLM is mocked (AGENTS.md §6)."""
 
 import pytest
 from langgraph.types import Command
@@ -11,22 +11,22 @@ from state import empty_loop_runtime, initial_state
 
 DEFAULT_MODEL_CFG = {"provider": "anthropic", "model": "claude-3", "temperature": 0}
 
-# 2026-09-02 텍스트 우선 전환(task 7)으로 이 셋(reasoning.cot/planning.decompose/
-# review.intent)은 BUILTIN_MANIFESTS(manifests.py)에서 빠졌다 — arch.yaml은 이제
-# 오직 custom.node(+io.input/io.output/human.checkpoint/loop.guard)만 만든다.
-# 하지만 compile.py의 llm_step/review 런타임 디스패치 자체(및 nodes/review.py의
-# make_review — treatment.py가 여전히 직접 쓰는 살아있는 코드)는 지워지지 않았다.
-# 이 스위트는 그 범용 컴파일 메커니즘(조인 엣지, 분기 역할 검증, 루프 가드 축,
-# 순환 검증 등)을 계속 검증해야 하므로, 이 파일이 이미 test.custom_writer/
-# test.needs_summary에 쓰던 것과 같은 monkeypatch.setitem 패턴으로 이 타입들을
-# MANIFESTS_BY_TYPE에 로컬로 되살린다 — 프로덕션 카탈로그에는 없다.
+# With the 2026-09-02 text-first switch (task 7), these three (reasoning.cot/planning.decompose/
+# review.intent) were dropped from BUILTIN_MANIFESTS (manifests.py) — arch.yaml now produces
+# only custom.node (+io.input/io.output/human.checkpoint/loop.guard).
+# But compile.py's llm_step/review runtime dispatch itself (and nodes/review.py's
+# make_review — live code that treatment.py still uses directly) was not removed.
+# This suite must keep verifying that general compile machinery (join edges, branch role
+# validation, loop-guard axis, cycle validation, etc.), so it revives these types locally
+# in MANIFESTS_BY_TYPE using the same monkeypatch.setitem pattern this file already used
+# for test.custom_writer/test.needs_summary — they are not in the production catalog.
 _RETIRED_TEST_MANIFESTS = [
     {
         "type": "planning.decompose",
         "runtime": "llm_step",
         "category": "cognitive",
         "label": "Planning",
-        "description": "task를 단계로 분해.",
+        "description": "Break the task down into steps.",
         "inputs": [{"id": "task", "label": "Task", "dataType": "text", "required": True}],
         "outputs": [{"id": "plan", "label": "Plan", "dataType": "plan"}],
         "config": [],
@@ -40,7 +40,7 @@ _RETIRED_TEST_MANIFESTS = [
         "runtime": "llm_step",
         "category": "cognitive",
         "label": "Reasoning",
-        "description": "Chain-of-thought 추론.",
+        "description": "Chain-of-thought reasoning.",
         "inputs": [
             {"id": "task", "label": "Task", "dataType": "text", "required": True},
             {"id": "plan", "label": "Plan", "dataType": "plan", "required": False},
@@ -56,12 +56,13 @@ _RETIRED_TEST_MANIFESTS = [
         },
     },
 ]
-# review.intent(runtime "review")는 여기 없다 — review.intent가 _CONDITIONAL_ROUTING_TYPES
-# 에서도 함께 빠지면서(task 7) add_conditional_edges와 _build_plain_edge_plan의 plain
-# edge가 같은 소스에 이중 배선되는 게 실제로 재현된다(관찰: 무한 재귀). 프로덕션에는
-# runtime "review"를 쓰는 매니페스트가 더는 없어 이 경로 자체가 도달 불가능하므로
-# 이 회귀를 여기서 되살려 검증하는 대신, review 3분기 실행을 exercise하던 테스트는
-# 아래에서 human.checkpoint(구조 검증)로 대체하거나 함께 삭제한다.
+# review.intent (runtime "review") is not here — when review.intent was also dropped from
+# _CONDITIONAL_ROUTING_TYPES (task 7), add_conditional_edges and the plain edges of
+# _build_plain_edge_plan really did get wired twice on the same source (observed: infinite
+# recursion). No manifest in production uses runtime "review" any more, so that path is
+# unreachable; instead of reviving the regression here, tests that exercised review's
+# 3-way branch execution are replaced below with human.checkpoint (structural validation)
+# or deleted.
 
 
 @pytest.fixture(autouse=True)
@@ -92,13 +93,13 @@ def _edge(source, target, source_handle="out", target_handle="in", source_role=N
 
 
 def test_resolved_role_prefers_source_role_over_handle():
-    """새로 그은 프리폼 엣지는 sourceHandle이 의미 없는 내부 id이므로 sourceRole을 쓴다."""
+    """A new freeform edge has a meaningless internal id as sourceHandle, so sourceRole is used."""
     edge = _edge("a", "b", source_handle="opaque-1", source_role="accept")
     assert compile_mod._resolved_role(edge) == "accept"
 
 
 def test_resolved_role_falls_back_to_source_handle_when_no_role():
-    """기존 저장된 아키텍처는 sourceRole이 없고 sourceHandle 자체가 이미 역할 이름이다."""
+    """A previously saved architecture has no sourceRole; sourceHandle is already the role name."""
     edge = _edge("a", "b", source_handle="accept")
     assert compile_mod._resolved_role(edge) == "accept"
 
@@ -111,8 +112,8 @@ def test_handle_targets_resolves_via_source_role():
 
 
 def test_validate_branch_roles_raises_for_unassigned_role():
-    """프리폼으로 그었지만 아직 Inspector에서 역할을 안 고른 엣지 — sourceRole 없음,
-    opaque sourceHandle이라 유효한 역할 이름이 아니다."""
+    """A freeform edge drawn but with no role picked in the Inspector yet — no sourceRole,
+    and the opaque sourceHandle is not a valid role name."""
     manifest = compile_mod.MANIFESTS_BY_TYPE["human.checkpoint"]
     outs = [_edge("review", "output", source_handle="opaque-1")]
     with pytest.raises(ValueError, match="unassigned or unknown"):
@@ -122,7 +123,7 @@ def test_validate_branch_roles_raises_for_unassigned_role():
 def test_validate_branch_roles_accepts_freeform_edge_with_source_role():
     manifest = compile_mod.MANIFESTS_BY_TYPE["human.checkpoint"]
     outs = [_edge("review", "output", source_handle="opaque-1", source_role="approve")]
-    compile_mod._validate_branch_roles("review", manifest, outs)  # 예외 없이 통과해야 함
+    compile_mod._validate_branch_roles("review", manifest, outs)  # must pass without raising
 
 
 def test_validate_branch_roles_raises_for_duplicate_role():
@@ -141,22 +142,22 @@ def test_validate_branch_roles_accepts_distinct_roles():
         _edge("review", "a", source_handle="approve"),
         _edge("review", "b", source_handle="revise"),
     ]
-    compile_mod._validate_branch_roles("review", manifest, outs)  # 예외 없이 통과해야 함
+    compile_mod._validate_branch_roles("review", manifest, outs)  # must pass without raising
 
 
 def test_validate_branch_roles_accepts_empty_outs():
     manifest = compile_mod.MANIFESTS_BY_TYPE["human.checkpoint"]
-    compile_mod._validate_branch_roles("checkpoint", manifest, [])  # 예외 없이 통과해야 함
+    compile_mod._validate_branch_roles("checkpoint", manifest, [])  # must pass without raising
 
 
 def _gated_refine_arch(guard_config: dict, review_config: dict | None = None) -> dict:
-    """스타터 그래프와 같은 모양의 게이팅된 refine 루프.
+    """A gated refine loop shaped like the starter graph.
 
-    2026-09-02 텍스트 우선 전환(task 7)으로 review.intent가 폐기되면서, 여기서
-    가드에 refine 신호를 보내던 노드는 review.intent가 아니라 구조적 분기
-    (sourceRole 라벨 2개 + LLM이 고르는 __route__)로 갈라지는 custom.node
-    'reviewer'다 — review_config 인자는 옛 호출부와의 시그니처 호환을 위해 받지만
-    이제 쓰이지 않는다(무시).
+    With review.intent retired by the 2026-09-02 text-first switch (task 7), the node that
+    sends the guard its refine signal here is not review.intent but the custom.node
+    'reviewer', which branches structurally (2 sourceRole labels + the LLM-chosen __route__)
+    — the review_config argument is still accepted for signature compatibility with old
+    callers but is no longer used (ignored).
 
     input → reasoning → reviewer
     reviewer --refine--> guard --loopBack--> reasoning
@@ -181,7 +182,7 @@ def _gated_refine_arch(guard_config: dict, review_config: dict | None = None) ->
     )
 
 
-_ONE_CRITERION = [{"id": "c1", "text": "정답 포함", "severity": "must_pass"}]
+_ONE_CRITERION = [{"id": "c1", "text": "Includes the correct answer", "severity": "must_pass"}]
 
 
 async def fake_llm_step(state, *, node_id, **kwargs):
@@ -190,8 +191,8 @@ async def fake_llm_step(state, *, node_id, **kwargs):
     if node_id == "reasoning":
         return {"answer": "4", "confidence": 0.9}
     if node_id == "reviewer":
-        # _gated_refine_arch의 구조적 분기 노드 — 이 파일의 가드-트립 테스트들은
-        # 전부 "review가 끝까지 반려한다"는 시나리오라 항상 refine으로 되돌린다.
+        # The structural branch node of _gated_refine_arch — the guard-trip tests in this file
+        # are all "review rejects to the very end" scenarios, so it always sends back to refine.
         return {"verdict": "unmet", "route": "refine"}
     return {}
 
@@ -233,8 +234,8 @@ def test_output_write_keys_defaults_to_identity_without_key_map():
 
 
 def test_output_write_keys_derives_from_instance_config_when_manifest_has_no_output_schema():
-    """Phase B④: custom.node는 매니페스트에 outputSchema가 없다 — 이 노드 인스턴스의
-    config.outputs 포트에서 즉석으로 유도한다(전부 string 타입 취급)."""
+    """Phase B④: custom.node has no outputSchema in its manifest — it is derived on the fly
+    from this node instance's config.outputs ports (all treated as string type)."""
     manifest = {"outputs": [], "defaults": {}}
     node = {"config": {"outputs": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]}}
     assert compile_mod._output_write_keys(node, manifest) == ["a", "b"]
@@ -253,8 +254,8 @@ def test_llm_step_spec_reads_extra_inputs_from_manifest_defaults():
 
 
 def test_llm_step_spec_builds_output_model_from_instance_config_ports():
-    """Phase B④: 완전히 빈 매니페스트(custom.node)는 이 노드 인스턴스의
-    config.outputs에서 출력 모델을 즉석으로 만든다 — outputSchema 선언 불필요."""
+    """Phase B④: a completely empty manifest (custom.node) builds the output model on the fly
+    from this node instance's config.outputs — no outputSchema declaration needed."""
     manifest = {"outputs": [], "defaults": {}}
     node = {
         "type": "custom.node",
@@ -267,9 +268,9 @@ def test_llm_step_spec_builds_output_model_from_instance_config_ports():
 
 
 async def test_llm_step_node_writes_unknown_output_key_into_vars(monkeypatch):
-    """Phase B ②: AgentState에 없는 output role(사용자 정의 노드 타입)은 최상위가
-    아니라 vars에 저장된다 — AgentState에 없는 키는 LangGraph 채널이 없어 최상위에
-    쓰면 조용히 버려지기 때문."""
+    """Phase B ②: an output role not in AgentState (a user-defined node type) is stored in
+    vars, not at the top level — a key not in AgentState has no LangGraph channel, so
+    writing it at the top level would be silently dropped."""
     _patch_model(monkeypatch)
     custom_manifest = {
         "type": "test.custom_writer",
@@ -300,9 +301,9 @@ async def test_llm_step_node_writes_unknown_output_key_into_vars(monkeypatch):
 
 
 async def test_custom_node_instance_ports_drive_input_reading_and_output_writing(monkeypatch):
-    """Phase B④: custom.node는 매니페스트가 완전히 비어있고, 각 인스턴스가
-    config.inputs/config.outputs로 자기만의 포트를 정의한다 — 같은 타입의 두
-    인스턴스가 서로 다른 포트를 가질 수 있어야 한다."""
+    """Phase B④: custom.node has a completely empty manifest, and each instance defines its
+    own ports via config.inputs/config.outputs — two instances of the same type must be
+    able to have different ports."""
     _patch_model(monkeypatch)
     custom_manifest = {
         "type": "custom.node",
@@ -353,22 +354,22 @@ async def test_custom_node_instance_ports_drive_input_reading_and_output_writing
 
 
 async def test_compile_no_nodes_raises():
-    """노드가 없는 아키텍처는 ValueError."""
+    """An architecture with no nodes raises ValueError."""
     with pytest.raises(ValueError, match="no nodes"):
         compile_mod.compile_graph(_arch([], []), DEFAULT_MODEL_CFG, None, "run-1")
 
 
 async def test_compile_unknown_type_raises():
-    """미등록 노드 타입은 ValueError."""
+    """An unregistered node type raises ValueError."""
     arch = _arch([_node("unknown", "foo.bar")], [])
     with pytest.raises(ValueError, match="Unknown node type"):
         compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, None, "run-1")
 
 
 async def test_compile_no_entry_raises(monkeypatch):
-    """모든 노드에 incoming이 있으면(순환) 진입점 부재 ValueError.
+    """If every node has an incoming edge (a cycle), ValueError for a missing entry point.
 
-    cycle 검증이 먼저 돌기 때문에 가드가 포함된 루프여야 이 에러까지 도달한다."""
+    Cycle validation runs first, so the loop must include a guard to reach this error."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -382,7 +383,7 @@ async def test_compile_no_entry_raises(monkeypatch):
 
 
 def test_filter_control_edges_unit():
-    """io.input발 엣지는 target에 실제 처리 선행 노드가 있을 때만 제거된다."""
+    """An edge from io.input is removed only when the target has a real processing predecessor."""
     nodes = [
         _node("input", "io.input"),
         _node("planning", "planning.decompose"),
@@ -399,7 +400,7 @@ def test_filter_control_edges_unit():
 
 
 async def test_linear_pipeline_runs(monkeypatch):
-    """input→planning→reasoning→output 선형 파이프라인 컴파일·실행."""
+    """Compile and run a linear input->planning->reasoning->output pipeline."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     emitter = ListEventEmitter()
@@ -419,7 +420,7 @@ async def test_linear_pipeline_runs(monkeypatch):
     graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, emitter, "run-1")
     final = await graph.ainvoke(initial_state(""), {"configurable": {"thread_id": "t1"}})
 
-    assert final["task"] == "2+2"  # io.input sample이 task를 시드
+    assert final["task"] == "2+2"  # io.input sample seeds the task
     assert final["plan"] == ["s1"]
     assert final["answer"] == "4"
     starts = {e.node_id for e in emitter.events if e.event_type == "node_start"}
@@ -428,7 +429,7 @@ async def test_linear_pipeline_runs(monkeypatch):
 
 
 async def test_input_prefers_submitted_task_over_canvas_sample(monkeypatch):
-    """WebSocket 등 실행 시 제출한 task는 io.input sample보다 우선한다."""
+    """A task submitted at run time (e.g. over WebSocket) beats the io.input sample."""
     _patch_model(monkeypatch)
     observed_tasks: list[str] = []
 
@@ -459,7 +460,7 @@ async def test_input_prefers_submitted_task_over_canvas_sample(monkeypatch):
 
 
 async def test_reasoning_direct_no_planning(monkeypatch):
-    """planning 없이 input→reasoning→output도 동작한다."""
+    """input->reasoning->output also works without planning."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     emitter = ListEventEmitter()
@@ -477,7 +478,7 @@ async def test_reasoning_direct_no_planning(monkeypatch):
 
 
 async def test_node_positions_do_not_change_compiled_execution(monkeypatch):
-    """캔버스 좌표는 표현 전용이며 컴파일된 실행 순서에 영향을 주지 않는다."""
+    """Canvas coordinates are presentation-only and do not affect the compiled execution order."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     base_nodes = [
@@ -512,7 +513,7 @@ async def test_node_positions_do_not_change_compiled_execution(monkeypatch):
 
 
 async def test_human_checkpoint_compiles(monkeypatch):
-    """human.checkpoint 포함 아키텍처가 예외 없이 컴파일된다 (invoke 안 함)."""
+    """An architecture containing human.checkpoint compiles without raising (no invoke)."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -567,9 +568,9 @@ def test_loop_policy_from_config_nests_stuck_window_and_threshold():
 
 
 def test_loop_policy_from_config_omits_stuck_threshold_when_unset():
-    """threshold를 None으로 채워 넣으면 loop_guard._is_stuck의 float(None)이 TypeError를
-    낸다 — 미설정이면 키 자체를 빼서 그쪽 기본값(0)이 살아나야 한다.
-    (loop_guard.py는 무변경 대상이므로 이 어댑터가 계약을 맞춰줘야 한다.)"""
+    """Filling threshold with None makes loop_guard._is_stuck's float(None) raise TypeError
+    — when unset, the key must be omitted so its default (0) takes effect.
+    (loop_guard.py is not to be changed, so this adapter has to match the contract.)"""
     guard = compile_mod._loop_policy_from_config(_node("guard", "loop.guard", {"stuckWindow": 3}))[
         "guard"
     ]
@@ -589,8 +590,8 @@ def _outgoing(edges: list[dict]) -> dict[str, list[dict]]:
 
 
 def test_derive_loop_members_returns_only_the_refine_loop_body():
-    """스타터 그래프 모양: input/output/checkpoint처럼 가드로 되돌아오지 않는 노드는
-    예산 귀속 대상이 아니다."""
+    """Starter graph shape: nodes that never return to the guard, like input/output/checkpoint,
+    are not budget-attribution targets."""
     edges = [
         _edge("input", "reasoning", "task"),
         _edge("reasoning", "review", "answer"),
@@ -624,7 +625,7 @@ def test_derive_loop_members_is_empty_without_a_loop_back_target():
 
 
 def test_derive_loop_members_excludes_a_dead_end_branch_inside_the_loop_body():
-    """루프 안에서 갈라져 나가지만 가드로 되돌아오지 않는 가지는 제외된다."""
+    """Branches that fork off inside the loop but never return to the guard are excluded."""
     edges = [
         _edge("reasoning", "review", "answer"),
         _edge("review", "guard", "refine", "in"),
@@ -674,7 +675,7 @@ def test_validate_gated_cycles_accepts_a_cycle_containing_a_guard():
 
 
 def test_validate_gated_cycles_ignores_self_loops():
-    """SCC 크기 1(self-loop 포함)은 게이팅 대상이 아니다 (설계 §비목표)."""
+    """SCCs of size 1 (including self-loops) are not subject to gating (design §non-goals)."""
     compile_mod._validate_gated_cycles(["a"], [_edge("a", "a")], set())
 
 
@@ -690,8 +691,8 @@ def test_validate_gated_cycles_reports_only_the_ungated_component():
 
 
 def test_validate_gated_cycles_rejects_an_ungated_cycle_sharing_a_node_with_a_gated_one():
-    """Tarjan은 노드를 공유하는 cycle을 하나의 컴포넌트로 합친다 — guard가 있는 cycle과
-    없는 cycle이 노드 하나만 공유해도 가드 없이 그린 cycle이 조용히 통과해서는 안 된다."""
+    """Tarjan merges cycles that share a node into one component — a cycle drawn without a guard
+    must not silently pass just because it shares a single node with a guarded cycle."""
     edges = [
         _edge("reasoning", "review"),
         _edge("review", "guard"),
@@ -711,10 +712,10 @@ def test_validate_gated_cycles_still_accepts_a_purely_gated_cycle():
 
 
 async def test_loop_guard_without_a_loop_back_edge_raises(monkeypatch):
-    """loopBack이 배선 안 된 Loop 노드는 '아무 데도 안 도는 루프' — 설정 실수다 (§9).
+    """A Loop node with no loopBack wired is a 'loop that goes nowhere' — a config mistake (§9).
 
-    "review" 노드는 여기서 순전히 guard/output으로 향하는 두 엣지의 소스일
-    뿐(review.intent 특유의 3분기 검증과는 무관) — reasoning.cot로도 충분하다."""
+    The "review" node here is merely the source of two edges heading to guard/output
+    (unrelated to review.intent's 3-way branch validation) — reasoning.cot is enough."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -758,8 +759,8 @@ async def test_loop_guard_exit_port_unwired_raises(monkeypatch):
 
 
 async def test_loop_guard_loopback_port_fanout_raises(monkeypatch):
-    """loopBack 포트에 outgoing edge가 2개 이상이면 _handle_targets가 마지막 것만
-    남기고 나머지를 조용히 버리므로, 컴파일 에러로 막아야 한다."""
+    """With two or more outgoing edges on the loopBack port, _handle_targets keeps only the last
+    and silently drops the rest, so it must be blocked with a compile error."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -784,7 +785,7 @@ async def test_loop_guard_loopback_port_fanout_raises(monkeypatch):
 
 
 async def test_loop_guard_exit_port_fanout_raises(monkeypatch):
-    """exit 포트도 loopBack과 마찬가지로 outgoing edge가 2개 이상이면 컴파일 에러다."""
+    """Like loopBack, two or more outgoing edges on the exit port is a compile error."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -810,10 +811,10 @@ async def test_loop_guard_exit_port_fanout_raises(monkeypatch):
 
 
 async def test_review_unassigned_branch_edge_raises_at_compile(monkeypatch):
-    """프리폼으로 그은 뒤 아직 Inspector에서 역할을 안 고른 엣지는 컴파일 타임에 막혀야
-    한다 — human.checkpoint처럼 조용히 END로 빠지는 문제였다(review.intent는 2026-09-02
-    텍스트 우선 전환으로 폐기돼, 같은 _validate_branch_roles 경로를 타는 human.checkpoint로
-    검증한다)."""
+    """An edge drawn freeform whose role has not yet been picked in the Inspector must be blocked
+    at compile time — the problem was that, like human.checkpoint, it silently fell to END
+    (review.intent was retired by the 2026-09-02 text-first switch, so this is verified with
+    human.checkpoint, which goes through the same _validate_branch_roles path)."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -825,7 +826,7 @@ async def test_review_unassigned_branch_edge_raises_at_compile(monkeypatch):
         [
             _edge("input", "reasoning", "task"),
             _edge("reasoning", "review", "answer"),
-            _edge("review", "output", source_handle="opaque-slot-1"),  # 역할 미배정
+            _edge("review", "output", source_handle="opaque-slot-1"),  # role unassigned
         ],
     )
     with pytest.raises(ValueError, match="unassigned or unknown"):
@@ -840,7 +841,7 @@ async def test_loop_guard_invalid_on_exhaustion_raises(monkeypatch):
 
 
 async def test_loop_guard_max_iterations_trips_to_the_exit_port(monkeypatch):
-    """reviewer가 끝까지 refine을 골라도 가드의 maxIterations=2가 먼저 트립돼 exit로 빠진다."""
+    """Even if the reviewer keeps picking refine, the guard's maxIterations=2 trips and exits."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     emitter = ListEventEmitter()
@@ -849,14 +850,14 @@ async def test_loop_guard_max_iterations_trips_to_the_exit_port(monkeypatch):
         _gated_refine_arch({"maxIterations": 2}), DEFAULT_MODEL_CFG, emitter, "run-1"
     )
     final = await graph.ainvoke(
-        initial_state("", criteria=_ONE_CRITERION, intent="정확한 계산"),
+        initial_state("", criteria=_ONE_CRITERION, intent="accurate calculation"),
         {"configurable": {"thread_id": "t-loop-iter"}},
     )
 
     assert final["answer"] == "4"
     guard_events = [e for e in emitter.events if e.node_id == "guard" and e.loop_runtime]
     assert [e.loop_runtime["iteration"] for e in guard_events] == [1, 2, 3]
-    # 가드 노드가 실제 캔버스 노드이므로 nodeId == loopNodeId (설계 §8).
+    # The guard node is a real canvas node, so nodeId == loopNodeId (design §8).
     assert {e.loop_runtime["loopNodeId"] for e in guard_events} == {"guard"}
     assert guard_events[-1].loop_runtime["exitReason"] == "maxIterations"
     assert guard_events[-1].loop_runtime["maxIterations"] == 2
@@ -874,13 +875,13 @@ async def test_loop_guard_on_exhaustion_fail_raises_at_runtime(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="onExhaustion='fail'"):
         await graph.ainvoke(
-            initial_state("", criteria=_ONE_CRITERION, intent="정확한 계산"),
+            initial_state("", criteria=_ONE_CRITERION, intent="accurate calculation"),
             {"configurable": {"thread_id": "t-loop-fail"}},
         )
 
 
 async def test_loop_guard_max_tokens_trips_using_derived_members(monkeypatch):
-    """reasoning/reviewer가 루프 멤버로 유도돼 토큰을 loop_runtime['guard']에 누적한다."""
+    """reasoning/reviewer are derived as loop members and add tokens to loop_runtime['guard']."""
     _patch_model(monkeypatch)
 
     async def reasoning_with_usage(state, *, node_id, usage_sink=None, **kwargs):
@@ -899,7 +900,7 @@ async def test_loop_guard_max_tokens_trips_using_derived_members(monkeypatch):
         _gated_refine_arch({"maxTokens": 1000}), DEFAULT_MODEL_CFG, emitter, "run-1"
     )
     final = await graph.ainvoke(
-        initial_state("", criteria=_ONE_CRITERION, intent="정확한 계산"),
+        initial_state("", criteria=_ONE_CRITERION, intent="accurate calculation"),
         {"configurable": {"thread_id": "t-loop-tokens"}},
     )
 
@@ -910,9 +911,9 @@ async def test_loop_guard_max_tokens_trips_using_derived_members(monkeypatch):
 
 
 async def test_loop_guard_is_reached_from_human_checkpoint_dynamic_goto(monkeypatch):
-    """human.checkpoint는 엣지 배선 루프에서 완전히 스킵되고 Command(goto=...)로만
-    분기한다 — 가드 노드가 정적 엣지도 선언된 branch mapping도 없이 오직 동적 goto로
-    도달된다는 사실을 실제 interrupt/resume 사이클로 증명해 둔다."""
+    """human.checkpoint is skipped entirely in the edge-wiring loop and branches only via
+    Command(goto=...) — a real interrupt/resume cycle proves that the guard node is reached
+    only by dynamic goto, with neither a static edge nor a declared branch mapping."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     emitter = ListEventEmitter()
@@ -952,8 +953,8 @@ async def test_loop_guard_is_reached_from_human_checkpoint_dynamic_goto(monkeypa
 
 
 async def test_cycle_without_loop_guard_raises(monkeypatch):
-    """review --refine--> reasoning 직결 루프는 이제 컴파일 에러다 (설계 §4, 의도된
-    breaking change — Loop 노드를 끼워야 컴파일된다)."""
+    """A direct review --refine--> reasoning loop is now a compile error (design §4, an intended
+    breaking change — a Loop node must be inserted for it to compile)."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -982,22 +983,22 @@ async def test_cycle_with_loop_guard_compiles(monkeypatch):
 
 
 def test_validate_required_inputs_passes_when_preseeded_key_has_no_writer_node():
-    """task는 initial_state()가 항상 채우므로, io.input 노드가 그래프에 없어도
-    reasoning.cot의 required task는 충족된 것으로 본다 (설계 §6, Tier 1)."""
+    """task is always filled by initial_state(), so reasoning.cot's required task counts as
+    satisfied even if there is no io.input node in the graph (design §6, Tier 1)."""
     nodes = [_node("reasoning", "reasoning.cot"), _node("output", "io.output")]
-    compile_mod._validate_required_inputs(nodes)  # 예외 없이 통과해야 함
+    compile_mod._validate_required_inputs(nodes)  # must pass without raising
 
 
 def test_validate_required_inputs_passes_when_a_writer_exists():
     nodes = [_node("planning", "planning.decompose"), _node("reasoning", "reasoning.cot")]
-    compile_mod._validate_required_inputs(nodes)  # 예외 없이 통과해야 함
+    compile_mod._validate_required_inputs(nodes)  # must pass without raising
 
 
 def test_validate_required_inputs_raises_when_no_node_writes_a_required_non_preseeded_key(
     monkeypatch,
 ):
-    """오늘의 실제 매니페스트는 이 케이스가 없어(모든 required 입력이 preseeded) 합성
-    llm_step 타입을 주입해 재현한다."""
+    """Today's real manifests have no such case (every required input is preseeded), so a
+    synthetic llm_step type is injected to reproduce it."""
     fake_manifest = {
         "type": "test.needs_summary",
         "runtime": "llm_step",
@@ -1015,8 +1016,8 @@ def test_validate_required_inputs_raises_when_no_node_writes_a_required_non_pres
 
 
 async def test_compile_graph_raises_for_missing_required_input(monkeypatch):
-    """_validate_required_inputs가 compile_graph에 실제로 연결돼 있는지 확인 — 노드
-    생성/모델 해석보다 먼저 돌아야 실행 비용을 들이기 전에 막는다."""
+    """Check that _validate_required_inputs is actually wired into compile_graph — it must run
+    before node creation/model resolution so it blocks before any execution cost is incurred."""
     fake_manifest = {
         "type": "test.needs_summary",
         "runtime": "llm_step",
@@ -1043,7 +1044,7 @@ def test_build_plain_edge_plan_requires_join_mode_for_two_plain_sources():
     nodes = [
         _node("a", "planning.decompose"),
         _node("b", "reasoning.cot"),
-        _node("c", "io.output"),  # joinMode 미선언
+        _node("c", "io.output"),  # joinMode undeclared
     ]
     edges = [_edge("a", "c", "plan"), _edge("b", "c", "answer")]
     with pytest.raises(ValueError, match="no joinMode"):
@@ -1073,31 +1074,31 @@ def test_build_plain_edge_plan_keeps_individual_edges_for_or():
 
 
 def test_build_plain_edge_plan_forces_or_when_a_conditional_source_is_mixed_in():
-    """review.intent/loop.guard/human.checkpoint 같은 conditional-routing 소스가
-    하나라도 섞이면 AND가 구조적으로 불가능하다 — 이 셋은 add_conditional_edges나
-    Command(goto=...)로 스스로 라우팅하고 add_edge를 절대 호출하지 않으므로
-    LangGraph의 join-edge에 참여할 수 없다. joinMode 선언 자체를 요구하지 않고
-    나머지 plain 소스도 자동으로 개별 엣지가 된다 (설계 §4)."""
+    """If even one conditional-routing source such as review.intent/loop.guard/human.checkpoint
+    is mixed in, AND is structurally impossible — these three route themselves via
+    add_conditional_edges or Command(goto=...) and never call add_edge, so they cannot take part
+    in a LangGraph join-edge. No joinMode declaration is required, and the remaining plain
+    sources automatically become individual edges (design §4)."""
     nodes = [
         _node("input", "io.input"),
         _node("guard", "loop.guard"),
-        _node("reasoning", "reasoning.cot"),  # joinMode 미선언이어도 에러 없어야 함
+        _node("reasoning", "reasoning.cot"),  # must not error even with joinMode undeclared
     ]
     edges = [
         _edge("input", "reasoning", "task"),
         _edge("guard", "reasoning", "loopBack", "task"),
     ]
     plan = compile_mod._build_plain_edge_plan(nodes, edges)
-    assert plan == [(["input"], "reasoning")]  # guard발 엣지는 plan에 아예 안 들어감
+    assert plan == [(["input"], "reasoning")]  # the edge from guard never enters the plan at all
 
 
 def test_build_plain_edge_plan_still_requires_join_mode_for_two_plain_passthrough_sources():
-    """loop.reentry가 아닌 다른 passthrough 타입(io.input/io.output/model.binding)은
-    이번 예외에 포함되지 않는다 — 실제로 2개 이상 모이면 여전히 joinMode가 필요하다."""
+    """Passthrough types other than loop.reentry (io.input/io.output/model.binding) are not part
+    of this exception — when two or more actually converge, joinMode is still required."""
     nodes = [
         _node("a", "io.input"),
         _node("b", "model.binding"),
-        _node("target", "io.output"),  # joinMode 미선언 — 에러가 나야 함
+        _node("target", "io.output"),  # joinMode undeclared — must error
     ]
     edges = [_edge("a", "target"), _edge("b", "target")]
     with pytest.raises(ValueError, match="no joinMode"):
@@ -1105,10 +1106,10 @@ def test_build_plain_edge_plan_still_requires_join_mode_for_two_plain_passthroug
 
 
 def test_build_plain_edge_plan_raises_cleanly_for_a_dangling_edge_target():
-    """target이 nodes 목록에 없는 경우(프리폼 캔버스에서 노드가 삭제됐지만 그 노드를
-    가리키던 엣지가 남아있는 경우) source 조회와 동일하게 방어적으로 처리해야 한다 —
-    KeyError로 죽지 않고 기존 '설정 오류'(joinMode 없음) ValueError로 자연스럽게
-    흡수돼야 한다."""
+    """If the target is not in the nodes list (a node was deleted on the freeform canvas but an
+    edge that pointed to it remains), it must be handled defensively, the same as the source
+    lookup — it must not die with KeyError but be absorbed naturally into the existing
+    'config error' (missing joinMode) ValueError."""
     nodes = [_node("a", "planning.decompose"), _node("b", "reasoning.cot")]
     edges = [_edge("a", "missing", "plan"), _edge("b", "missing", "answer")]
     with pytest.raises(ValueError, match="no joinMode"):
@@ -1122,15 +1123,15 @@ def test_build_plain_edge_plan_excludes_conditional_sourced_edges_entirely():
 
 
 def test_build_plain_edge_plan_forces_or_with_two_plain_sources_and_a_conditional_source():
-    """conditional-routing 소스가 하나라도 섞이면, plain 소스가 2개 이상이어도 AND는
-    구조적으로 불가능하다 — joinMode 선언 없이도 에러 없이 개별 엣지로 처리돼야 한다
-    (설계 §4의 핵심 시나리오: starter architecture에서 guard가 다른 plain 소스들과
-    함께 하나의 target으로 들어오는 경우)."""
+    """If even one conditional-routing source is mixed in, AND is structurally impossible even
+    with two or more plain sources — it must be handled as individual edges without error and
+    without a joinMode declaration (the key scenario of design §4: in the starter architecture,
+    the guard converges on one target together with other plain sources)."""
     nodes = [
         _node("planning", "planning.decompose"),
         _node("reasoning", "reasoning.cot"),
         _node("guard", "loop.guard"),
-        _node("target", "io.output"),  # joinMode 미선언이어도 에러 없어야 함
+        _node("target", "io.output"),  # must not error even with joinMode undeclared
     ]
     edges = [
         _edge("planning", "target", "plan"),
@@ -1142,9 +1143,9 @@ def test_build_plain_edge_plan_forces_or_with_two_plain_sources_and_a_conditiona
 
 
 def test_build_plain_edge_plan_dedups_multiple_edges_from_the_same_source_target_pair():
-    """같은 (source, target) 쌍에서 나온 엣지가 여러 개(예: 서로 다른 데이터 포트로
-    두 번 연결)여도 소스는 한 번만 카운트돼야 한다 — join된 소스 리스트에 중복 없이
-    한 번만 나타나야 한다."""
+    """Even when multiple edges come from the same (source, target) pair (e.g. connected twice
+    through different data ports), the source must be counted only once — it must appear
+    only once in the joined source list, with no duplicates."""
     nodes = [
         _node("a", "planning.decompose"),
         _node("d", "reasoning.cot"),
@@ -1160,15 +1161,15 @@ def test_build_plain_edge_plan_dedups_multiple_edges_from_the_same_source_target
 
 
 async def test_compile_graph_requires_join_mode_for_two_plain_sources(monkeypatch):
-    """_build_plain_edge_plan이 compile_graph에 실제로 연결돼 있는지 확인 — 2개 이상의
-    plain 소스가 한 target으로 모이는데 joinMode가 없으면 컴파일 에러여야 한다."""
+    """Check that _build_plain_edge_plan is actually wired into compile_graph — if two or more
+    plain sources converge on one target and there is no joinMode, it must be a compile error."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
             _node("input", "io.input", {"sample": "2+2"}),
             _node("planning", "planning.decompose"),
             _node("reasoning", "reasoning.cot"),
-            _node("output", "io.output"),  # joinMode 미선언
+            _node("output", "io.output"),  # joinMode undeclared
         ],
         [
             _edge("input", "planning", "task"),
@@ -1182,8 +1183,9 @@ async def test_compile_graph_requires_join_mode_for_two_plain_sources(monkeypatc
 
 
 async def test_compile_graph_and_join_compiles_and_runs(monkeypatch):
-    """joinMode='and'를 선언하면 컴파일 에러 없이 join-edge로 컴파일되고, 두 plain
-    소스(planning/reasoning) 각각의 결과가 전부 최종 state에 반영된 채로 완주한다."""
+    """Declaring joinMode='and' compiles to a join-edge with no compile error, and runs to
+    completion with the results of both plain sources (planning/reasoning) reflected in the
+    final state."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     emitter = ListEventEmitter()
@@ -1208,7 +1210,7 @@ async def test_compile_graph_and_join_compiles_and_runs(monkeypatch):
 
 
 async def test_compile_graph_or_join_still_compiles_and_runs(monkeypatch):
-    """joinMode='or'도 여전히 컴파일·실행된다 — 개별 add_edge 그대로 (회귀)."""
+    """joinMode='or' still compiles and runs — individual add_edge as before (regression)."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     emitter = ListEventEmitter()
@@ -1233,8 +1235,8 @@ async def test_compile_graph_or_join_still_compiles_and_runs(monkeypatch):
 
 
 def test_branch_labels_needs_two_labelled_edges():
-    """분기 판정은 타입이 아니라 라벨 달린 나가는 엣지 개수(설계 §5) — sourceRole
-    이 2개 이상 채워진 노드만 분기 노드다."""
+    """Branch detection is by the number of labelled outgoing edges (design §5), not by type —
+    only a node with two or more sourceRoles filled in is a branch node."""
     edges = [
         {"source": "a", "target": "b", "sourceRole": "ok"},
         {"source": "a", "target": "c", "sourceRole": "no"},
@@ -1245,7 +1247,7 @@ def test_branch_labels_needs_two_labelled_edges():
 
 
 def test_branch_labels_ignores_unlabelled_fanout():
-    """라벨 없는 fan-out(sourceRole == "")은 분기가 아니라 병렬 실행이다."""
+    """A fan-out without labels (sourceRole == "") is parallel execution, not a branch."""
     edges = [
         {"source": "a", "target": "b", "sourceRole": ""},
         {"source": "a", "target": "c", "sourceRole": ""},
@@ -1254,9 +1256,9 @@ def test_branch_labels_ignores_unlabelled_fanout():
 
 
 def test_branch_labels_ignores_source_handle_fallback():
-    """구 캔버스 아키텍처는 sourceRole 없이 sourceHandle만 있다(포트 이름, 예:
-    "plan"/"answer") — _resolved_role처럼 sourceHandle로 폴백하면 평범한 fan-out이
-    전부 분기로 오인된다. _branch_labels는 sourceRole만 봐야 한다."""
+    """Old-canvas architectures have only sourceHandle, with no sourceRole (a port name, e.g.
+    "plan"/"answer") — falling back to sourceHandle like _resolved_role would misread every
+    ordinary fan-out as a branch. _branch_labels must look at sourceRole only."""
     edges = [
         {"source": "a", "target": "b", "sourceHandle": "plan"},
         {"source": "a", "target": "c", "sourceHandle": "answer"},
@@ -1265,56 +1267,56 @@ def test_branch_labels_ignores_source_handle_fallback():
 
 
 def test_user_node_with_labels_gets_route_field_in_output_model():
-    """_effective_output_schema에 branch_labels를 넘기면 route 필드가 라벨
-    리스트 그대로 추가된다 — _build_output_model이 이걸 Literal로 바꾼다."""
+    """Passing branch_labels to _effective_output_schema adds a route field holding the label
+    list as-is — _build_output_model turns it into a Literal."""
     from archfile import parse_arch
 
     arch, _ = parse_arch(
         """
 flow: |
-  input --> 판단
-  판단 -->|좋음| output
-  판단 -->|나쁨| output2
+  input --> judge
+  judge -->|good| output
+  judge -->|bad| output2
 nodes:
-  판단:   { in: [task], out: [verdict], prompt: p }
+  judge:   { in: [task], out: [verdict], prompt: p }
   output2: { run: output }
 """
     )
-    node = next(n for n in arch["nodes"] if n["id"] == "판단")
+    node = next(n for n in arch["nodes"] if n["id"] == "judge")
     schema = compile_mod._effective_output_schema(
-        node, compile_mod.MANIFESTS_BY_TYPE[node["type"]], branch_labels=["좋음", "나쁨"]
+        node, compile_mod.MANIFESTS_BY_TYPE[node["type"]], branch_labels=["good", "bad"]
     )
     assert schema["verdict"] == "string"
-    assert schema["route"] == ["좋음", "나쁨"]
+    assert schema["route"] == ["good", "bad"]
 
 
 def test_build_output_model_turns_label_list_into_literal():
-    """route 필드(list 값)는 Literal[...]이 돼 LLM이 그 라벨 중 하나만 낼 수 있다."""
+    """The route field (list value) becomes a Literal[...], so the LLM can emit only one label."""
     model = compile_mod._build_output_model(
-        "custom.node", {"verdict": "string", "route": ["좋음", "나쁨"]}
+        "custom.node", {"verdict": "string", "route": ["good", "bad"]}
     )
-    instance = model(verdict="ok", route="좋음")
-    assert instance.model_dump() == {"verdict": "ok", "route": "좋음"}
+    instance = model(verdict="ok", route="good")
+    assert instance.model_dump() == {"verdict": "ok", "route": "good"}
     with pytest.raises(ValidationError):
-        model(verdict="ok", route="모름")
+        model(verdict="ok", route="unknown")
 
 
 async def test_branching_user_node_compiles(monkeypatch):
-    """사용자 정의 노드(custom.node)가 라벨 2개로 fan-out하면 분기 노드로 컴파일된다
-    — review.intent/human.checkpoint/loop.guard가 아니어도 분기가 동작해야 한다."""
+    """A user-defined node (custom.node) that fans out with 2 labels compiles as a branch node
+    — branching must work even when it is not review.intent/human.checkpoint/loop.guard."""
     from archfile import parse_arch
 
     _patch_model(monkeypatch)
     arch, _ = parse_arch(
         """
 flow: |
-  input --> 판단
-  판단 -->|좋음| output
-  판단 -->|나쁨| 재작업
-  재작업 --> output
+  input --> judge
+  judge -->|good| output
+  judge -->|bad| rework
+  rework --> output
 nodes:
-  판단:   { in: [task], out: [verdict], prompt: p }
-  재작업: { in: [task], out: [answer], prompt: q }
+  judge:   { in: [task], out: [verdict], prompt: p }
+  rework: { in: [task], out: [answer], prompt: q }
 """
     )
     graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "r1")
@@ -1322,16 +1324,17 @@ nodes:
 
 
 async def test_branching_user_node_routes_on_llm_pick(monkeypatch):
-    """분기 노드가 route로 "나쁨"을 고르면 재작업 노드로, "좋음"을 고르면 output으로
-    간다 — __route__<id> 상태 키를 라우터가 읽는다는 것까지 실행으로 확인한다."""
+    """If the branch node picks "bad" via route it goes to the rework node, and if it picks
+    "good" it goes to output — execution also confirms the router reads the __route__<id>
+    state key."""
     from archfile import parse_arch
 
     _patch_model(monkeypatch)
 
     async def fake_run_llm_step(state, *, node_id, **kwargs):
-        if node_id == "판단":
-            return {"verdict": "meh", "route": "나쁨"}
-        if node_id == "재작업":
+        if node_id == "judge":
+            return {"verdict": "meh", "route": "bad"}
+        if node_id == "rework":
             return {"answer": "fixed"}
         return {}
 
@@ -1340,13 +1343,13 @@ async def test_branching_user_node_routes_on_llm_pick(monkeypatch):
     arch, _ = parse_arch(
         """
 flow: |
-  input --> 판단
-  판단 -->|좋음| output
-  판단 -->|나쁨| 재작업
-  재작업 --> output
+  input --> judge
+  judge -->|good| output
+  judge -->|bad| rework
+  rework --> output
 nodes:
-  판단:   { in: [task], out: [verdict], prompt: p }
-  재작업: { in: [task], out: [answer], prompt: q }
+  judge:   { in: [task], out: [verdict], prompt: p }
+  rework: { in: [task], out: [answer], prompt: q }
 """
     )
     graph = compile_mod.compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "r1")
@@ -1356,10 +1359,11 @@ nodes:
 
 
 async def test_labelled_fanout_from_non_llm_step_node_still_runs_both(monkeypatch):
-    """io.input처럼 llm_step이 아닌(구조화 출력이 없는) 노드에 설명용 라벨 2개가
-    우연히 달려도 분기로 오인해서는 안 된다 — 아무도 __route__<id>를 쓰지 않으므로
-    그러면 라우터가 항상 첫 라벨로만 떨어져 다른 쪽이 조용히 실행되지 않게 된다.
-    branch_node_ids는 runtime == "llm_step" 노드만 대상으로 삼아야 한다."""
+    """Even if a node that is not llm_step (has no structured output), like io.input, happens to
+    carry 2 descriptive labels, it must not be mistaken for a branch — nobody writes
+    __route__<id>, so the router would always fall to the first label and the other side
+    would silently never run.
+    branch_node_ids must target only runtime == "llm_step" nodes."""
     _patch_model(monkeypatch)
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
     arch = _arch(
@@ -1383,17 +1387,17 @@ async def test_labelled_fanout_from_non_llm_step_node_still_runs_both(monkeypatc
 
 
 async def test_duplicate_branch_label_raises_at_compile(monkeypatch):
-    """raw architecture dict(캔버스가 parse_arch 없이 저장한 것과 같은 모양)에서
-    분기 노드의 두 나가는 엣지가 같은 라벨("ok")을 쓰면 dict 컴프리헨션의
-    targets = {label: target ...}에서 하나가 조용히 뭉개진다 — archfile.py의
-    파서 쪽 검사(_validate_branch_capable)는 parse_arch를 거치지 않는 이 경로를
-    보호하지 못하므로, compile_graph 자체가 이 중복을 막아야 한다."""
+    """In a raw architecture dict (the same shape the canvas saves without parse_arch), if a
+    branch node's two outgoing edges use the same label ("ok"), one is silently collapsed in
+    the dict comprehension targets = {label: target ...} — the parser-side check in archfile.py
+    (_validate_branch_capable) cannot protect this path, which bypasses parse_arch, so
+    compile_graph itself has to block this duplicate."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
             _node("input", "io.input", {"sample": "2+2"}),
             _node(
-                "판단",
+                "judge",
                 "custom.node",
                 {
                     "systemPrompt": "p",
@@ -1405,9 +1409,9 @@ async def test_duplicate_branch_label_raises_at_compile(monkeypatch):
             _node("other", "io.output"),
         ],
         [
-            _edge("input", "판단", "task"),
-            _edge("판단", "output", source_role="ok"),
-            _edge("판단", "other", source_role="ok"),
+            _edge("input", "judge", "task"),
+            _edge("judge", "output", source_role="ok"),
+            _edge("judge", "other", source_role="ok"),
         ],
     )
     with pytest.raises(ValueError, match="ok"):
@@ -1415,12 +1419,12 @@ async def test_duplicate_branch_label_raises_at_compile(monkeypatch):
 
 
 async def test_branch_node_with_unlabelled_edge_raises_at_compile(monkeypatch):
-    """분기 노드(라벨 2개 이상 나가는 엣지)에 라벨 없는 나가는 엣지가 하나라도 더
-    있으면, 그 엣지는 _build_plain_edge_plan에서도(source가 branch_node_ids라 제외)
-    add_conditional_edges의 targets dict에서도(sourceRole 없어서 안 걸림) 어디에도
-    안 걸려 조용히 사라진다(BLOCKING 1) — main.py의 dispatch_graph는 캔버스에서 저장된
-    raw architecture dict를 archfile.py의 파서 없이 곧장 여기로 넘기므로, 이 경로는
-    compile_graph 자체가 거부해야 한다."""
+    """If a branch node (with two or more labelled outgoing edges) has even one more outgoing
+    edge without a label, that edge is caught nowhere — neither in _build_plain_edge_plan (the
+    source is in branch_node_ids, so excluded) nor in add_conditional_edges' targets dict (no
+    sourceRole, so not matched) — and silently disappears (BLOCKING 1). dispatch_graph in
+    main.py hands the raw architecture dict saved from the canvas straight here without the
+    archfile.py parser, so compile_graph itself has to reject this path."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
@@ -1450,7 +1454,7 @@ async def test_branch_node_with_unlabelled_edge_raises_at_compile(monkeypatch):
             _edge("input", "judge", "task"),
             _edge("judge", "output", source_role="ok"),
             _edge("judge", "fix", source_role="retry"),
-            _edge("judge", "logger"),  # sourceRole 없음 — 오늘은 조용히 사라진다
+            _edge("judge", "logger"),  # no sourceRole — silently disappears today
             _edge("fix", "output"),
         ],
     )

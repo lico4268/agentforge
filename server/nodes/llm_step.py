@@ -62,8 +62,8 @@ async def run_llm_step(
         HumanMessage(content="\n\n".join(blocks)),
     ]
     structured = model.with_structured_output(output_model)
-    # 구조화 출력은 usage metadata를 감추므로 콜백으로 토큰 사용량을 수집한다.
-    # primary 재시도 + fallback 모두 같은 핸들러에 누적 → 비용/토큰 합산이 정확하다.
+    # Structured output hides usage metadata, so collect token usage via a callback.
+    # Primary retries + fallback accumulate into the same handler → cost/token totals are accurate.
     usage_cb = UsageMetadataCallbackHandler()
     invoke_config = {"callbacks": [usage_cb]}
 
@@ -73,7 +73,7 @@ async def run_llm_step(
     async def _attempt(m, cfg) -> BaseModel:
         return await asyncio.wait_for(m.ainvoke(messages, config=cfg), timeout=timeout)
 
-    # ── primary: 최대 (retry_count + 1)회 시도 ──────────────────────────────────
+    # ── primary: up to (retry_count + 1) attempts ──────────────────────────────
     for attempt in range(retry_count + 1):
         try:
             result = await _attempt(structured, invoke_config)
@@ -88,7 +88,7 @@ async def run_llm_step(
                 usage_sink=usage_sink,
             )
             return result.model_dump()
-        except Exception as err:  # noqa: BLE001 — 광범위 재시도 대상
+        except Exception as err:  # noqa: BLE001 — broad retry target
             last_err = err
             if attempt < retry_count:
                 logger.warning(
@@ -102,7 +102,7 @@ async def run_llm_step(
                         message=f"retry {attempt + 1}/{retry_count}: {type(err).__name__}: {err}",
                     )
                 )
-                # 출력 검증 실패에 대비해 교정 힌트를 붙여 재시도 (기존 1회 복구 정책의 일반화)
+                # Retry with a correction hint if output validation failed (generalized recovery)
                 messages = messages + [
                     HumanMessage(content=f"Previous attempt failed: {err}\nPlease fix and retry.")
                 ]
@@ -110,7 +110,7 @@ async def run_llm_step(
             else:
                 logger.error("node %r failed after %d attempts: %s", node_id, attempt + 1, err)
 
-    # ── fallback: 재시도 소진 후 1회만 (재시도 없음) ────────────────────────────
+    # ── fallback: once only after retries are exhausted (no retries) ───────────
     if policy.fallback is not None:
         try:
             fallback_model = build_model(policy.fallback)
@@ -140,11 +140,11 @@ async def run_llm_step(
             last_err = err
             logger.error("node %r fallback failed: %s", node_id, err)
 
-    # 전부 실패 — 표준 error 이벤트 방출 후 재발산
+    # All failed — emit the standard error event, then re-raise
     if last_err is not None:
         await emit(make_error_event(run_id, node_id, last_err))
         raise last_err
-    # 도달 불가 — 안전망
+    # Unreachable — safety net
     raise RuntimeError(f"node {node_id!r} produced no result")
 
 
@@ -159,11 +159,11 @@ async def _emit_token_usage(
     fallback_used: bool = False,
     usage_sink: dict | None = None,
 ) -> None:
-    """수집된 usage를 'log' 이벤트의 token_usage로 방출.
+    """Emit collected usage as the 'log' event's token_usage.
 
-    프론트 계약(prompt/completion)과 하니스 계약(total_tokens/cost)을 한 dict에 담는다.
-    관측 메타(model/attempt/fallbackUsed)도 함께 — 프론트 Metrics에 표시.
-    비었으면 방출 생략.
+    Puts the frontend (prompt/completion) and harness (total_tokens/cost) contracts in one dict.
+    Observability meta (model/attempt/fallbackUsed) is included too — shown in the frontend Metrics.
+    Emission is skipped if empty.
     """
     prompt = completion = 0
     cost = 0.0

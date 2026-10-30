@@ -1,7 +1,7 @@
-# Agentforge 설정 파일
-# API 키는 여기에 넣지 않는다 — server/.env 에서 관리.
+# Agentforge config file
+# API keys do not go here — they are managed in server/.env.
 
-# ── 서버 ────────────────────────────────────────────────────────────────────────
+# ── Server ──────────────────────────────────────────────────────────────────────
 server:
   host: 0.0.0.0
   port: 8000
@@ -10,15 +10,15 @@ server:
     - "http://localhost:5137"
     - "http://127.0.0.1:5137"
 
-# ── 모델 목록 ────────────────────────────────────────────────────────────────────
-# enabled: false 로 비활성화. temperature / max_tokens 는 노드 기본값으로 사용.
+# ── Model list ──────────────────────────────────────────────────────────────────
+# Disable with enabled: false. temperature / max_tokens are used as node defaults.
 models:
   default: gemini-3.1-flash-lite
   list:
     - id: claude-haiku-4-5-20251001
       provider: anthropic
       label: "Claude Haiku 4.5"
-      description: "빠르고 저렴한 Anthropic 모델"
+      description: "Fast, low-cost Anthropic model"
       enabled: true
       temperature: 0.0
       max_tokens: 4096
@@ -26,7 +26,7 @@ models:
     - id: claude-sonnet-4-6
       provider: anthropic
       label: "Claude Sonnet 4.6"
-      description: "균형 잡힌 Anthropic 모델"
+      description: "Balanced Anthropic model"
       enabled: true
       temperature: 0.7
       max_tokens: 8192
@@ -34,7 +34,7 @@ models:
     - id: claude-opus-4-8
       provider: anthropic
       label: "Claude Opus 4.8"
-      description: "Anthropic 고성능 모델"
+      description: "High-performance Anthropic model"
       enabled: true
       temperature: 0.7
       max_tokens: 8192
@@ -42,7 +42,7 @@ models:
     - id: claude-fable-5
       provider: anthropic
       label: "Claude Fable 5"
-      description: "Anthropic 최신 플래그십 모델"
+      description: "Latest flagship Anthropic model"
       enabled: true
       temperature: 0.7
       max_tokens: 8192
@@ -50,7 +50,7 @@ models:
     - id: gemini-3.5-flash
       provider: google
       label: "Gemini 3.5 Flash"
-      description: "Google 최신 플래그십 Flash — 에이전트/코딩 특화"
+      description: "Latest flagship Google Flash — specialized for agents/coding"
       enabled: true
       temperature: 0.7
       max_tokens: 8192
@@ -58,7 +58,7 @@ models:
     - id: gemini-3.1-pro-preview
       provider: google
       label: "Gemini 3.1 Pro (Preview)"
-      description: "Google 최고성능 Pro 모델"
+      description: "Top-performance Google Pro model"
       enabled: true
       temperature: 0.7
       max_tokens: 8192
@@ -66,7 +66,7 @@ models:
     - id: gemini-3.1-flash-lite
       provider: google
       label: "Gemini 3.1 Flash Lite"
-      description: "Google 경량 Flash 모델 — 저비용 고속"
+      description: "Lightweight Google Flash model — low cost, high speed"
       enabled: true
       temperature: 0.0
       max_tokens: 4096
@@ -74,7 +74,7 @@ models:
     - id: gemini-2.5-flash
       provider: google
       label: "Gemini 2.5 Flash"
-      description: "Google 이전 세대 Flash (안정적)"
+      description: "Previous-generation Google Flash (stable)"
       enabled: false
       temperature: 0.7
       max_tokens: 8192
@@ -82,7 +82,7 @@ models:
     - id: gemini-2.5-pro
       provider: google
       label: "Gemini 2.5 Pro"
-      description: "Google 이전 세대 Pro (안정적)"
+      description: "Previous-generation Google Pro (stable)"
       enabled: false
       temperature: 0.7
       max_tokens: 8192
@@ -90,7 +90,7 @@ models:
     - id: gpt-4o-mini
       provider: openai
       label: "GPT-4o Mini"
-      description: "빠르고 저렴한 OpenAI 모델"
+      description: "Fast, low-cost OpenAI model"
       enabled: true
       temperature: 0.7
       max_tokens: 4096
@@ -98,7 +98,7 @@ models:
     - id: gpt-4o
       provider: openai
       label: "GPT-4o"
-      description: "OpenAI 플래그십 모델"
+      description: "OpenAI flagship model"
       enabled: true
       temperature: 0.7
       max_tokens: 8192
@@ -106,17 +106,17 @@ models:
     - id: local-model
       provider: local
       label: "Local (Ollama)"
-      description: "local.base_url 로 설정된 로컬 모델"
+      description: "Local model configured via local.base_url"
       enabled: true
       temperature: 0.7
       max_tokens: 4096
 
-    # OpenRouter 모델은 여기 나열하지 않는다 — 카탈로그가 수백 개라 즐겨찾기 화면에서
-    # 골라 server/openrouter_favorites.json 에 저장하고, /api/models가 그것만 동적으로 얹는다.
+    # OpenRouter models are not listed here — the catalog has hundreds, so pick them in the favorites screen
+    # and save to server/openrouter_favorites.json; /api/models layers only those on dynamically.
 
-  # 모델 단가 (USD / 1M tokens). token_usage 이벤트의 cost 계산에 사용.
-  # ※ 추정치 포함 — 실제 청구 단가와 다를 수 있으니 공식 가격표 기준으로 갱신할 것.
-  #   여기 없는 모델은 cost=0으로 집계된다 (토큰 수는 항상 기록됨).
+  # Model prices (USD / 1M tokens). Used to compute cost in token_usage events.
+  # Note: includes estimates — may differ from actual billing rates, so update from the official price list.
+  #   Models not listed here are tallied with cost=0 (token counts are always recorded).
   pricing:
     gemini-3.5-flash: { input: 0.30, output: 2.50 }
     gemini-3.1-flash-lite: { input: 0.10, output: 0.40 }
@@ -126,21 +126,21 @@ models:
     gpt-4o-mini: { input: 0.15, output: 0.60 }
     local-model: { input: 0.0, output: 0.0 }
 
-# ── 로컬 모델 엔드포인트 ─────────────────────────────────────────────────────────
+# ── Local model endpoint ────────────────────────────────────────────────────────
 local:
   base_url: "http://localhost:11434/v1"
 
-# ── 실행 엔진 ────────────────────────────────────────────────────────────────────
+# ── Execution engine ────────────────────────────────────────────────────────────
 execution:
   max_retries: 2
-  node_timeout: 120        # 노드 하나당 최대 실행 시간 (초)
-  llm_retry_count: 1       # LLM 호출 실패(타임아웃/일시오류/출력검증) 시 추가 재시도 횟수
-  escalate_tags:           # 이 태그가 있으면 자동 통과(accept) 금지 → clarify
+  node_timeout: 120        # max run time per node (seconds)
+  llm_retry_count: 1       # extra retries on LLM call failure (timeout/transient error/output validation)
+  escalate_tags:           # if present, auto-accept is forbidden → clarify
     - high-stakes
     - medical
     - legal
 
-# ── UI 기본값 ────────────────────────────────────────────────────────────────────
+# ── UI defaults ─────────────────────────────────────────────────────────────────
 ui:
   theme: dark
   canvas:

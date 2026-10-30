@@ -8,10 +8,10 @@ import type { ServerMessage } from './protocol'
 const TransportContext = createContext<Transport | null>(null)
 
 /**
- * 환경변수 VITE_WS_URL이 있으면 WebSocketTransport, 없으면 MockTransport.
- * 실제 접속 주소는 현재 페이지의 host에서 유도한다(Vite 프록시 /ws → :8000) —
- * 하드코딩된 host를 쓰면 LAN의 다른 기기(예: 태블릿)에서 접속했을 때
- * 그 기기 자신의 localhost를 가리키게 되어 아무 반응 없이 조용히 끊긴다.
+ * WebSocketTransport if the env var VITE_WS_URL is set, otherwise MockTransport.
+ * The actual connection address is derived from the current page's host (Vite proxy /ws → :8000) —
+ * a hardcoded host would point at that device's own localhost when accessed from another
+ * device on the LAN (e.g. a tablet), silently disconnecting with no response.
  */
 function createTransport(): Transport {
   const enabled = import.meta.env.VITE_WS_URL as string | undefined

@@ -1,6 +1,6 @@
 """
 gsm8k-baseline: Input → Reasoning → Output
-검증 구조 없이 단순 추론만 하는 베이스라인.
+A baseline that does plain reasoning only, with no verification structure.
 """
 
 from langchain_core.language_models import BaseChatModel

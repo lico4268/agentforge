@@ -27,7 +27,7 @@ def make_human_checkpoint(
 
         await emit(make_event(run_id, node_id, "interrupt", output=payload))
 
-        # interrupt() 호출로 그래프 정지 — LangGraph가 값을 반환할 때까지 블록
+        # Graph halts via the interrupt() call — blocks until LangGraph returns a value
         decision = interrupt(payload)
 
         action = decision.get("action", "approve")

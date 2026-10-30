@@ -26,11 +26,11 @@ export const EXECUTION_EVENT_TYPES = [
 export const TokenUsageSchema = z.object({
   prompt: z.number(),
   completion: z.number(),
-  /** 실제 사용된 모델명 (관측용) */
+  /** Model name actually used (for observability) */
   model: z.string().optional(),
-  /** 성공한 시도의 인덱스 (0=첫 시도) — 재시도 횟수 표시 */
+  /** Index of the successful attempt (0 = first attempt) — shows retry count */
   attempt: z.number().optional(),
-  /** fallback 모델로 처리됐는지 */
+  /** Whether the call was handled by the fallback model */
   fallbackUsed: z.boolean().optional(),
 })
 export type TokenUsage = z.infer<typeof TokenUsageSchema>
@@ -39,9 +39,9 @@ export type TokenUsage = z.infer<typeof TokenUsageSchema>
 export const PolicyDecisionSchema = z.object({
   activated: z.boolean(),
   reason: z.string(),
-  /** review 노드 판정: accept / refine / clarify */
+  /** review node verdict: accept / refine / clarify */
   branch: z.string().optional(),
-  /** batch_mode에서 clarify → accept 강등 여부 */
+  /** Whether clarify was demoted to accept in batch_mode */
   demoted: z.boolean().optional(),
 })
 export type PolicyDecision = z.infer<typeof PolicyDecisionSchema>
@@ -122,11 +122,11 @@ export type NodeRuntime = {
   lastOutput?: unknown
   policyDecision?: PolicyDecision
   lastError?: ExecutionError
-  /** 마지막 성공 호출의 모델명 (관측용) */
+  /** Model name of the last successful call (for observability) */
   lastModel?: string
-  /** 마지막 성공 호출의 시도 인덱스 (0=첫 시도) — 재시도 표시 */
+  /** Attempt index of the last successful call (0 = first attempt) — shows retries */
   lastAttempt?: number
-  /** 마지막 호출이 fallback 모델로 처리됐는지 */
+  /** Whether the last call was handled by the fallback model */
   fallbackUsed?: boolean
 }
 

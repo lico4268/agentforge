@@ -1,4 +1,4 @@
-"""state.py — loop_runtime 병합 reducer 단위 테스트."""
+"""state.py — unit tests for the loop_runtime merge reducer."""
 
 from state import (
     empty_loop_runtime,
@@ -82,7 +82,7 @@ def test_merge_loop_runtime_replaces_iteration_and_started_at():
 
 def test_merge_loop_runtime_leaves_unset_fields_untouched():
     existing = {"loop-1": {**empty_loop_runtime(), "iteration": 3, "total_tokens": 200}}
-    # 토큰만 기여하는 멤버 노드의 부분 업데이트 — iteration은 그대로 유지돼야 한다.
+    # Partial update from a member node contributing only tokens — iteration must remain unchanged.
     new = {"loop-1": {"total_tokens": 10}}
 
     merged = merge_loop_runtime(existing, new)

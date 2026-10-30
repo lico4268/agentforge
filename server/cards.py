@@ -1,7 +1,7 @@
-"""판단 카드 저장소.
+"""Judgment card store.
 
-카드 파일 I/O는 전부 이 모듈만 통과한다. Phase 3/4에서 쓰기 가능 저장소로 바뀔 때
-이 모듈만 수정하면 된다.
+All card file I/O goes through this module only. When this becomes a writable store in
+Phase 3/4, only this module needs to change.
 """
 
 from pathlib import Path
@@ -29,19 +29,19 @@ class JudgmentCard(CardShell):
 
 
 def _parse_card(path: Path) -> JudgmentCard:
-    """단일 카드 md 파일을 파싱해 JudgmentCard 반환."""
+    """Parse a single card md file and return a JudgmentCard."""
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---"):
-        raise ValueError(f"frontmatter 구분자 없음: {path}")
+        raise ValueError(f"missing frontmatter delimiter: {path}")
     rest = text[3:]
     end = rest.find("\n---")
     if end == -1:
-        raise ValueError(f"frontmatter 종료 구분자 없음: {path}")
+        raise ValueError(f"missing frontmatter closing delimiter: {path}")
     front_text = rest[:end]
     body = rest[end + 4 :].strip()
     fm = yaml.safe_load(front_text)
     if not isinstance(fm, dict):
-        raise ValueError(f"frontmatter가 dict가 아님: {path}")
+        raise ValueError(f"frontmatter is not a dict: {path}")
     return JudgmentCard(
         card_id=fm["card_id"],
         version=fm.get("version", 1),
@@ -54,7 +54,7 @@ def _parse_card(path: Path) -> JudgmentCard:
 
 
 def load_shells(cards_dir: Path = CARDS_DIR) -> list[CardShell]:
-    """디렉토리의 모든 *.md를 파싱해 shell만 반환 (파일명 정렬 순). 디렉토리 없으면 빈 리스트."""
+    """Parse every *.md in the directory, return shells only (filename order). Empty if no dir."""
     if not cards_dir.is_dir():
         return []
     shells: list[CardShell] = []
@@ -62,7 +62,7 @@ def load_shells(cards_dir: Path = CARDS_DIR) -> list[CardShell]:
         try:
             card = _parse_card(path)
         except Exception:
-            logger.warning("카드 파싱 실패, 건너뜀: %s", path)
+            logger.warning("card parse failed, skipping: %s", path)
             continue
         shell_fields = {"card_id", "when_to_use", "match_signals", "pin"}
         shells.append(CardShell(**card.model_dump(include=shell_fields)))
@@ -70,7 +70,7 @@ def load_shells(cards_dir: Path = CARDS_DIR) -> list[CardShell]:
 
 
 def load_cards(card_ids: list[str], cards_dir: Path = CARDS_DIR) -> list[JudgmentCard]:
-    """전체 파싱 후 card_id가 목록에 있는 것만, card_ids 순서대로 반환. 없는 id는 조용히 생략."""
+    """Parse all, return cards whose card_id is in card_ids, in that order. Unknown ids skipped."""
     if not cards_dir.is_dir():
         return []
     by_id: dict[str, JudgmentCard] = {}
@@ -78,7 +78,7 @@ def load_cards(card_ids: list[str], cards_dir: Path = CARDS_DIR) -> list[Judgmen
         try:
             card = _parse_card(path)
         except Exception:
-            logger.warning("카드 파싱 실패, 건너뜀: %s", path)
+            logger.warning("card parse failed, skipping: %s", path)
             continue
         by_id[card.card_id] = card
     return [by_id[cid] for cid in card_ids if cid in by_id]

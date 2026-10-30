@@ -1,13 +1,13 @@
 """
-파일시스템 워크스페이스 — 실행마다 노드 output을 .md 파일로 영속화.
+Filesystem workspace — persist each run's node output as .md files.
 
-디렉토리 구조:
+Directory layout:
     server/workspace/<run_id>/<seq>-<node_id>.md
 
-WSEventEmitter가 node_end 이벤트를 발생시킬 때 write_node_output()을 호출하면
-해당 노드의 output이 markdown 파일로 저장된다.
-프론트는 GET /api/runs/{run_id}/files 로 파일 목록을 조회하고,
-GET /api/runs/{run_id}/files/{name} 으로 내용을 읽어 Markdown 렌더링한다.
+When WSEventEmitter emits a node_end event it calls write_node_output(), which saves
+that node's output as a markdown file.
+The frontend lists files via GET /api/runs/{run_id}/files,
+and reads content via GET /api/runs/{run_id}/files/{name} to render Markdown.
 """
 
 import json
@@ -18,7 +18,7 @@ from logging_config import logger
 
 WORKSPACE_DIR = Path(__file__).parent / "workspace"
 
-# output dict에서 본문으로 사용할 문자열 필드 (우선순위 순)
+# String fields of the output dict used as the body (in priority order)
 _BODY_KEYS = ("answer", "plan", "reasoning", "summary", "result")
 
 
@@ -29,7 +29,7 @@ def _run_dir(run_id: str) -> Path:
 
 
 def _extract_body(output: Any) -> str | None:
-    """output에서 대표 문자열 필드를 추출. 없으면 None."""
+    """Extract the representative string field from output. None if absent."""
     if isinstance(output, str):
         return output
     if isinstance(output, dict):
@@ -41,9 +41,9 @@ def _extract_body(output: Any) -> str | None:
 
 
 def _seq_prefix(run_dir: Path, node_id: str) -> str:
-    """동일 노드 재실행을 고려해 시퀀스 번호를 붙인 파일명 접두부 생성."""
+    """Build a filename prefix with a sequence number, accounting for re-runs of the same node."""
     existing = sorted(run_dir.glob("*-*.md"))
-    # node_id가 이미 존재하는 경우 다음 시퀀스 계산
+    # If node_id already exists, compute the next sequence number
     max_seq = -1
     for f in existing:
         stem = f.stem  # e.g. "0-planning"
@@ -59,7 +59,7 @@ def _seq_prefix(run_dir: Path, node_id: str) -> str:
 
 
 def write_node_output(run_id: str, node_id: str, output: Any) -> Path | None:
-    """노드 output을 markdown 파일로 저장. 성공 시 파일 경로, 실패 시 None."""
+    """Save node output as a markdown file. Returns the file path on success, None on failure."""
     if output is None:
         return None
 
@@ -76,7 +76,7 @@ def write_node_output(run_id: str, node_id: str, output: Any) -> Path | None:
             lines.append(body)
             lines.append("")
 
-        # 본문 외 메타데이터를 코드블록으로 append
+        # Append metadata beyond the body as a code block
         if isinstance(output, dict):
             meta = {k: v for k, v in output.items() if k not in _BODY_KEYS or v != body}
             if meta:
@@ -84,7 +84,7 @@ def write_node_output(run_id: str, node_id: str, output: Any) -> Path | None:
                 lines.append(json.dumps(meta, ensure_ascii=False, indent=2))
                 lines.append("```")
         elif not body:
-            # output이 dict도 string도 아닌 경우
+            # output is neither a dict nor a string
             lines.append("```json")
             lines.append(json.dumps(output, ensure_ascii=False, indent=2, default=str))
             lines.append("```")
@@ -98,14 +98,14 @@ def write_node_output(run_id: str, node_id: str, output: Any) -> Path | None:
 
 
 def list_run_files(run_id: str) -> list[dict]:
-    """run_id 디렉토리의 파일 목록을 반환. camelCase 키 사용 (타입 계약)."""
+    """Return the file list for the run_id directory. Uses camelCase keys (type contract)."""
     run_dir = WORKSPACE_DIR / run_id
     if not run_dir.exists():
         return []
 
     files: list[dict] = []
     for f in sorted(run_dir.glob("*.md")):
-        # 파일명에서 nodeId 추출: "001-planning.md" → "planning"
+        # Extract nodeId from the filename: "001-planning.md" → "planning"
         stem = f.stem
         parts = stem.split("-", 1)
         node_id = parts[1] if len(parts) == 2 else stem
@@ -120,11 +120,11 @@ def list_run_files(run_id: str) -> list[dict]:
 
 
 def read_run_file(run_id: str, name: str) -> dict | None:
-    """단일 파일 내용 반환. 없으면 None."""
+    """Return a single file's content. None if missing."""
     run_dir = WORKSPACE_DIR / run_id
     path = run_dir / name
 
-    # 경로 탈방지 (path traversal)
+    # Path traversal guard
     try:
         path.resolve().relative_to(run_dir.resolve())
     except ValueError:

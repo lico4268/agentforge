@@ -1,8 +1,8 @@
 """arch.yaml → Architecture dict.
 
-flow: 블록은 mermaid flowchart 문법 그대로다 — 자체 문법을 만들지 않는다.
-그래서 같은 문자열을 브라우저 mermaid에 그대로 넘겨 그림을 그릴 수 있고,
-파서는 정규식 하나로 끝난다 (설계 §3.2).
+flow: block is plain mermaid flowchart syntax — we do not invent our own grammar.
+So the same string can be passed straight to browser mermaid to draw the diagram,
+and the parser needs just one regex (design §3.2).
 """
 
 import re
@@ -12,7 +12,7 @@ import yaml
 
 
 class ArchError(ValueError):
-    """arch.yaml 거부 사유. line이 있으면 사용자에게 줄 번호를 보여준다."""
+    """Reason an arch.yaml was rejected. If line is set, the user is shown the line number."""
 
     def __init__(self, message: str, line: int | None = None):
         super().__init__(f"line {line}: {message}" if line else message)
@@ -26,28 +26,28 @@ class FlowEdge(TypedDict):
     line: int
 
 
-# "a -->|label| b --> c" 를 훑는다. 라벨은 대부분 임의 문자열이다 — 예외는 사용자가
-# 만들 수 없는 loop.guard(loopBack/exit)와 human.checkpoint(approve/revise/reject)
-# 뿐이다(설계 §3.1-3).
+# Scans "a -->|label| b --> c". Labels are mostly arbitrary strings — the only exceptions
+# are loop.guard (loopBack/exit) and human.checkpoint (approve/revise/reject), which
+# users cannot create (design §3.1-3).
 _HOP = re.compile(r"\s*-->\s*(?:\|(.*?)\|\s*)?")
 _NAME = re.compile(r"[^\s|>-](?:(?!-->)[^\s|])*")
 
-# mermaid 문서의 첫 줄에 오는 `flowchart LR`/`graph TD` 같은 지시문. `flow:` 블록을
-# GitHub/Obsidian 등에 그대로 붙여넣어 mermaid로 렌더하려면 이 헤더가 필요한데,
-# 우리 파서에는 화살표가 없는 줄이라 예전에는 "expected '-->'"로 거부됐다 — 첫
-# 줄에 한해 건너뛴다(설계 §3.2).
+# Directive on the first line of a mermaid document, such as `flowchart LR`/`graph TD`. Pasting
+# the `flow:` block as-is into GitHub/Obsidian to render it as mermaid requires this header,
+# but to our parser it is a line with no arrow, so it used to be rejected as "expected '-->'" —
+# it is now skipped, for the first line only (design §3.2).
 _DIRECTIVE = re.compile(r"^(flowchart|graph)\b")
 
 
 def parse_flow(text: str, line_offset: int = 0) -> list[FlowEdge]:
-    """text(YAML 블록 스칼라로 추출된 flow: 내용)를 훑어 엣지를 만든다.
+    """Scan text (flow: contents extracted as a YAML block scalar) and build edges.
 
-    line_offset은 text의 1번째 줄이 원본 문서에서 실제로 몇 번째 줄인지를 알려준다
-    (기본 0 — text 자체가 이미 파일 전체라고 가정하는 parse_flow 직접 호출/테스트용).
-    parse_arch는 이 값을 _flow_line_offset으로 미리 계산해 넘긴다 — 그래야 안에서
-    던져지는 ArchError도 성공 경로의 엣지들과 똑같이 파일 기준 줄 번호를 갖는다
-    (BLOCKING 2: 예전에는 성공한 엣지에만 사후 보정을 더해서, 실패 경로는 블록
-    상대 줄 번호가 그대로 새 나갔다)."""
+    line_offset says which line of the original document text's first line actually is
+    (default 0 — for direct parse_flow calls/tests where text is already the whole file).
+    parse_arch precomputes this via _flow_line_offset and passes it in — so any ArchError
+    thrown inside carries a file-relative line number just like the edges on the success path
+    (BLOCKING 2: previously the offset was added after the fact only to successful edges, so
+    on the failure path block-relative line numbers leaked out)."""
     edges: list[FlowEdge] = []
     seen_content = False
     for lineno, raw in enumerate(text.splitlines(), start=1):
@@ -89,7 +89,7 @@ def _parse_flow_line(line: str, lineno: int) -> list[FlowEdge]:
     ]
 
 
-# 사용자가 프롬프트로 만들 수 없는 노드 — 경계와 런타임 장치뿐이다 (설계 §2).
+# Nodes users cannot create with a prompt — only boundaries and runtime devices (design §2).
 PREDEFINED = {
     "input": "io.input",
     "output": "io.output",
@@ -97,14 +97,14 @@ PREDEFINED = {
     "loop.guard": "loop.guard",
 }
 
-# 사용자 정의 노드가 나가는 타입. 매니페스트가 빈 llm_step 노드라 compile_graph가
-# config.inputs/outputs/systemPrompt를 그대로 읽는다 (설계 §4).
+# Type emitted for user-defined nodes. The manifest is an empty llm_step node, so compile_graph
+# reads config.inputs/outputs/systemPrompt as-is (design §4).
 USER_NODE_TYPE = "custom.node"
 
-# compile.py `_branch_labels`(설계 §5)가 분기로 인정하는 타입 — 라벨을 스스로 고를
-# 수단(LLM 구조화 출력 또는 런타임 고유 로직)이 있는 타입만 분기 노드가 될 수 있다.
-# io.input/io.output은 여기 없다 — 라벨을 낼 방법이 없으므로 라벨 2개 이상을 달면
-# 사용자 의도가 조용히 버려진다(Task 3 다이아몬드 버그와 같은 부류).
+# Types that compile.py `_branch_labels` (design §5) accepts as branches — only types that
+# have a way to pick a label themselves (LLM structured output or runtime-specific logic)
+# can be branch nodes. io.input/io.output are not here — they have no way to emit a label,
+# so attaching 2+ labels would silently discard user intent (same class as the Task 3 diamond bug).
 _BRANCH_CAPABLE_TYPES = {USER_NODE_TYPE, "human.checkpoint", "loop.guard"}
 
 
@@ -124,32 +124,34 @@ _FLOW_KEY = re.compile(r"^flow\s*:\s*(.*)$")
 
 
 def _flow_line_offset(text: str) -> int:
-    """flow: 블록의 1번째 줄이 원본 문서에서 몇 번째 줄인지 (parse_flow의 line_offset
-    인자로 그대로 넘긴다).
+    """Which line of the original document the first line of the flow: block is (pass it
+    straight to parse_flow's line_offset argument).
 
-    블록 스칼라(`flow: |`)는 내용이 flow: 다음 줄부터 시작하므로 offset은 flow: 가
-    있는 줄 번호 그대로(내용 1번째 줄 + offset = flow: 줄 + 1). 인라인 스칼라
-    (`flow: "a --> b"`)는 내용이 flow: 와 같은 물리적 줄에 있으므로 offset은
-    한 줄 적어야 한다(내용 1번째 줄 + offset = flow: 줄) — 이 구분이 없으면
-    인라인 스칼라의 줄 번호가 하나씩 밀린다."""
+    A block scalar (`flow: |`) starts its content on the line after flow:, so the offset is
+    the flow: line number itself (content line 1 + offset = flow: line + 1). An inline scalar
+    (`flow: "a --> b"`) has its content on the same physical line as flow:, so the offset
+    must be one less (content line 1 + offset = flow: line) — without this distinction
+    inline scalar line numbers would be off by one."""
     for i, line in enumerate(text.splitlines(), start=1):
         m = _FLOW_KEY.match(line)
         if not m:
             continue
         rest = m.group(1).strip()
         if rest and rest[0] not in "|>":
-            return i - 1  # 인라인 스칼라 — 내용이 이 줄에 있다
-        return i  # 블록 스칼라(| 또는 >) — 내용은 다음 줄부터
+            return i - 1  # inline scalar — content is on this line
+        return i  # block scalar (| or >) — content starts on the next line
     return 0
 
 
 def parse_arch(text: str) -> tuple[dict, list[str]]:
-    """arch.yaml 텍스트 → (Architecture dict, 경고 목록)."""
+    """arch.yaml text → (Architecture dict, list of warnings)."""
     try:
         doc = yaml.safe_load(text) or {}
     except yaml.YAMLError as e:
-        # problem_mark는 전체 문서 기준 0-based 줄 번호 — parse_flow의 결과와 달리
-        # _flow_line_offset을 더하면 안 된다(이미 파일 전체 기준이라 이중 보정이 됨).
+        # problem_mark is a 0-based line number relative to the whole document — unlike
+        # parse_flow's result,
+        # _flow_line_offset must not be added (it is already file-relative, so that would
+        # double-correct).
         mark = getattr(e, "problem_mark", None)
         line = mark.line + 1 if mark is not None else None
         raise ArchError(str(e), line) from e
@@ -158,15 +160,16 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
     default_model = doc.get("model")
 
     flow_edges = parse_flow(flow_text, _flow_line_offset(text))
-    # 노드 리스트 순서 = flow에 처음 등장한 순서. dict.fromkeys는 삽입 순서를 보존하므로
-    # set 컴프리헨션(해시 순서 — 프로세스마다 무작위)보다 이걸 쓴다. Task 3의 back-edge
-    # (루프) 판별이 이 순서를 위상 근사로 쓰기 때문에 결정적이어야 한다.
+    # Node list order = order of first appearance in flow. dict.fromkeys preserves insertion order,
+    # so use it rather than a set comprehension (hash order — random per process). Task 3's
+    # back-edge
+    # (loop) detection uses this order as a topological approximation, so it must be deterministic.
     referenced = dict.fromkeys(
         n for e in flow_edges for n in (e["source"], e["target"])
     )
 
     nodes: list[dict] = []
-    produced: dict[str, str] = {}  # out 이름 → 그걸 만든 노드 id
+    produced: dict[str, str] = {}  # out name → id of the node that produces it
     warnings: list[str] = []
 
     for name in referenced:
@@ -202,7 +205,7 @@ def parse_arch(text: str) -> tuple[dict, list[str]]:
         "metadata": {"name": doc.get("name") or "untitled"},
         "nodes": nodes,
         "edges": edges,
-        "flow": flow_text,  # 프론트 mermaid 렌더용 원본 문자열
+        "flow": flow_text,  # original string for frontend mermaid rendering
     }, warnings
 
 
@@ -255,14 +258,14 @@ def _build_node(
     }
 
 
-# compile.py의 _PRESEEDED_STATE_KEYS와 같은 뜻 — 실행 시작 시 이미 상태에 있는 값들.
+# Same meaning as compile.py's _PRESEEDED_STATE_KEYS — values already in state when the run starts.
 _PRESEEDED = {"task", "task_tags", "intent", "criteria", "batch_mode"}
 
 
 def _validate_inputs(raw_nodes: dict) -> None:
-    """in:이 요구하는 이름마다 nodes: 전체 어딘가에 그걸 만드는 out:이 있는지 확인한다.
-    flow 순서가 아니라 그래프 전체를 보므로, 나중에 실행되는 노드가 루프를 통해
-    피드백을 돌려주는 경우(설계 §5.1)도 정상으로 통과한다 — 진짜 오타만 걸러낸다."""
+    """For every name that in: requires, check that some out: anywhere in nodes: produces it.
+    It looks at the whole graph, not flow order, so a later-running node that feeds back
+    through a loop (design §5.1) also passes — only genuine typos are caught."""
     produced_all = {
         out
         for spec in raw_nodes.values()
@@ -281,21 +284,22 @@ def _validate_inputs(raw_nodes: dict) -> None:
 
 
 def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> None:
-    """compile.py `_branch_labels`(설계 §5)와 같은 규칙 — 나가는 엣지에 라벨이 둘
-    이상이면 분기 노드다 — 을 파서에서 먼저 적용해, 분기할 수 없는 타입(io.input/
-    io.output)에 라벨이 둘 이상 달리면 줄 번호와 함께 거부한다. 같은 노드에서 라벨이
-    중복되는 것도 여기서 함께 막는다 — 둘 다 "쓴 대로 실행되지 않는데 신호가 없는"
-    같은 부류의 함정이기 때문이다.
+    """Same rule as compile.py `_branch_labels` (design §5) — a node with two or more labelled
+    outgoing edges is a branch node — applied first in the parser: if two or more labels are
+    attached to a type that cannot branch (io.input/io.output), reject with a line number.
+    Duplicate labels on the same node are also blocked here — both are the same class of trap,
+    "does not run as written, with no signal".
 
-    flow_edges(사용자가 실제로 mermaid에 쓴 엣지)만 본다 — _insert_guards가 나중에
-    끼워 넣는 합성 loopBack/exit 엣지는 여기 없으므로 자동 삽입 가드는 애초에
-    대상이 아니고, 사용자가 직접 `{ run: loop.guard }`로 꺼낸 가드는 loop.guard
-    타입이라 애초에 분기 가능 목록에 있다.
+    Only looks at flow_edges (the edges the user actually wrote in mermaid) — the synthetic
+    loopBack/exit edges that _insert_guards adds later are not here, so auto-inserted guards
+    are never subject to this, and a guard the user pulled out directly with `{ run: loop.guard }`
+    is already in the branchable list because its type is loop.guard.
 
-    라벨 중복 검사는 compile.py의 branch-wiring 루프에도 똑같이 있다(중복이 아니다) —
-    캔버스에서 저장된 architecture dict는 main.py의 dispatch_graph가 이 파서를 거치지
-    않고 곧장 compile_graph로 넘기므로, 거기서도 반드시 막아야 조용한 엣지 소실을
-    피할 수 있다. 여기(파서)는 arch.yaml 저자에게 줄 번호를 준다는 점만 다르다."""
+    The duplicate-label check also exists in compile.py's branch-wiring loop (not a duplicate) —
+    an architecture dict saved from the canvas goes straight from main.py's dispatch_graph to
+    compile_graph without passing through this parser, so it must be blocked there too to
+    avoid silently dropping edges. The only difference is that here (the parser) gives arch.yaml
+    authors a line number."""
     node_types = {n["id"]: n["type"] for n in nodes}
     labelled_by_source: dict[str, list[tuple[str, int]]] = {}
     unlabelled_by_source: dict[str, list[int]] = {}
@@ -325,9 +329,9 @@ def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> N
                     line,
                 )
             seen[label] = line
-        # 라벨 2개 이상(분기 확정)인데 라벨 없는 나가는 엣지가 하나라도 더 있으면
-        # 그 엣지는 compile.py의 어디에도(plain edge 계획도, 분기 targets dict도)
-        # 안 걸려 조용히 사라진다(BLOCKING 1) — 나가자마자 거부한다.
+        # If there are 2+ labels (branch confirmed) and even one more unlabelled outgoing edge,
+        # that edge is caught nowhere in compile.py (neither the plain edge plan nor the branch
+        # targets dict) and silently vanishes (BLOCKING 1) — reject immediately.
         if node_id in unlabelled_by_source:
             raise ArchError(
                 f"node {node_id!r} branches ({len(labelled)} labelled outgoing edges) "
@@ -341,16 +345,16 @@ DEFAULT_MAX_ITERATIONS = 3
 
 
 def _back_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
-    """DFS로 진짜 사이클을 찾는다 — 방문 중(gray, 현재 재귀 스택 위)인 노드로 향하는
-    엣지만 back edge다 (교과서 정의). 순수 도달가능성("v가 u에 닿는다")을 쓰면 안 된다:
-    fan-out 후 fan-in(다이아몬드)만으로도 사이클이 아닌 정방향 엣지가 뒤로 가는 것처럼
-    보이고(첫 등장 순서가 방문 경로에 좌우되므로), 반대로 사이클 하나에 엣지가 여러 개면
-    (3-cycle이면 3개) 전부 back edge로 잡혀 가드가 중복 삽입된다 — gray-stack 판정이라야
-    사이클 하나당 정확히 하나가 나온다.
+    """Find genuine cycles with DFS — only an edge toward a node in progress (gray, on the
+    current recursion stack) is a back edge (textbook definition). Pure reachability ("v
+    reaches u") must not be used: a fan-out then fan-in (diamond) alone makes non-cycle
+    forward edges look backward (first-appearance order depends on the visit path), and a
+    cycle with several edges (3 for a 3-cycle) would have all of them flagged as back edges,
+    inserting duplicate guards — only the gray-stack test yields exactly one per cycle.
 
-    DFS root와 각 노드의 인접 엣지는 결정성을 위해 각각 nodes/edges 리스트 순서대로
-    순회한다. 첫 root에서 닿지 않는 컴포넌트도 놓치지 않도록 방문 안 한 노드마다
-    새로 DFS를 시작한다.
+    DFS roots and each node's adjacent edges are each traversed in nodes/edges list order
+    for determinism. A fresh DFS starts from every unvisited node so components not reachable
+    from the first root are not missed.
     """
     adjacency: dict[str, list[dict]] = {n["id"]: [] for n in nodes}
     for e in edges:
@@ -360,10 +364,12 @@ def _back_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
     color = dict.fromkeys((n["id"] for n in nodes), WHITE)
     back: list[dict] = []
 
-    # 재귀 DFS를 명시적 스택으로 편다 — 긴 직선 체인(수백~수천 노드)에서 파이썬 기본
-    # 재귀 한도(1000)를 넘겨 RecursionError로 파싱 전체가 죽는 걸 막는다. 프레임은
-    # [node_id, 다음에 볼 인접 엣지 인덱스] — 재귀 버전과 동일한 순서로 색을 칠하고
-    # 동일한 시점에 엣지를 훑으므로 back edge 판정 결과는 재귀 버전과 완전히 같다.
+    # Unroll the recursive DFS into an explicit stack — avoids RecursionError killing the whole
+    # parse when a long straight chain (hundreds to thousands of nodes) exceeds Python's default
+    # recursion limit (1000). A frame is [node_id, index of next adjacent edge] — colours are
+    # painted
+    # and edges scanned in the same order as the recursive version, so back-edge results are
+    # identical.
     for start in nodes:
         start_id = start["id"]
         if color[start_id] != WHITE:
@@ -391,7 +397,7 @@ def _back_edges(nodes: list[dict], edges: list[dict]) -> list[dict]:
 
 
 def _terminal_node_id(nodes: list[dict], edges: list[dict]) -> str:
-    """나가는 엣지가 없는 노드. 정확히 하나여야 한다."""
+    """The node with no outgoing edges. There must be exactly one."""
     sources = {e["source"] for e in edges}
     terminals = [n["id"] for n in nodes if n["id"] not in sources]
     if len(terminals) != 1:
@@ -404,7 +410,7 @@ def _terminal_node_id(nodes: list[dict], edges: list[dict]) -> str:
 
 
 def _insert_guards(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], list[dict]]:
-    """가드 없는 뒤로 가는 엣지마다 기본 가드를 끼운다 (설계 §5.1).
+    """Insert a default guard on every back edge that has none (design §5.1).
 
     a -->|retry| b  ⇒  a -->|retry| __guard_N,
                         __guard_N -->|loopBack| b, __guard_N -->|exit| <terminal>
@@ -426,7 +432,7 @@ def _insert_guards(nodes: list[dict], edges: list[dict]) -> tuple[list[dict], li
                     "kind": "critiqueRevise",
                     "maxIterations": DEFAULT_MAX_ITERATIONS,
                     "onExhaustion": "exit",
-                    "synthetic": True,  # 대시보드가 "기본값"으로 표시하는 근거
+                    "synthetic": True,  # basis for the dashboard showing this as "default"
                 },
             }
         )

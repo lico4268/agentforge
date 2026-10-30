@@ -10,9 +10,9 @@ import { ArchitectureSchema, ExecutionEventSchema } from '@/types'
 export const ClientMessageSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('run'),
-    // 캔버스 시절 architecture(JSON)와, 텍스트 우선 arch.yaml 파일명 archFile은
-    // 상호 배타적 — 백엔드는 architecture가 있으면 그걸 우선한다(server/main.py
-    // ws_run). Dashboard는 archFile만 보낸다.
+    // The canvas-era architecture (JSON) and the text-first arch.yaml file name archFile are
+    // mutually exclusive — the backend prefers architecture when present (server/main.py
+    // ws_run). Dashboard sends only archFile.
     architecture: ArchitectureSchema.optional(),
     archFile: z.string().optional(),
     input: z.object({
@@ -26,7 +26,7 @@ export const ClientMessageSchema = z.discriminatedUnion('kind', [
     }).optional(),
   }),
   z.object({ kind: z.literal('stop'), runId: z.string() }),
-  // Human Checkpoint 재개 (backend-spec.md §5)
+  // Human Checkpoint resume (backend-spec.md §5)
   z.object({
     kind: z.literal('resume'),
     runId: z.string(),
@@ -37,7 +37,7 @@ export const ClientMessageSchema = z.discriminatedUnion('kind', [
       reason: z.string().optional(),
     }),
   }),
-  // 재접속 시 이벤트 스냅샷 요청
+  // Request an event snapshot on reconnect
   z.object({ kind: z.literal('reconnect'), runId: z.string() }),
   // v0.3
   z.object({ kind: z.literal('rerun_from'), runId: z.string(), nodeId: z.string() }),
@@ -50,7 +50,7 @@ export const ServerMessageSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('event'), event: ExecutionEventSchema }),
   z.object({ kind: z.literal('state'), runId: z.string().optional(), snapshot: z.unknown() }),
   z.object({ kind: z.literal('error'), runId: z.string().optional(), message: z.string() }),
-  // 실행 시작/완료
+  // Run start/completion
   z.object({ kind: z.literal('run_started'), runId: z.string() }),
   z.object({
     kind: z.literal('run_complete'),
@@ -61,7 +61,7 @@ export const ServerMessageSchema = z.discriminatedUnion('kind', [
       reviewBranch: z.string().nullable().optional(),
     }),
   }),
-  // Human Checkpoint 정지 알림 (backend-spec.md §5)
+  // Human Checkpoint pause notification (backend-spec.md §5)
   z.object({
     kind: z.literal('interrupt'),
     runId: z.string(),

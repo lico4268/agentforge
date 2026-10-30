@@ -1,9 +1,9 @@
-"""LoopPolicy.guard 5축(iteration/token/cost/duration/stuck) 순수 평가 로직.
+"""Pure evaluation logic for the 5 LoopPolicy.guard axes (iteration/token/cost/duration/stuck).
 
-LangGraph·이벤트 방출과 완전히 분리돼 있다 — graphs/compile.py의
-_make_loop_guard_node가 이 모듈을 호출해 실제 그래프 라우팅에 반영한다.
-새 가드 축이 추가되면 여기와 state.LoopRuntimeState만 넓히면 되고, 컴파일러
-배선(어떤 노드 타입이 가드를 받는지)은 다시 건드릴 필요가 없다.
+Fully decoupled from LangGraph and event emission — _make_loop_guard_node in graphs/compile.py
+calls this module and applies the result to actual graph routing.
+When a new guard axis is added, only this module and state.LoopRuntimeState need widening; the
+compiler wiring (which node types receive a guard) doesn't need to be touched again.
 """
 
 import time
@@ -20,10 +20,10 @@ class GuardResult(TypedDict):
 
 
 def evaluate_loop_guard(policy: dict, runtime: LoopRuntimeState) -> GuardResult:
-    """policy["guard"]의 축을 순서대로 확인한다. 하나라도 트립되면 즉시 종료 판정.
+    """Check the axes in policy["guard"] in order. If any trips, the verdict is to stop immediately.
 
-    runtime은 이번 패스분(iteration 증가분 포함)까지 반영된 값을 넘겨야 한다
-    (next_runtime()이 만든 값). 이 함수 자체는 iteration을 증가시키지 않는다.
+    runtime must be passed with this pass's values already reflected (incl. the iteration increment)
+    (the value built by next_runtime()). This function itself does not increment iteration.
     """
     guard = policy.get("guard") or {}
 
@@ -51,8 +51,8 @@ def evaluate_loop_guard(policy: dict, runtime: LoopRuntimeState) -> GuardResult:
 
 
 def _is_stuck(progress_history: list[float], stuck_cfg: dict) -> bool:
-    """window 구간의 진행 신호(낮을수록 좋음, 예: unmet 기준 개수) 개선폭이
-    threshold 미만이면 stuck. 기록이 window보다 적으면 아직 판단하지 않는다.
+    """Stuck if the improvement in the progress signal over the window (lower is better, e.g. unmet
+    criteria count) is below threshold. Not judged yet if there are fewer records than the window.
     """
     window = int(stuck_cfg.get("window", 0))
     threshold = float(stuck_cfg.get("threshold", 0))
@@ -64,7 +64,7 @@ def _is_stuck(progress_history: list[float], stuck_cfg: dict) -> bool:
 
 
 def next_runtime(prior: LoopRuntimeState | None) -> LoopRuntimeState:
-    """가드 진입 시 호출 — iteration을 1 증가시키고 started_at을 최초 1회만 고정한다."""
+    """Called on guard entry — increments iteration by 1 and pins started_at only the first time."""
     base = prior or empty_loop_runtime()
     return {
         "iteration": base["iteration"] + 1,

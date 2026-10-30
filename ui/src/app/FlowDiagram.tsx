@@ -3,10 +3,10 @@ import { useEffect, useRef } from 'react'
 
 mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
 
-/** arch.yaml의 flow 문자열을 그대로 렌더한다 — 변환 코드 없음 (설계 §3.2).
- * 실행 상태는 classDef 한 줄을 덧붙여 색칠한다. `statuses`는 이미
- * (Dashboard의 `deriveFlowStatuses`에서) flow에 실제로 등장하는 nodeId로
- * 걸러져서 들어온다고 가정한다. */
+/** Renders the arch.yaml flow string as-is — no conversion code (design §3.2).
+ * Execution status is coloured by appending a single classDef line. `statuses` is assumed
+ * to have already been filtered (in the Dashboard's `deriveFlowStatuses`) to nodeIds that
+ * actually appear in the flow. */
 export function FlowDiagram({
   flow,
   statuses,
@@ -20,9 +20,9 @@ export function FlowDiagram({
     const classes = Object.entries(statuses)
       .map(([nodeId, status]) => `class ${nodeId} ${status}`)
       .join('\n')
-    // arch.yaml 저자가 flow: 블록 첫 줄에 이미 flowchart/graph 지시문을 적어뒀으면
-    // (GitHub/Obsidian에 그대로 붙여넣어 렌더되게 하려고, 설계 §3.2) 우리가 또
-    // 하나 앞에 붙이지 않는다 — mermaid는 지시문 두 줄을 허용하지 않는다.
+    // If the arch.yaml author already wrote a flowchart/graph directive on the first line of the
+    // flow: block (so it renders when pasted into GitHub/Obsidian as-is, design §3.2), we don't
+    // prepend another one — mermaid doesn't allow two directive lines.
     const hasDirective = /^\s*(flowchart|graph)\b/.test(flow)
     const source = [
       ...(hasDirective ? [] : ['flowchart LR']),

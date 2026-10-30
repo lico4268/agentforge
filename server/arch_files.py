@@ -1,7 +1,8 @@
-"""arch.yaml 파일 저장소 — server/arch/ 아래의 .yaml 파일을 읽는다.
+"""arch.yaml file store — reads the .yaml files under server/arch/.
 
-/api/architectures(JSON 저장소)와 같은 파일 기반 패턴이되, 이쪽은 사람이 에디터로
-편집하는 원본이라 쓰기 API가 없다 (설계 §7 — 저작은 브라우저 밖에서 한다).
+Same file-based pattern as /api/architectures (JSON store), but this one is the original that
+humans edit in an editor, so there is no write API (design §7 — authoring happens outside the
+browser).
 """
 
 from pathlib import Path
@@ -12,12 +13,12 @@ ARCH_DIR = Path(__file__).parent / "arch"
 
 
 def _resolve(name: str) -> Path:
-    """이름 하나를 ARCH_DIR 안의 실제 경로로 해석한다.
+    """Resolve a name to an actual path inside ARCH_DIR.
 
-    패턴 매칭("/" 포함 여부 등)만으로는 URL 인코딩된 구분자나 심볼릭 링크를 못
-    잡는다 — 그래서 최종적으로 resolve()한 절대경로가 ARCH_DIR 밑에 실제로 있는지
-    포함 관계로 확인한다. 이게 진짜 방어선이고, 앞의 문자 검사는 애매한 이름을
-    조기에 걸러 에러 메시지를 명확하게 하기 위한 것일 뿐이다.
+    Pattern matching alone (e.g. checking for "/") cannot catch URL-encoded separators or
+    symlinks — so finally we confirm by containment that the resolve()d absolute path really lies
+    under ARCH_DIR. That is the real line of defence; the earlier character checks only
+    filter ambiguous names early so the error message is clearer.
     """
     if "\x00" in name:
         raise ValueError(f"invalid arch file name: {name!r}")
@@ -39,8 +40,9 @@ def list_arch_files() -> list[dict]:
         try:
             size = p.stat().st_size
         except OSError:
-            # 끊어진 심볼릭 링크 등 stat()이 실패하는 항목 하나 때문에 목록 전체가
-            # 죽으면 안 된다 — 그 항목만 건너뛴다.
+            # A single entry on which stat() fails, such as a broken symlink, must not kill the
+            # whole
+            # list — skip only that entry.
             continue
         result.append({"name": p.name, "size": size})
     return result

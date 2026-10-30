@@ -23,7 +23,7 @@ describe('NodeProgress', () => {
     render(
       <NodeProgress
         entries={[
-          { nodeId: '승인', status: 'paused', durationMs: null, output: null },
+          { nodeId: 'signoff', status: 'paused', durationMs: null, output: null },
           { nodeId: 'reasoning', status: 'done', durationMs: 10, output: null },
         ]}
         onResume={() => {}}

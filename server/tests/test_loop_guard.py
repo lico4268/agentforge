@@ -1,4 +1,4 @@
-"""nodes/loop_guard.py — 순수 가드 평가 함수 단위 테스트. LangGraph 의존 없음."""
+"""nodes/loop_guard.py — unit tests for the pure guard evaluation function. No LangGraph needed."""
 
 import time
 
@@ -64,16 +64,16 @@ def test_stuck_trips_when_progress_history_plateaus():
     runtime = {
         **empty_loop_runtime(),
         "iteration": 3,
-        "progress_history": [4.0, 4.0, 4.0],  # 3회 동안 개선 없음
+        "progress_history": [4.0, 4.0, 4.0],  # no improvement over 3 passes
     }
     result = evaluate_loop_guard(policy, runtime)
     assert result == {"should_continue": False, "exit_reason": "stuck"}
 
 
 def test_stuck_trips_on_flat_plateau_with_omitted_threshold():
-    """threshold 생략(합법 설정)에서 완전 정체(improvement==0)도 stuck으로 잡혀야 한다.
-    threshold 기본값이 0인 채로 `improvement < threshold`였다면 0 < 0 == False라
-    이 케이스를 놓쳤을 것 — `<=`로 고쳐 이 회귀를 방지한다."""
+    """Complete stagnation (improvement==0) must be caught as stuck when threshold is omitted.
+    With the threshold default of 0 and `improvement < threshold`, 0 < 0 == False would
+    have missed this case — fixed to `<=` to prevent this regression."""
     policy = _policy(stuck={"window": 3})
     runtime = {
         **empty_loop_runtime(),
@@ -96,7 +96,7 @@ def test_stuck_does_not_trip_when_improving():
     runtime = {
         **empty_loop_runtime(),
         "iteration": 3,
-        "progress_history": [4.0, 2.0, 0.0],  # 개선폭 4 >= threshold 1
+        "progress_history": [4.0, 2.0, 0.0],  # improvement 4 >= threshold 1
     }
     result = evaluate_loop_guard(policy, runtime)
     assert result["should_continue"] is True
@@ -109,4 +109,4 @@ def test_next_runtime_increments_iteration_and_fixes_started_at():
 
     second = next_runtime(first)
     assert second["iteration"] == 2
-    assert second["started_at"] == first["started_at"]  # 최초 시각 고정
+    assert second["started_at"] == first["started_at"]  # first timestamp is pinned

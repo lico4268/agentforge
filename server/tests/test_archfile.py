@@ -13,24 +13,24 @@ def test_simple_chain_splits_into_edges():
 
 
 def test_labelled_edge_keeps_label_verbatim():
-    edges = parse_flow("review -->|재시도| reasoning")
+    edges = parse_flow("review -->|retry| reasoning")
     assert edges[0] == {
         "source": "review",
         "target": "reasoning",
-        "label": "재시도",
+        "label": "retry",
         "line": 1,
     }
 
 
 def test_blank_lines_and_comments_ignored():
-    edges = parse_flow("a --> b\n\n%% 주석\n  \nb --> c")
+    edges = parse_flow("a --> b\n\n%% comment\n  \nb --> c")
     assert len(edges) == 2
     assert edges[1]["line"] == 5
 
 
 def test_unicode_node_names_allowed():
-    edges = parse_flow("입력 --> 초안 --> 출력")
-    assert [e["source"] for e in edges] == ["입력", "초안"]
+    edges = parse_flow("intake --> draft --> done")
+    assert [e["source"] for e in edges] == ["intake", "draft"]
 
 
 def test_malformed_line_raises_with_line_number():
@@ -47,23 +47,24 @@ def test_label_only_on_first_hop_of_chain():
 
 
 def test_leading_flowchart_directive_is_skipped():
-    """item 5(§3.2): `flow:` 블록을 GitHub/Obsidian 등에 그대로 붙여넣어 mermaid로
-    렌더하려면 `flowchart LR` 같은 헤더가 필요한데, 이 줄은 화살표가 없어 예전에는
-    파서가 "expected '-->'"로 거부했다 — 첫 줄에 한해 `flowchart`/`graph` 지시문을
-    건너뛴다."""
+    """item 5 (§3.2): pasting a `flow:` block as-is into GitHub/Obsidian etc. to render it as
+    mermaid needs a header like `flowchart LR`, but that line has no arrow, so the
+    parser used to reject it as "expected '-->'" — the `flowchart`/`graph` directive is now
+    skipped for the first line only."""
     edges = parse_flow("flowchart LR\n  a --> b")
     assert [(e["source"], e["target"], e["label"]) for e in edges] == [("a", "b", "")]
 
 
 def test_leading_graph_directive_is_skipped():
-    """mermaid의 구식 `graph` 지시문(`flowchart`의 별칭)도 첫 줄이면 건너뛴다."""
+    """mermaid's legacy `graph` directive (an alias of `flowchart`) is also skipped on the first
+    line."""
     edges = parse_flow("graph TD\n  a --> b")
     assert [(e["source"], e["target"], e["label"]) for e in edges] == [("a", "b", "")]
 
 
 def test_flowchart_directive_only_skipped_as_first_line():
-    """지시문은 첫 줄에서만 유효하다 — 노드 이름으로 "flowchart"를 쓰는 극단적
-    케이스까지 삼키면 안 된다."""
+    """The directive is valid only on the first line — it must not swallow even the extreme
+    case of using "flowchart" as a node name."""
     with pytest.raises(ArchError):
         parse_flow("a --> b\nflowchart LR")
 
@@ -100,32 +101,32 @@ def test_trailing_arrow_raises():
 
 
 STARTER = """
-name: 테스트 그래프
+name: test graph
 model: google/gemini-3.1-flash-lite
 
 flow: |
-  input --> 초안 --> 검토 --> output
+  input --> draft --> review --> output
 
 nodes:
-  초안:
+  draft:
     in:  [task]
     out: [draft]
-    prompt: 빠르게 답을 내라.
-  검토:
+    prompt: Answer quickly.
+  review:
     in:  [task, draft]
     out: [answer]
     model: anthropic/claude-opus-5
-    prompt: 허점을 짚어 고쳐라.
+    prompt: Find the flaws and fix them.
 """
 
 
 def test_user_nodes_become_custom_node_type():
     arch, _ = parse_arch(STARTER)
     by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["초안"]["type"] == "custom.node"
-    assert by_id["초안"]["config"]["systemPrompt"] == "빠르게 답을 내라."
-    assert by_id["초안"]["config"]["outputs"] == [{"id": "draft", "label": "draft"}]
-    assert by_id["초안"]["config"]["inputs"] == [{"id": "task", "label": "task"}]
+    assert by_id["draft"]["type"] == "custom.node"
+    assert by_id["draft"]["config"]["systemPrompt"] == "Answer quickly."
+    assert by_id["draft"]["config"]["outputs"] == [{"id": "draft", "label": "draft"}]
+    assert by_id["draft"]["config"]["inputs"] == [{"id": "task", "label": "task"}]
 
 
 def test_boundary_nodes_get_predefined_types():
@@ -138,10 +139,10 @@ def test_boundary_nodes_get_predefined_types():
 def test_node_model_overrides_default():
     arch, _ = parse_arch(STARTER)
     by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["초안"]["config"]["modelSlots"][0]["model"] == "gemini-3.1-flash-lite"
-    assert by_id["초안"]["config"]["modelSlots"][0]["provider"] == "google"
-    assert by_id["검토"]["config"]["modelSlots"][0]["model"] == "claude-opus-5"
-    assert by_id["검토"]["config"]["modelSlots"][0]["provider"] == "anthropic"
+    assert by_id["draft"]["config"]["modelSlots"][0]["model"] == "gemini-3.1-flash-lite"
+    assert by_id["draft"]["config"]["modelSlots"][0]["provider"] == "google"
+    assert by_id["review"]["config"]["modelSlots"][0]["model"] == "claude-opus-5"
+    assert by_id["review"]["config"]["modelSlots"][0]["provider"] == "anthropic"
 
 
 def test_edges_carry_label_as_source_role():
@@ -178,14 +179,14 @@ flow: |
   a --> b
 nodes:
   a: { out: [x], prompt: p }
-  b: { in: [나없음], out: [y], prompt: q }
+  b: { in: [missing], out: [y], prompt: q }
 """)
-    assert "나없음" in str(exc.value)
+    assert "missing" in str(exc.value)
 
 
 def test_feedback_loop_input_with_no_upstream_producer_in_flow_order_parses():
-    # reasoning은 flow 순서상 review보다 먼저 나오지만 review가 나중에 feedback을
-    # 만든다 — 루프로 피드백이 돌아오는 정상 케이스(설계 §5.1)이지 오타가 아니다.
+    # reasoning comes before review in flow order, but review produces the feedback later
+    # — a normal case of feedback returning through a loop (design §5.1), not a typo.
     arch, _ = parse_arch("""
 flow: |
   a --> reasoning --> review --> output
@@ -202,8 +203,10 @@ nodes:
 
 
 def test_prompt_text_resembling_yaml_syntax_round_trips_byte_for_byte():
-    # 삭제된 '?' 전처리는 원본 텍스트 전체를 건드렸었다 — 이제 전처리 자체가 없으니
-    # in:/out: 문법을 흉내 낸 프롬프트 텍스트든 자연어 물음표든 손대지 않아야 한다.
+    # The deleted '?' preprocessing used to touch the whole original text — now that there is no
+    # preprocessing,
+    # neither prompt text mimicking in:/out: syntax nor natural-language question marks should be
+    # touched.
     arch, _ = parse_arch("""
 flow: |
   a --> b
@@ -212,12 +215,12 @@ nodes:
   b:
     in:  [x]
     out: [y]
-    prompt: "약속대로 in: [a?, b] out: [c?] 형태를 써도 되나? 정말 되나?"
+    prompt: "As promised, may I use the in: [a?, b] out: [c?] form? Really?"
 """)
     by_id = {n["id"]: n for n in arch["nodes"]}
     assert (
         by_id["b"]["config"]["systemPrompt"]
-        == "약속대로 in: [a?, b] out: [c?] 형태를 써도 되나? 정말 되나?"
+        == "As promised, may I use the in: [a?, b] out: [c?] form? Really?"
     )
 
 
@@ -236,13 +239,13 @@ nodes:
 def test_predefined_run_node():
     arch, _ = parse_arch("""
 flow: |
-  a --> 승인 --> output
+  a --> approval --> output
 nodes:
   a: { out: [x], prompt: p }
-  승인: { run: human.checkpoint }
+  approval: { run: human.checkpoint }
 """)
     by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["승인"]["type"] == "human.checkpoint"
+    assert by_id["approval"]["type"] == "human.checkpoint"
 
 
 def test_unknown_run_value_raises():
@@ -285,13 +288,13 @@ def test_parsed_arch_compiles_with_compile_graph():
 
 LOOPED = """
 flow: |
-  input --> 풀이 --> 검토
-  검토 -->|ok|    output
-  검토 -->|retry| 풀이
+  input --> solve --> review
+  review -->|ok|    output
+  review -->|retry| solve
 
 nodes:
-  풀이:  { in: [task, feedback], out: [answer], prompt: 풀어라 }
-  검토:  { in: [task, answer],    out: [verdict, feedback], prompt: 검토하라 }
+  solve:  { in: [task, feedback], out: [answer], prompt: Solve it }
+  review:  { in: [task, answer],    out: [verdict, feedback], prompt: Review it }
 """
 
 
@@ -308,24 +311,24 @@ def test_inserted_guard_is_wired_between_and_to_terminal():
     by_src = {}
     for e in arch["edges"]:
         by_src.setdefault(e["source"], []).append(e)
-    # 검토 --retry--> __guard_1 로 바뀌었고 풀이로 직접 가지 않는다
-    retry = [e for e in by_src["검토"] if e["sourceRole"] == "retry"][0]
+    # review --retry--> now goes to __guard_1 and does not go directly to solve
+    retry = [e for e in by_src["review"] if e["sourceRole"] == "retry"][0]
     assert retry["target"] == "__guard_1"
     guard_targets = {e["sourceRole"]: e["target"] for e in by_src["__guard_1"]}
-    assert guard_targets == {"loopBack": "풀이", "exit": "output"}
+    assert guard_targets == {"loopBack": "solve", "exit": "output"}
 
 
 def test_explicit_guard_is_left_alone():
     arch, _ = parse_arch("""
 flow: |
-  input --> 풀이 --> 검토
-  검토 -->|ok|    output
-  검토 -->|retry| retry5
-  retry5 -->|loopBack| 풀이
+  input --> solve --> review
+  review -->|ok|    output
+  review -->|retry| retry5
+  retry5 -->|loopBack| solve
   retry5 -->|exit|     output
 nodes:
-  풀이:   { in: [task], out: [answer], prompt: p }
-  검토:   { in: [answer], out: [verdict], prompt: q }
+  solve:   { in: [task], out: [answer], prompt: p }
+  review:   { in: [answer], out: [verdict], prompt: q }
   retry5: { run: loop.guard, max: 5 }
 """)
     guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
@@ -337,13 +340,13 @@ def test_ambiguous_exit_raises():
     with pytest.raises(ArchError) as exc:
         parse_arch("""
 flow: |
-  input --> 풀이 --> 검토
-  검토 -->|a| out1
-  검토 -->|b| out2
-  검토 -->|retry| 풀이
+  input --> solve --> review
+  review -->|a| out1
+  review -->|b| out2
+  review -->|retry| solve
 nodes:
-  풀이: { in: [task], out: [answer], prompt: p }
-  검토: { in: [answer], out: [v], prompt: q }
+  solve: { in: [task], out: [answer], prompt: p }
+  review: { in: [answer], out: [v], prompt: q }
   out1: { run: output }
   out2: { run: output }
 """)
@@ -362,8 +365,9 @@ def test_looped_arch_compiles():
 
 
 def test_diamond_fan_in_is_not_mistaken_for_a_loop():
-    # a와 b가 각자 c로 모이는 순수 fan-in. flow 첫 등장 순서로는 (input, a, c, b, output)라
-    # b --> c가 "뒤로 가는" 것처럼 보이지만, 실제로는 사이클이 전혀 없다.
+    # Pure fan-in: a and b each converge on c. In first-appearance order from flow it is
+    # (input, a, c, b, output), so b --> c looks like it "goes backward", yet there is no cycle at
+    # all.
     arch, _ = parse_arch("""
 flow: |
   input --> a --> c
@@ -427,8 +431,10 @@ nodes:
 
 
 def test_cycle_in_unreachable_component_is_still_detected():
-    # input->output는 첫 DFS root에서 전부 방문되고 끝난다. x/y 사이클은 거기서 전혀
-    # 도달되지 않는 별도 컴포넌트라, root를 nodes 순서대로 전부 순회하지 않으면 놓친다.
+    # input->output is fully visited and finished from the first DFS root. The x/y cycle is a
+    # separate
+    # component unreachable from there, so it is missed unless every root is iterated in nodes
+    # order.
     arch, _ = parse_arch("""
 flow: |
   input --> output
@@ -442,8 +448,10 @@ nodes:
 
 
 def test_long_straight_chain_does_not_recurse():
-    # 재귀 DFS였다면 파이썬 기본 재귀 한도(1000)를 넘는 이 직선 체인에서
-    # RecursionError로 파싱 전체가 죽었을 것 — 사이클이 전혀 없어도 노드 수만으로 터진다.
+    # A recursive DFS would have killed the whole parse with RecursionError on this straight chain,
+    # which
+    # exceeds Python's default recursion limit (1000) — it blows up from node count alone, with no
+    # cycle at all.
     n = 2000
     names = [f"n{i}" for i in range(n)]
     flow_line = " --> ".join(["input", *names, "output"])
@@ -458,9 +466,9 @@ def test_long_straight_chain_does_not_recurse():
 
 
 def test_labelled_fanout_from_input_raises_with_line_number():
-    """io.input은 라벨을 스스로 고를 방법이 없다 — 라벨 2개는 사용자 의도가 조용히
-    버려지는 함정(Task 3 다이아몬드 버그와 같은 부류)이므로 파서가 줄 번호와 함께
-    거부한다."""
+    """io.input has no way to pick a label itself — two labels is a trap that silently
+    discards user intent (same class as the Task 3 diamond bug), so the parser
+    rejects it with a line number."""
     with pytest.raises(ArchError) as exc:
         parse_arch("""
 flow: |
@@ -475,12 +483,12 @@ nodes:
     message = str(exc.value)
     assert "input" in message
     assert "cannot branch" in message
-    # flow: 블록은 문서 3번째 줄에서 시작하고, "input -->|a| x"가 그 다음 줄이다.
+    # The flow: block starts on line 3 of the document, and "input -->|a| x" is the next line.
     assert exc.value.line == 3
 
 
 def test_single_labelled_edge_out_of_input_parses_fine():
-    """라벨 하나는 분기가 아니다 — 어디로 갈지 모호하지 않으므로 거부할 이유가 없다."""
+    """One label is not a branch — where it goes is unambiguous, so there is no reason to reject."""
     arch, _ = parse_arch("""
 flow: |
   input -->|start| x
@@ -492,8 +500,8 @@ nodes:
 
 
 def test_looped_fixture_with_auto_inserted_guard_still_parses():
-    """__guard_1(자동 삽입)은 loopBack/exit 라벨 2개를 갖지만 loop.guard 타입이라
-    분기 가능 — LOOPED 픽스처가 여전히 깨끗하게 파싱돼야 한다."""
+    """__guard_1 (auto-inserted) has two labels, loopBack/exit, but is of type loop.guard so
+    it can branch — the LOOPED fixture must still parse cleanly."""
     arch, warnings = parse_arch(LOOPED)
     assert warnings == []
     guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
@@ -502,19 +510,20 @@ def test_looped_fixture_with_auto_inserted_guard_still_parses():
 
 
 def test_explicit_loop_guard_with_loopback_exit_labels_parses_fine():
-    """사용자가 직접 `{ run: loop.guard }`로 꺼낸 가드도 loopBack/exit 라벨 2개를
-    갖지만 loop.guard 타입이라 분기 가능 — test_explicit_guard_is_left_alone과 같은
-    모양이지만 이 파일의 분기-가능 검증 관점에서 명시적으로 확인해둔다."""
+    """A guard the user pulled out directly with `{ run: loop.guard }` also carries the two
+    loopBack/exit labels but is of type loop.guard, so it can branch — same shape as
+    test_explicit_guard_is_left_alone, checked explicitly here from this file's branchable-type
+    angle."""
     arch, _ = parse_arch("""
 flow: |
-  input --> 풀이 --> 검토
-  검토 -->|ok|    output
-  검토 -->|retry| retry5
-  retry5 -->|loopBack| 풀이
+  input --> solve --> review
+  review -->|ok|    output
+  review -->|retry| retry5
+  retry5 -->|loopBack| solve
   retry5 -->|exit|     output
 nodes:
-  풀이:   { in: [task], out: [answer], prompt: p }
-  검토:   { in: [answer], out: [verdict], prompt: q }
+  solve:   { in: [task], out: [answer], prompt: p }
+  review:   { in: [answer], out: [verdict], prompt: q }
   retry5: { run: loop.guard, max: 5 }
 """)
     guards = [n for n in arch["nodes"] if n["type"] == "loop.guard"]
@@ -522,61 +531,64 @@ nodes:
 
 
 def test_human_checkpoint_with_two_labelled_edges_parses_fine():
-    """human.checkpoint는 런타임(사람의 승인/거부)이 라벨을 정하므로 분기 가능.
-    reject를 별도 종단(output2)으로 보내 사이클(따라서 가드 삽입)을 피하고
-    분기-가능 검증만 순수하게 확인한다."""
+    """human.checkpoint can branch because the runtime (human approve/reject) decides the label.
+    Sending reject to a separate terminal (output2) avoids a cycle (and thus guard insertion),
+    so only the branchable-type validation is checked, in isolation."""
     arch, _ = parse_arch("""
 flow: |
-  input --> x --> 승인
-  승인 -->|approve| output
-  승인 -->|reject|  output2
+  input --> x --> approval
+  approval -->|approve| output
+  approval -->|reject|  output2
 nodes:
   x: { in: [task], out: [draft], prompt: p }
   output2: { run: output }
-  승인: { run: human.checkpoint }
+  approval: { run: human.checkpoint }
 """)
     by_id = {n["id"]: n for n in arch["nodes"]}
-    assert by_id["승인"]["type"] == "human.checkpoint"
+    assert by_id["approval"]["type"] == "human.checkpoint"
 
 
 def test_duplicate_branch_label_on_same_node_raises_with_line_number():
-    """같은 노드에서 라벨이 중복되면(둘 다 "ok") dict 컴프리헨션에서 하나로 뭉개져
-    다른 쪽 엣지가 도달 불가능해진다 — 파서가 두 번째 발생 줄 번호와 함께 거부한다."""
+    """If a label is duplicated on the same node (both "ok"), the dict comprehension collapses
+    them into one and the other edge becomes unreachable — the parser rejects it with the line
+    number of the second occurrence."""
     with pytest.raises(ArchError) as exc:
         parse_arch("""
 flow: |
-  input --> 판단
-  판단 -->|ok| output
-  판단 -->|ok| other
+  input --> judge
+  judge -->|ok| output
+  judge -->|ok| other
 nodes:
-  판단: { in: [task], out: [verdict], prompt: p }
+  judge: { in: [task], out: [verdict], prompt: p }
   other: { run: output }
 """)
     message = str(exc.value)
-    assert "판단" in message
+    assert "judge" in message
     assert "ok" in message
     assert exc.value.line == 5
 
 
 def test_distinct_branch_labels_still_parse_fine():
-    """서로 다른 라벨 2개는 정상 분기 — 과잉 거부 방지용 가드 테스트."""
+    """Two different labels is a normal branch — a guard test to prevent over-rejection."""
     arch, _ = parse_arch("""
 flow: |
-  input --> 판단
-  판단 -->|ok| output
-  판단 -->|no| other
+  input --> judge
+  judge -->|ok| output
+  judge -->|no| other
 nodes:
-  판단: { in: [task], out: [verdict], prompt: p }
+  judge: { in: [task], out: [verdict], prompt: p }
   other: { run: output }
 """)
-    assert {n["id"] for n in arch["nodes"]} == {"input", "판단", "output", "other"}
+    assert {n["id"] for n in arch["nodes"]} == {"input", "judge", "output", "other"}
 
 
 def test_malformed_arrow_inside_flow_block_reports_correct_physical_line():
-    """BLOCKING 2: offset을 parse_flow 호출 *후*에 성공 엣지에만 더하던 예전 코드는,
-    parse_flow 안에서 던져진 ArchError(블록 기준 상대 줄 번호)를 보정 없이 그대로
-    새 나가게 했다 — flow:가 문서 첫 키가 아닌 문서에서 실제로 어긋난다. line_offset을
-    parse_flow에 미리 넘기면 에러 경로도 성공 경로와 같은 보정을 받는다."""
+    """BLOCKING 2: the old code added the offset only to successful edges *after* calling
+    parse_flow,
+    so an ArchError thrown inside parse_flow (block-relative line number) leaked out
+    uncorrected — it really goes wrong when flow: is not the document's first key. Passing
+    line_offset to parse_flow up front gives the error path the same correction as the success
+    path."""
     text = (
         "name: x\n"
         "model: google/gemini-3.1-flash-lite\n"
@@ -591,23 +603,25 @@ def test_malformed_arrow_inside_flow_block_reports_correct_physical_line():
     )
     with pytest.raises(ArchError) as exc:
         parse_arch(text)
-    assert exc.value.line == 6  # "  this is not an edge"의 실제 물리적 줄
+    assert exc.value.line == 6  # actual physical line of "  this is not an edge"
     assert "this is not an edge" in str(exc.value)
 
 
 def test_inline_flow_scalar_malformed_line_reports_correct_physical_line():
-    """`flow: "..."` 인라인 스칼라는 블록 스칼라와 달리 내용이 flow: 와 같은 물리적
-    줄에 있다 — 오프셋 계산이 블록/인라인을 구분하지 않으면 한 줄 밀린다."""
+    """Unlike a block scalar, a `flow: "..."` inline scalar has its content on the same physical
+    line as flow: — if the offset calculation doesn't distinguish block from inline it is off by
+    one."""
     text = 'name: x\nflow: "a --> b -->"\nnodes:\n  a: { out: [x], prompt: p }\n'
     with pytest.raises(ArchError) as exc:
         parse_arch(text)
-    assert exc.value.line == 2  # flow: 와 같은 물리적 줄
+    assert exc.value.line == 2  # same physical line as flow:
 
 
 def test_yaml_syntax_error_raises_arch_error_with_line_and_pyyaml_message():
-    """yaml.safe_load 자체가 던지는 YAMLError(ValueError의 하위가 아님)를 삼켜
-    ArchError로 재포장하는지 — REST/WS 양쪽이 500 대신 줄 번호 있는 400/error를
-    받으려면 이게 parse_arch 안에서 한 번만 일어나야 한다."""
+    """Does it swallow the YAMLError that yaml.safe_load itself throws (not a ValueError subclass)
+    and re-wrap it as ArchError — for REST/WS to get a 400/error with a line number instead of a
+    500,
+    this must happen exactly once, inside parse_arch."""
     text = (
         "name: x\n"
         "flow: |\n"
@@ -618,13 +632,15 @@ def test_yaml_syntax_error_raises_arch_error_with_line_and_pyyaml_message():
     )
     with pytest.raises(ArchError) as exc:
         parse_arch(text)
-    assert exc.value.line == 6  # PyYAML의 problem_mark가 가리키는 실제 파일 줄(1-based)
+    assert exc.value.line == 6  # actual file line (1-based) that PyYAML's problem_mark points to
     assert "expected ',' or '}'" in str(exc.value)
 
 
 def test_yaml_syntax_error_line_number_is_not_double_corrected_when_flow_is_not_first_key():
-    """flow:가 문서 첫 키가 아닐 때도 problem_mark는 이미 문서 전체 기준이라
-    _flow_line_offset을 더하면 안 된다 — 더하면 줄 번호가 실제보다 커진다."""
+    """Even when flow: is not the document's first key, problem_mark is already relative to the
+    whole
+    document, so _flow_line_offset must not be added — adding it makes the line number larger than
+    the real one."""
     text = (
         "name: x\n"
         "model: google/gemini-3.1-flash-lite\n"
@@ -636,13 +652,15 @@ def test_yaml_syntax_error_line_number_is_not_double_corrected_when_flow_is_not_
     )
     with pytest.raises(ArchError) as exc:
         parse_arch(text)
-    assert exc.value.line == 7  # 물리적 줄 번호 그대로 — flow: 오프셋(3)을 더하면 안 됨
+    # physical line number as-is — the flow: offset (3) must not be added
+    assert exc.value.line == 7
 
 
 def test_valid_yaml_with_invalid_content_still_raises_domain_arch_error():
-    """YAML 문법은 멀쩡하지만 내용이 틀린 경우(존재하지 않는 out을 읽음)는 새
-    YAMLError 래퍼를 안 거치고 기존 도메인 ArchError 그대로 나와야 한다 — 래퍼가
-    이런 케이스까지 삼키거나 재분류하면 안 된다."""
+    """When the YAML syntax is fine but the content is wrong (reading a nonexistent out), the
+    existing
+    domain ArchError must come out as-is without going through the new YAMLError wrapper — the
+    wrapper must not swallow or reclassify even such cases."""
     text = """
 flow: |
   input --> a --> output
@@ -655,9 +673,9 @@ nodes:
 
 
 def test_branch_node_with_unlabelled_edge_also_raises_with_line_number():
-    """분기 노드(라벨 2개 이상)에 라벨 없는 나가는 엣지가 하나라도 더 있으면 그
-    엣지는 compile.py의 어디에도 안 걸려 조용히 사라진다(BLOCKING 1) — 파서가
-    그 엣지의 줄 번호와 함께 거부한다."""
+    """If a branch node (2+ labels) has even one more unlabelled outgoing edge, that edge is
+    caught nowhere in compile.py and silently vanishes (BLOCKING 1) — the parser rejects it
+    with that edge's line number."""
     with pytest.raises(ArchError) as exc:
         parse_arch("""
 flow: |
@@ -674,4 +692,4 @@ nodes:
 """)
     message = str(exc.value)
     assert "judge" in message
-    assert exc.value.line == 6  # "judge --> logger" 의 실제 줄
+    assert exc.value.line == 6  # actual line of "judge --> logger"

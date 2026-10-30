@@ -1,7 +1,7 @@
-"""모델 설정 해석 단위 테스트.
+"""Unit tests for model settings resolution.
 
-override 우선순위(노드 slot → config.yaml 모델 기본값 → 전역)와
-provider별 인자 매핑(_provider_kwargs)을 검증한다. LLM은 호출하지 않는다 (AGENTS.md §6).
+Verifies override precedence (node slot → config.yaml model defaults → global) and
+provider-specific argument mapping (_provider_kwargs). Does not call the LLM (AGENTS.md §6).
 """
 
 import config
@@ -25,7 +25,7 @@ def test_provider_kwargs_anthropic():
     assert kw["max_tokens"] == 1000
     assert kw["top_p"] == 0.9
     assert kw["stop_sequences"] == ["END"]
-    assert "seed" not in kw  # anthropic 미지원 — 무시
+    assert "seed" not in kw  # unsupported by anthropic — ignored
 
 
 def test_provider_kwargs_google():
@@ -63,9 +63,9 @@ def test_resolve_slot_overrides_model_defaults():
         "fallback": {"provider": "openai", "model": "gpt-4o"},
     }
     settings, policy = compile_mod._settings_from_slot(slot)
-    assert settings.max_tokens == 800  # override가 모델 기본값(4096) 이김
+    assert settings.max_tokens == 800  # override beats the model default (4096)
     assert settings.top_p == 0.95
-    assert settings.stop == ["END"]  # 빈 문자열 제거
+    assert settings.stop == ["END"]  # empty string removed
     assert settings.seed == 3
     assert settings.temperature == 0.2
     assert policy.timeout_seconds == 30
@@ -75,11 +75,11 @@ def test_resolve_slot_overrides_model_defaults():
 
 
 def test_resolve_slot_inherits_model_defaults():
-    # maxTokens/topP/seed 없음 → config.yaml 모델 기본값 상속
+    # no maxTokens/topP/seed → inherit config.yaml model defaults
     slot = {"provider": "google", "model": "gemini-3.1-flash-lite", "temperature": 0}
     settings, policy = compile_mod._settings_from_slot(slot)
-    assert settings.max_tokens == 4096  # config.yaml 상속
-    assert settings.top_p is None  # config에도 없음 → None
+    assert settings.max_tokens == 4096  # inherited from config.yaml
+    assert settings.top_p is None  # not in config either → None
     assert settings.seed is None
     assert policy.retry_count == compile_mod.config.LLM_RETRY_COUNT
 
@@ -92,7 +92,7 @@ def test_resolve_default_inherits_max_tokens():
 
 
 def test_resolve_slot_zero_retry_is_preserved():
-    # 0은 유효값 — None이 아니므로 전역 기본값으로 덮어씌워지지 않는다
+    # 0 is a valid value — not None, so it is not overwritten by the global default
     slot = {"provider": "google", "model": "gemini-3.1-flash-lite", "retryCount": 0}
     _settings, policy = compile_mod._settings_from_slot(slot)
     assert policy.retry_count == 0

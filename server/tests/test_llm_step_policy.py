@@ -1,6 +1,6 @@
-"""run_llm_step 호출 정책 단위 테스트 — retry / timeout / fallback.
+"""Unit tests for run_llm_step call policy — retry / timeout / fallback.
 
-가짜 모델로 ainvoke 동작을 제어한다 (AGENTS.md §6). 실제 LLM API 미호출.
+Controls ainvoke behavior with a fake model (AGENTS.md §6). No real LLM API calls.
 """
 
 import asyncio
@@ -45,7 +45,7 @@ async def _noop_sleep(*a, **kw):
 
 
 async def test_retry_then_success(monkeypatch):
-    """1회 실패 후 재시도에서 성공하면 결과를 반환하고 retry 로그를 남긴다."""
+    """If it fails once and succeeds on retry, return the result and log the retry."""
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     def behavior(calls, messages):
@@ -73,7 +73,7 @@ async def test_retry_then_success(monkeypatch):
 
 
 async def test_retry_exhausted_emits_error(monkeypatch):
-    """재시도 전부 소진 후엔 error 이벤트 방출 + 마지막 예외 재발산."""
+    """After all retries are exhausted, emit an error event + re-raise the last exception."""
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     def behavior(calls, messages):
@@ -97,11 +97,11 @@ async def test_retry_exhausted_emits_error(monkeypatch):
 
 
 async def test_real_timeout_triggers_failure():
-    """ainvoke가 timeout을 초과하면 asyncio.wait_for가 TimeoutError → (retry_count=0) 즉시 실패."""
-    # retry_count=0 → backoff sleep 없음. asyncio.sleep은 패치하지 않아 진짜 지연 발생.
+    """If ainvoke exceeds the timeout, wait_for raises TimeoutError → fails at once (no retries)."""
+    # retry_count=0 → no backoff sleep. asyncio.sleep is not patched, so a real delay occurs.
 
     async def behavior(calls, messages):
-        await asyncio.sleep(0.3)  # 진짜 지연 — wait_for가 timeout(0.05)에 취소
+        await asyncio.sleep(0.3)  # real delay — wait_for cancels at timeout (0.05)
         return Out()
 
     model = FakeModel(behavior)
@@ -122,7 +122,7 @@ async def test_real_timeout_triggers_failure():
 
 
 async def test_fallback_success_after_primary_failure(monkeypatch):
-    """주 모델 재시도 소진 후 fallback이 한 번에 성공하면 결과 반환."""
+    """If the fallback succeeds first try after primary retries are exhausted, return the result."""
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     def primary_behavior(calls, messages):
@@ -158,7 +158,7 @@ async def test_fallback_success_after_primary_failure(monkeypatch):
 
 
 async def test_emit_token_usage_populates_usage_sink():
-    """usage_cb.usage_metadata가 있으면 usage_sink에 prompt/completion/cost를 채운다."""
+    """If usage_cb.usage_metadata is present, fill prompt/completion/cost into usage_sink."""
 
     class FakeUsageCallback:
         usage_metadata = {"claude-3": {"input_tokens": 100, "output_tokens": 50}}
@@ -180,7 +180,7 @@ async def test_emit_token_usage_populates_usage_sink():
 
 
 async def test_emit_token_usage_without_sink_still_emits_log():
-    """usage_sink가 None이어도 기존 log 이벤트 방출은 그대로 유지된다(회귀)."""
+    """Even if usage_sink is None, the existing log event emission is unchanged (regression)."""
 
     class FakeUsageCallback:
         usage_metadata = {"claude-3": {"input_tokens": 10, "output_tokens": 5}}
@@ -193,7 +193,7 @@ async def test_emit_token_usage_without_sink_still_emits_log():
 
 
 async def test_fallback_failure_emits_error(monkeypatch):
-    """주+fallback 모두 실패하면 error 이벤트 + 예외 재발산."""
+    """If both primary and fallback fail, error event + re-raise the exception."""
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     def raise_behavior(calls, messages):

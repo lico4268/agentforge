@@ -24,12 +24,12 @@ def empty_loop_runtime() -> LoopRuntimeState:
 def merge_loop_runtime(
     existing: dict[str, LoopRuntimeState], new: dict[str, LoopRuntimeState]
 ) -> dict[str, LoopRuntimeState]:
-    """LoopPolicy별 loop_runtime 병합 reducer.
+    """Merge reducer for per-LoopPolicy loop_runtime.
 
-    iteration/started_at/last_feedback는 새 값이 있으면 교체한다(단일 writer —
-    가드 노드가 iteration/started_at을, review 노드가 last_feedback을 쓴다).
-    total_tokens/total_cost_usd/progress_history는 여러 루프 멤버 노드가 각자의
-    기여분만 부분 업데이트로 보내므로 누적한다(합산/append).
+    iteration/started_at/last_feedback are replaced when a new value is present (single writer —
+    the guard node writes iteration/started_at, the review node writes last_feedback).
+    total_tokens/total_cost_usd/progress_history are accumulated (summed/appended) because each
+    loop member node sends only its own contribution as a partial update.
     """
     merged = dict(existing)
     for policy_id, update in new.items():
@@ -46,46 +46,46 @@ def merge_loop_runtime(
 
 
 def merge_vars(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
-    """사용자 정의 role 값 버킷(vars)의 병합 reducer — 얕은 병합, 키가 겹치면 새
-    값이 이긴다. 여러 노드가 같은 수퍼스텝에 서로 다른 키를 써도 충돌 없다."""
+    """Merge reducer for the custom-role value bucket (vars) — shallow merge; on key overlap the new
+    value wins. Multiple nodes writing different keys in the same superstep don't conflict."""
     return {**existing, **new}
 
 
 class AgentState(TypedDict):
     task: str
     task_tags: list[str]
-    intent: str | None  # 원본 의도 — 없으면 review가 task 자체를 의도로 간주
+    intent: str | None  # original intent — if absent, review treats the task itself as the intent
     plan: list[str] | None
     answer: str | None
-    confidence: float | None  # ReasonOut 참고 지표 (라우팅 미사용)
-    criteria: list[dict]  # Criterion.model_dump() 목록
+    confidence: float | None  # ReasonOut reference metric (not used for routing)
+    criteria: list[dict]  # list of Criterion.model_dump()
     review_delta: dict | None  # ReviewDelta.model_dump()
-    review_branch: str | None  # review 노드가 확정한 accept/refine/clarify (라우터가 읽음)
+    review_branch: str | None  # accept/refine/clarify set by the review node (read by the router)
     retries: int
-    feedback: str | None  # 직전 리뷰의 unmet delta → 재작업 입력
-    batch_mode: bool  # True면 clarify → accept 강등 (interrupt 불가 환경)
-    matched_cards: list[str]  # classify가 매칭한 판단 카드 id 목록
+    feedback: str | None  # unmet delta from the previous review → rework input
+    batch_mode: bool  # if True, demote clarify → accept (envs where interrupt is impossible)
+    matched_cards: list[str]  # judgment card ids matched by classify
     loop_runtime: Annotated[dict[str, LoopRuntimeState], merge_loop_runtime]
-    # 사용자 정의 노드 타입(Phase B)의 role 값 — 여기 없는 키는 LangGraph 채널이
-    # 없어 조용히 버려지므로, 위에 없는 role은 전부 이 버킷에 산다.
+    # Role values for custom node types (Phase B) — keys not listed here have no LangGraph channel
+    # and would be silently dropped, so every role not listed above lives in this bucket.
     vars: Annotated[dict[str, Any], merge_vars]
 
 
-# AgentState에 실제 채널이 있는 키 집합 — read_state_value/write_state_value가
-# "알려진 최상위 키 vs vars에 담을 사용자 정의 키"를 가르는 기준.
+# Set of keys that have an actual channel in AgentState — the criterion read_state_value/
+# write_state_value use to split "known top-level keys vs custom keys stored in vars".
 KNOWN_STATE_KEYS = frozenset(AgentState.__annotations__.keys())
 
 
 def read_state_value(state: AgentState, key: str) -> Any:
-    """알려진 키는 최상위에서, 아니면 vars에서 읽는다."""
+    """Read known keys from the top level, otherwise from vars."""
     if key in KNOWN_STATE_KEYS:
         return state.get(key)
     return (state.get("vars") or {}).get(key)
 
 
 def write_state_value(updates: dict[str, Any], key: str, value: Any) -> None:
-    """read_state_value의 반대 — 알려진 키는 updates 최상위에, 아니면
-    updates['vars']에 쓴다(같은 updates dict에 여러 번 불러도 누적됨)."""
+    """Inverse of read_state_value — write known keys at the top level of updates, otherwise into
+    updates['vars'] (accumulates across multiple calls on the same updates dict)."""
     if key in KNOWN_STATE_KEYS:
         updates[key] = value
     else:

@@ -1,8 +1,8 @@
 """
-gsm8k-treatment: Input → Classify (판단 카드 매칭) → Planning → Reasoning
+gsm8k-treatment: Input → Classify (judgment card matching) → Planning → Reasoning
   → Review (intent×criteria diff)
   ├ accept  → Output
-  ├ refine  → Reasoning (unmet delta만 피드백으로 재작업)
+  ├ refine  → Reasoning (rework with only the unmet delta as feedback)
   └ clarify → Human Checkpoint → approve/revise/reject
 """
 

@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { MockTransport } from '@/transport/MockTransport'
 import type { ServerMessage } from '@/transport/protocol'
 
-// 리뷰 finding 3: archFile-only run을 MockTransport가 조용히 무시하면, 백엔드
-// 연결 없이 (VITE_WS_URL 미설정, npm run dev 기본값) Run 버튼이 아무 반응 없이
-// 죽어 보인다 — 이 기능을 눈으로 처음 확인할 때 제일 먼저 누르는 버튼인데 신호가
-// 전혀 없다. 명시적인 error 메시지를 emit해야 한다.
+// Review finding 3: if MockTransport silently ignores an archFile-only run, then without a backend
+// connection (VITE_WS_URL unset, the npm run dev default) the Run button looks dead with no
+// response — it's the first button pressed when first checking this feature, and there'd be no signal
+// at all. An explicit error message must be emitted.
 describe('MockTransport — archFile-only run', () => {
   it('emits an explanatory error instead of silently doing nothing', () => {
     const transport = new MockTransport()

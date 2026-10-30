@@ -1,4 +1,4 @@
-"""ExecutionEvent / make_error_event 표준 실패 이벤트 검증."""
+"""Verify ExecutionEvent / make_error_event standard failure events."""
 
 from events import make_error_event, make_event
 
@@ -14,8 +14,8 @@ def test_make_error_event_shape():
 
 
 def test_make_error_event_custom_message():
-    ev = make_error_event("run-1", "reasoning", RuntimeError("x"), message="복구 실패")
-    assert ev.message == "복구 실패"
+    ev = make_error_event("run-1", "reasoning", RuntimeError("x"), message="recovery failed")
+    assert ev.message == "recovery failed"
     assert ev.error["type"] == "RuntimeError"
 
 
@@ -23,10 +23,10 @@ def test_to_frontend_includes_error_camelcase():
     ev = make_error_event("run-1", "reasoning", KeyError("missing"))
     payload = ev.to_frontend()
 
-    # 프론트 ExecutionEventSchema와 일치: eventType="error" + error 객체
+    # Matches the frontend ExecutionEventSchema: eventType="error" + error object
     assert payload["eventType"] == "error"
     assert payload["error"]["type"] == "KeyError"
-    # 실패 외 이벤트에는 error 키가 없어야 한다.
+    # Non-failure events must not have an error key.
     ok = make_event("run-1", "reasoning", "node_start")
     assert "error" not in ok.to_frontend()
 
@@ -45,7 +45,7 @@ def test_to_frontend_includes_loop_runtime_camelcase():
         "iteration": 2,
         "exitReason": "maxIterations",
     }
-    # 가드 이벤트의 nodeId가 곧 loopNodeId — 프론트는 일반 노드와 같은 방식으로 소비한다.
+    # The guard event's nodeId is the loopNodeId — the frontend consumes it like regular nodes.
     assert payload["nodeId"] == payload["loopRuntime"]["loopNodeId"]
 
 

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { ExecutionEventSchema } from '@/types/events'
 
-// 백엔드 events.py to_frontend()가 보내는 camelCase 페이로드와의 계약 검증.
+// Contract check against the camelCase payload sent by the backend's events.py to_frontend().
 describe('ExecutionEventSchema', () => {
-  it('백엔드 node_start 이벤트(최소 필드)를 통과시킨다', () => {
+  it('accepts a backend node_start event (minimal fields)', () => {
     const payload = {
       eventType: 'node_start',
       runId: 'run-1',
@@ -14,7 +14,7 @@ describe('ExecutionEventSchema', () => {
     expect(parsed.nodeId).toBe('reasoning')
   })
 
-  it('policyDecision/tokenUsage 등 선택 필드를 보존한다', () => {
+  it('preserves optional fields such as policyDecision/tokenUsage', () => {
     const payload = {
       eventType: 'node_end',
       runId: 'run-1',
@@ -29,7 +29,7 @@ describe('ExecutionEventSchema', () => {
     expect(parsed.tokenUsage?.prompt).toBe(100)
   })
 
-  it('구조화된 error 필드를 가진 error 이벤트를 통과시킨다', () => {
+  it('accepts an error event with a structured error field', () => {
     const payload = {
       eventType: 'error',
       runId: 'run-1',
@@ -43,7 +43,7 @@ describe('ExecutionEventSchema', () => {
     expect(parsed.error?.detail).toBe('bad output')
   })
 
-  it('알 수 없는 eventType은 거부한다', () => {
+  it('rejects an unknown eventType', () => {
     const bad = {
       eventType: 'not_a_real_event',
       runId: 'run-1',
@@ -53,7 +53,7 @@ describe('ExecutionEventSchema', () => {
     expect(() => ExecutionEventSchema.parse(bad)).toThrow()
   })
 
-  it('loopRuntime 필드를 보존한다 (loopNodeId = 실제 캔버스 노드 id)', () => {
+  it('preserves the loopRuntime field (loopNodeId = actual canvas node id)', () => {
     const payload = {
       eventType: 'node_end',
       runId: 'run-1',
@@ -71,7 +71,7 @@ describe('ExecutionEventSchema', () => {
     expect(parsed.loopRuntime?.exitReason).toBe('maxIterations')
   })
 
-  it('loopPolicyId만 담긴 구(舊) 페이로드는 거부한다', () => {
+  it('rejects a legacy payload that only has loopPolicyId', () => {
     const legacy = {
       eventType: 'node_end',
       runId: 'run-1',
@@ -82,7 +82,7 @@ describe('ExecutionEventSchema', () => {
     expect(() => ExecutionEventSchema.parse(legacy)).toThrow()
   })
 
-  it('loopRuntime 없이도 이벤트를 통과시킨다(옵션 필드)', () => {
+  it('accepts an event without loopRuntime (optional field)', () => {
     const payload = {
       eventType: 'node_start',
       runId: 'run-1',

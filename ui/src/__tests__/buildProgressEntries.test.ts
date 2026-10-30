@@ -76,19 +76,19 @@ describe('buildProgressEntries', () => {
 
 describe('deriveFlowStatuses', () => {
   it('colors non-ASCII (Korean) node ids just like ASCII ones', () => {
-    // 리뷰 finding 1: 옛 구현은 flow 문자열을 정규식(/[A-Za-z0-9_.:-]+/g)으로
-    // 토큰화했는데, 이건 한글 노드 id를 아예 못 잡는다 — 설계 스펙 §3.3의 예시
-    // 자체가 초안/검토/재작성이다. 이제는 architecture.nodes[].id를 그대로 쓴다.
+    // Review finding 1: the old implementation tokenized the flow string with a regex (/[A-Za-z0-9_.:-]+/g),
+    // which can't match non-ASCII node ids at all — the design spec §3.3 example itself
+    // uses non-ASCII ids. Now architecture.nodes[].id is used directly.
     const entries = buildProgressEntries(
       [
         evt({ eventType: 'node_start', nodeId: 'input' }),
-        evt({ eventType: 'node_start', nodeId: '초안' }),
-        evt({ eventType: 'node_end', nodeId: '초안', durationMs: 100 }),
+        evt({ eventType: 'node_start', nodeId: 'brouillon' }),
+        evt({ eventType: 'node_end', nodeId: 'brouillon', durationMs: 100 }),
       ],
       null,
     )
-    const statuses = deriveFlowStatuses(entries, ['input', '초안', '검토'])
-    expect(statuses).toEqual({ input: 'running', 초안: 'done' })
+    const statuses = deriveFlowStatuses(entries, ['input', 'brouillon', 'révision'])
+    expect(statuses).toEqual({ input: 'running', brouillon: 'done' })
   })
 
   it('drops synthetic __guard_N ids even though architecture.nodes includes them', () => {

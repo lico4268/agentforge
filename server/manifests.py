@@ -1,5 +1,5 @@
 """
-v0.1 빌트인 노드 매니페스트. /api/nodes 엔드포인트에서 반환.
+v0.1 built-in node manifests. Returned by the /api/nodes endpoint.
 """
 
 from typing import Any
@@ -10,7 +10,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "runtime": "io",
         "category": "io",
         "label": "Input",
-        "description": "그래프 진입점. task와 tag를 시드.",
+        "description": "Graph entry point. Seeds task and tag.",
         "inputs": [],
         "outputs": [
             {"id": "task", "label": "Task", "dataType": "text"},
@@ -26,7 +26,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "runtime": "io",
         "category": "io",
         "label": "Output",
-        "description": "그래프 종단.",
+        "description": "Graph terminal.",
         "inputs": [{"id": "result", "label": "Result", "dataType": "any", "required": True}],
         "outputs": [],
         "config": [],
@@ -36,7 +36,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "runtime": "llm_step",
         "category": "cognitive",
         "label": "Custom",
-        "description": "완전히 빈 노드 — Inspector에서 이름·입출력 포트·프롬프트를 직접 정의한다.",
+        "description": "A blank node — define name, I/O ports, and prompt in the Inspector.",
         "maxModelSlots": 2,
         "inputs": [],
         "outputs": [],
@@ -47,7 +47,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "runtime": "loop_guard",
         "category": "policy",
         "label": "Loop",
-        "description": "루프 재진입/탈출 지점과 5축 가드를 정의.",
+        "description": "Defines the loop re-entry/exit point and the 5-axis guard.",
         "inputs": [{"id": "in", "label": "Feedback", "dataType": "any", "required": True}],
         "outputs": [
             {"id": "loopBack", "label": "Loop back", "dataType": "any"},
@@ -64,7 +64,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
                     {"label": "Critique-Revise", "value": "critiqueRevise"},
                     {"label": "Human Review", "value": "humanReview"},
                 ],
-                "description": "서술 전용 — 컴파일러 라우팅/가드 판정에는 쓰이지 않는다.",
+                "description": "Descriptive only — not used by the compiler for routing or guards.",
             },
             {"key": "maxIterations", "label": "Max iterations", "type": "number"},
             {"key": "maxTokens", "label": "Max tokens", "type": "number"},
@@ -90,7 +90,7 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "runtime": "checkpoint",
         "category": "human",
         "label": "Human Checkpoint",
-        "description": "실행 정지 + 인간 검토·수정·재실행.",
+        "description": "Halts execution + human review, edit, and re-run.",
         "inputs": [{"id": "review", "label": "Review", "dataType": "any"}],
         "outputs": [
             {"id": "approve", "label": "Approve", "dataType": "any"},

@@ -29,10 +29,10 @@ export class MockTransport implements Transport {
       if (msg.architecture) {
         this.simulate(msg.architecture)
       } else if (msg.archFile) {
-        // archFile(텍스트 우선 대시보드)로 오는 run은 MockTransport가 시뮬레이션할
-        // 캔버스 그래프가 없다 — 조용히 무시하면 Run 버튼이 아무 반응 없이 죽어
-        // 보인다(리뷰 finding 3, 이게 사람이 이 기능을 눈으로 확인할 때 제일 먼저
-        // 누르는 버튼이다). 실제 백엔드가 필요하다고 명시적으로 알려준다.
+        // A run arriving via archFile (the text-first dashboard) has no canvas graph for
+        // MockTransport to simulate — silently ignoring it makes the Run button look dead
+        // with no response (review finding 3; it's the first button a person presses when
+        // visually checking this feature). Explicitly say a real backend is needed.
         this.handlers.forEach((h) =>
           h({
             kind: 'error',
@@ -62,7 +62,7 @@ export class MockTransport implements Transport {
     const stepMs = 700
     let cursor = 0
 
-    // 실행 시작 알림
+    // Run start notification
     this.schedule(0, () =>
       this.handlers.forEach((h) => h({ kind: 'run_started', runId })),
     )
@@ -99,7 +99,7 @@ export class MockTransport implements Transport {
       cursor = endAt + 120
     }
 
-    // 마지막 노드 완료 후 run_complete 발송
+    // Send run_complete after the last node finishes
     const totalMs = cursor
     this.schedule(totalMs, () =>
       this.handlers.forEach((h) =>

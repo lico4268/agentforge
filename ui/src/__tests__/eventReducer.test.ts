@@ -18,7 +18,7 @@ describe('reduceEvent', () => {
     expect(next.status).toBe('running')
   })
 
-  it('error → failed 이며 lastError를 보존한다', () => {
+  it('error → failed and preserves lastError', () => {
     const next = reduceEvent(
       EMPTY_RUNTIME,
       evt({ eventType: 'error', error: { type: 'ValueError', detail: 'bad output' } }),

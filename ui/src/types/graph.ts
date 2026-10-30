@@ -27,9 +27,9 @@ export const GraphEdgeSchema = z.object({
 export type GraphEdge = z.infer<typeof GraphEdgeSchema>
 
 /**
- * Loop 노드(`loop.guard`) manifest의 `kind` / `onExhaustion` select 옵션 소스.
- * guard 모양과는 무관한 순수 문자열 목록이다 — 노드 config 자체는 다른 노드 타입과
- * 마찬가지로 `GraphNodeSchema.config`(타입 검증 없는 record)에 담긴다.
+ * Source of the `kind` / `onExhaustion` select options for the Loop node (`loop.guard`) manifest.
+ * A plain list of strings, unrelated to the guard's shape — the node config itself lives in
+ * `GraphNodeSchema.config` (an untyped record), like other node types.
  * See docs/superpowers/specs/2026-08-07-loop-node-design.md §2.
  */
 export const LOOP_POLICY_KINDS = ['evaluatorOptimizer', 'critiqueRevise', 'humanReview'] as const

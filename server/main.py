@@ -27,15 +27,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── 모델 목록 ───────────────────────────────────────────────────────────────────
+# ─── Model list ───────────────────────────────────────────────────────────────────
 
 
 def _load_models_config() -> list[dict]:
-    """config.yaml models.list에서 enabled 모델만 반환 + OpenRouter 즐겨찾기를 동적 추가.
-    API 키 미설정 provider는 available=False 표시.
+    """From config.yaml models.list, return only enabled models + dynamically add OpenRouter
+    favorites.
+    Providers with no API key set are marked available=False.
 
-    OpenRouter는 config.yaml에 정적으로 나열하지 않는다 — 모델이 수백 개라
-    openrouter_catalog.load_favorites()로 고른 것만 노출한다."""
+    OpenRouter is not listed statically in config.yaml — it has hundreds of models, so
+    only those picked via openrouter_catalog.load_favorites() are exposed."""
     key_by_provider = {
         "anthropic": bool(cfg.ANTHROPIC_API_KEY),
         "openai": bool(cfg.OPENAI_API_KEY),
@@ -76,17 +77,18 @@ def _load_models_config() -> list[dict]:
     return result
 
 
-# ─── 아키텍처 파일 저장소 (v0.1 파일 기반) ─────────────────────────────────────
+# ─── Architecture file store (v0.1, file-based) ─────────────────────────────────────
 
 ARCHITECTURE_JSON_DIR = Path(__file__).parent / "architectures"
 ARCHITECTURE_JSON_DIR.mkdir(exist_ok=True)
 
-# ─── REST 엔드포인트 ─────────────────────────────────────────────────────────────
+# ─── REST endpoints ─────────────────────────────────────────────────────────────
 
 
 @app.get("/api/models")
 async def get_models() -> list[dict]:
-    """models_config.json 기반 모델 목록. available 필드로 API 키 설정 여부 표시."""
+    """Model list based on models_config.json. The available field shows whether an API key is
+    set."""
     return _load_models_config()
 
 
@@ -97,7 +99,7 @@ async def get_nodes() -> list[dict]:
 
 @app.get("/api/arch")
 async def list_arch() -> list[dict]:
-    """server/arch/*.yaml 목록 — 사람이 에디터로 저작한 arch.yaml 파일들."""
+    """List of server/arch/*.yaml — arch.yaml files hand-authored in an editor."""
     return arch_files.list_arch_files()
 
 
@@ -111,12 +113,12 @@ async def get_arch(name: str) -> dict:
         raise HTTPException(status_code=400, detail=str(err)) from None
 
 
-# ─── OpenRouter 즐겨찾기 ─────────────────────────────────────────────────────────
+# ─── OpenRouter favorites ─────────────────────────────────────────────────────────
 
 
 @app.get("/api/openrouter/catalog")
 async def get_openrouter_catalog() -> list[dict]:
-    """즐겨찾기 선택 화면용 — OpenRouter 전체 카탈로그(라이브, 캐시됨)."""
+    """For the favorites picker screen — the full OpenRouter catalog (live, cached)."""
     try:
         return await orc.get_catalog()
     except httpx.HTTPError as e:
@@ -130,7 +132,7 @@ async def get_openrouter_favorites() -> list[str]:
 
 @app.put("/api/openrouter/favorites")
 async def put_openrouter_favorites(ids: list[str]) -> list[str]:
-    """노드 UI/Inspector 모델 슬롯에 노출할 OpenRouter 모델 id 목록을 갱신."""
+    """Update the list of OpenRouter model ids exposed in the node UI/Inspector model slots."""
     return orc.save_favorites(ids)
 
 
@@ -162,12 +164,12 @@ async def get_architecture(arch_id: str) -> dict:
     return json.loads(path.read_text())
 
 
-# ─── 워크스페이스 파일 (run output 영속화) ───────────────────────────────────────
+# ─── Workspace files (run output persistence) ───────────────────────────────────────
 
 
 @app.get("/api/runs/{run_id}/files")
 async def list_run_files(run_id: str) -> list[dict]:
-    """run_id 디렉토리의 노드 output 파일 목록 (camelCase)."""
+    """List of node output files for the run_id directory (camelCase)."""
     from workspace import list_run_files as _list
 
     return _list(run_id)
@@ -175,7 +177,7 @@ async def list_run_files(run_id: str) -> list[dict]:
 
 @app.get("/api/runs/{run_id}/files/{name}")
 async def read_run_file(run_id: str, name: str) -> dict:
-    """단일 워크스페이스 파일 내용."""
+    """Contents of a single workspace file."""
     from workspace import read_run_file as _read
 
     result = _read(run_id, name)
@@ -184,7 +186,7 @@ async def read_run_file(run_id: str, name: str) -> dict:
     return result
 
 
-# ─── 그래프 디스패처 ─────────────────────────────────────────────────────────────
+# ─── Graph dispatcher ─────────────────────────────────────────────────────────────
 
 DEFAULT_MODEL_CFG = {
     "provider": "google",
@@ -194,7 +196,8 @@ DEFAULT_MODEL_CFG = {
 
 
 def _model_settings(c: dict) -> ModelSettings:
-    """Toolbar 모델 선택 → ModelSettings. 모델 기본값(config.yaml)에서 max_tokens/top_p 상속."""
+    """Toolbar model selection → ModelSettings. Inherits max_tokens/top_p from the model defaults
+    (config.yaml)."""
     md = cfg.model_defaults(c["model"])
     return ModelSettings(
         provider=c["provider"],
@@ -207,15 +210,16 @@ def _model_settings(c: dict) -> ModelSettings:
 
 def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
     """
-    v0.1: 'gsm8k-baseline'/'gsm8k-treatment' 이름은 고정 그래프 빌더에 디스패치.
-    v0.3: 그 외는 compile_graph(architecture)로 캔버스를 직접 컴파일 (§8 seam).
+    v0.1: the names 'gsm8k-baseline'/'gsm8k-treatment' dispatch to the fixed graph builders.
+    v0.3: anything else compiles the canvas directly with compile_graph(architecture) (§8 seam).
 
-    고정 이름 매칭은 "flow" 키가 없는 architecture(고정 그래프 자신을 가리키는
-    호출, 또는 옛 캔버스 JSON)에만 적용한다 — archfile.parse_arch가 만든
-    architecture는 항상 "flow" 키를 갖는다(원본 mermaid 문자열, 프론트 렌더용).
-    이 구분이 없으면 사용자의 arch.yaml이 우연히 name: gsm8k-treatment/-baseline과
-    같아지는 순간(배포된 파일의 name은 "GSM8K Treatment" — 대소문자만 다르다)
-    그 파일 전체가 무시되고 고정 그래프가 대신 돈다, 아무 경고도 없이(item 4).
+    Fixed-name matching applies only to an architecture with no "flow" key (a call that points
+    at a fixed graph itself, or old canvas JSON) — an architecture built by archfile.parse_arch
+    always has a "flow" key (the original mermaid string, for frontend rendering).
+    Without this distinction, the moment a user's arch.yaml happens to have name:
+    gsm8k-treatment/-baseline
+    (the deployed file's name is "GSM8K Treatment" — differing only in case)
+    the whole file is ignored and the fixed graph runs instead, with no warning (item 4).
     """
     arch_name = (architecture.get("metadata") or {}).get("name", "")
     merged = {**DEFAULT_MODEL_CFG, **model_cfg}
@@ -238,11 +242,13 @@ def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
 
 
 async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None:
-    """graph.ainvoke() 결과가 interrupt로 인한 일시정지인지, 정상 완료인지 구분해서 보낸다.
+    """Distinguish whether the graph.ainvoke() result is a pause caused by an interrupt or a normal
+    completion, and send accordingly.
 
-    LangGraph는 interrupt() 호출 시 예외 없이 final state에 "__interrupt__" 키를 채워
-    반환한다 — 이를 확인하지 않으면 일시정지를 완료로 오인해 run_complete(answer=null)을
-    보내게 되고, 프론트는 그래프가 실제로는 대기 중인데도 실행이 끝난 것으로 표시한다.
+    LangGraph, when interrupt() is called, returns the final state with an "__interrupt__" key
+    filled in, without raising — if this is not checked, a pause is mistaken for completion
+    run_complete(answer=null) is sent, and the frontend shows the run as finished even though the
+    graph is actually waiting.
     """
     if final.get("__interrupt__"):
         last_interrupt = next(
@@ -260,8 +266,8 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
         )
         return
 
-    # 그래프가 더 이상 일시정지되지 않았으니 resume 대상일 필요가 없다 —
-    # active_runs에 남겨두면 그래프 인스턴스가 무한정 쌓인다.
+    # The graph is no longer paused, so it need not be a resume target —
+    # leaving it in active_runs would pile up graph instances without bound.
     active_runs.pop(run_id, None)
 
     await safe_send_json(
@@ -278,15 +284,16 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
     )
 
 
-# ─── WebSocket 실행 핸들러 ────────────────────────────────────────────────────────
+# ─── WebSocket run handler ────────────────────────────────────────────────────────
 
-# run_history에 보관할 최대 run 수 — 초과 시 가장 오래된 run부터 제거(무한 성장 방지)
+# Max number of runs to keep in run_history — beyond that evict the oldest first (prevents
+# unbounded growth)
 MAX_RUN_HISTORY = 50
 
-# run_id → 누적 이벤트 (재접속 시 재전송용)
+# run_id → accumulated events (to resend on reconnect)
 run_history: dict[str, list] = {}
 
-# run_id → 그래프 인스턴스 (resume용)
+# run_id → graph instance (for resume)
 active_runs: dict[str, Any] = {}
 
 
@@ -318,9 +325,10 @@ async def ws_run(ws: WebSocket):
                 await safe_send_json(ws, {"kind": "run_started", "runId": run_id})
 
                 try:
-                    # architecture(캔버스 JSON)와 archFile(server/arch/*.yaml 이름)은
-                    # 상호 배타적 — architecture가 명시(null이 아님)되면 그걸 우선한다.
-                    # ArchError/ValueError/FileNotFoundError는 아래 except에서 처리.
+                    # architecture (canvas JSON) and archFile (a server/arch/*.yaml name) are
+                    # mutually exclusive — if architecture is explicit (not null), it takes
+                    # precedence.
+                    # ArchError/ValueError/FileNotFoundError are handled in the except below.
                     arch = msg.get("architecture")
                     if arch is None and msg.get("archFile"):
                         arch = arch_files.read_arch_file(msg["archFile"])["architecture"]

@@ -1,2 +1,2 @@
-// vitest 전역 setup — jest-dom matcher(toBeInTheDocument 등) 등록.
+// vitest global setup — registers jest-dom matchers (toBeInTheDocument, etc.).
 import '@testing-library/jest-dom/vitest'

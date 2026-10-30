@@ -1,8 +1,8 @@
 """
-GSM8K 소액 벤치마크 진입점 스크립트.
+GSM8K small-scale benchmark entry-point script.
 
-JSONL(items) 로드 → 모델 빌드 → arch별 그래프 실행 → 표 출력 + 결과 JSON 저장.
-사용 예 (server/ 디렉토리에서):
+Load JSONL (items) → build model → run graph per arch → print table + save result JSON.
+Usage (from the server/ directory):
     .venv/bin/python scripts/run_benchmark.py --arch both --limit 10
 """
 
@@ -13,7 +13,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-# server/ 디렉토리를 패스에 추가 — 프로젝트 모듈 import 전에 수행
+# Add the server/ directory to the path — must happen before importing project modules
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from graphs.baseline import build_baseline  # noqa: E402
@@ -23,7 +23,7 @@ from models import ModelSettings, build_model  # noqa: E402
 
 
 def load_items(path: str, limit: int = 0) -> list[Item]:
-    """JSONL({question, gold, tags})을 Item 리스트로 로드. limit>0이면 앞에서 슬라이스."""
+    """Load JSONL ({question, gold, tags}) into an Item list. If limit>0, slice from the front."""
     items: list[Item] = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -37,7 +37,7 @@ def load_items(path: str, limit: int = 0) -> list[Item]:
 
 
 def make_wrapper(builder, model):
-    """run_dataset 호출용 래퍼 — late-binding 회피 위해 기본 인자로 캡처."""
+    """Wrapper for calling run_dataset — captured as default args to avoid late binding."""
 
     def wrapper(emitter, run_id, builder=builder, model=model):
         return builder(model=model, emit=emitter, run_id=run_id)
@@ -46,7 +46,7 @@ def make_wrapper(builder, model):
 
 
 def print_table(rows: list[tuple[str, Report]]) -> None:
-    """arch별 Report를 표로 stdout 출력."""
+    """Print each arch's Report as a table to stdout."""
     cols = ["arch", "pass@1", "avg_tokens", "avg_cost", "refine", "clarify", "demote", "error"]
     widths = [10, 8, 12, 10, 8, 8, 8, 8]
     print(" ".join(f"{c:<{w}}" for c, w in zip(cols, widths, strict=True)))
@@ -65,7 +65,7 @@ def print_table(rows: list[tuple[str, Report]]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="GSM8K 벤치마크 실행")
+    parser = argparse.ArgumentParser(description="Run the GSM8K benchmark")
     parser.add_argument("--items", default="data/gsm8k_subset.jsonl")
     parser.add_argument("--arch", choices=["baseline", "treatment", "both"], default="both")
     parser.add_argument("--provider", default="google")
@@ -92,7 +92,7 @@ def main() -> None:
 
     print_table(rows)
 
-    # 결과 JSON 저장 — UTC 타임스탬프 파일명
+    # Save result JSON — UTC timestamp filename
     Path("data").mkdir(exist_ok=True)
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_path = Path("data") / f"benchmark-{ts}.json"
@@ -103,7 +103,7 @@ def main() -> None:
     }
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
-    print(f"\n결과 저장: {out_path}")
+    print(f"\nResult saved: {out_path}")
 
 
 if __name__ == "__main__":

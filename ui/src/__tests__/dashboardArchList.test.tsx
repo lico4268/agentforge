@@ -15,9 +15,9 @@ function renderDashboard() {
   )
 }
 
-// 리뷰 finding 2: 백엔드가 안 떠 있거나(가장 흔한 수동 검증 상황) arch.yaml이
-// 하나도 없을 때 화면이 그냥 비어있으면 "아직 안 만들어진 건지 backend가 죽은
-// 건지" 구분할 수 없다. 두 상태 모두 명시적인 안내가 있어야 한다.
+// Review finding 2: when the backend isn't running (the most common manual-check situation) or there
+// are no arch.yaml files at all, an empty screen can't distinguish "not created yet" from "backend
+// is down". Both states need an explicit message.
 describe('Dashboard — arch list load states', () => {
   afterEach(() => {
     vi.unstubAllGlobals()

@@ -1,4 +1,4 @@
-"""classify 노드 테스트 — 카드 매칭/criteria 주입/intent 폴백/폴백 경로. LLM은 목(AGENTS.md §6)."""
+"""classify node tests — card matching, criteria, intent fallback, fallbacks. LLM mocked (§6)."""
 
 from pathlib import Path
 from typing import Any
@@ -97,14 +97,14 @@ async def test_intent_fallback_only_when_none(
     counter = [0]
     _install_fake_llm(monkeypatch, ClassifyOut(card_ids=["math-001"]), counter)
 
-    # intent 없음 → representation이 intent로 폴백
+    # no intent → representation falls back as intent
     emit = ListEventEmitter()
     classify = make_classify(model=None, emit=emit, run_id="r1", cards_dir=tmp_path)
     result = await classify(_make_state(intent=None))
     assert "intent" in result
     assert "correct final number" in result["intent"]
 
-    # intent 있음 → updates에 intent 키 없음
+    # intent present → no intent key in updates
     emit2 = ListEventEmitter()
     classify2 = make_classify(model=None, emit=emit2, run_id="r1", cards_dir=tmp_path)
     result2 = await classify2(_make_state(intent="already set"))

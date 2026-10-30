@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { TokenUsageSchema } from '@/types'
 
 describe('TokenUsageSchema', () => {
-  it('관측 메타(model/attempt/fallbackUsed)를 보존한다', () => {
+  it('preserves observation metadata (model/attempt/fallbackUsed)', () => {
     const tu = TokenUsageSchema.parse({
       prompt: 100,
       completion: 20,
@@ -15,7 +15,7 @@ describe('TokenUsageSchema', () => {
     expect(tu.fallbackUsed).toBe(true)
   })
 
-  it('최소(prompt/completion) 페이로드도 파싱한다', () => {
+  it('also parses a minimal (prompt/completion) payload', () => {
     const tu = TokenUsageSchema.parse({ prompt: 5, completion: 3 })
     expect(tu.prompt).toBe(5)
     expect(tu.model).toBeUndefined()

@@ -1,4 +1,4 @@
-"""compute_review_branch/make_route_review 단위 테스트 — 순수 함수, 외부 의존성 없음."""
+"""Unit tests for compute_review_branch/make_route_review — pure functions, no external deps."""
 
 import pytest
 
@@ -35,7 +35,7 @@ def branch_of(state, **kwargs) -> str:
 
 
 def test_no_delta_is_clarify():
-    # 리뷰 없이 통과 금지
+    # no passing without review
     assert branch_of(build_state(review_delta=None)) == "clarify"
 
 
@@ -84,8 +84,8 @@ def test_should_pass_unmet_alone_still_accepts():
     "delta",
     [
         build_delta([{"id": "c1", "verdict": "unsure", "evidence": "?"}]),
-        build_delta(misalignments=["단위 누락"]),
-        build_delta(elicit_questions=["단위는 원인가요?"]),
+        build_delta(misalignments=["unit missing"]),
+        build_delta(elicit_questions=["Is the unit dollars?"]),
     ],
 )
 def test_unsure_or_misalignment_or_elicit_is_clarify(delta):
@@ -118,7 +118,7 @@ def test_batch_mode_demotes_clarify_to_accept():
 def test_route_reads_stored_branch():
     route = make_route_review()
     assert route(build_state(review_branch="refine")) == "refine"
-    # 저장된 판정이 없으면 보수적으로 clarify
+    # conservatively clarify when there is no stored verdict
     assert route(build_state(review_branch=None)) == "clarify"
 
 
@@ -128,7 +128,7 @@ def test_route_respects_wired_handles():
 
 
 def test_route_falls_back_conservatively_when_unwired():
-    # refine 미배선 → clarify > refine > accept 순 폴백
+    # refine not wired → fall back in order clarify > refine > accept
     route = make_route_review(wired={"accept", "clarify"})
     assert route(build_state(review_branch="refine")) == "clarify"
     route = make_route_review(wired={"accept"})

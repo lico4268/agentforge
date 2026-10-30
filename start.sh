@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Agentforge 개발 서버 통합 실행 스크립트
-# 사용: ./start.sh
-# 종료: Ctrl+C (백엔드+프론트 모두 종료됨)
+# Agentforge dev server launcher
+# Usage: ./start.sh
+# Stop: Ctrl+C (stops both backend and frontend)
 #
 # ┌──────────────┬────────────────────────────────────────────────────────┐
-# │  프로세스    │  가상환경 / 런타임                                     │
+# │  Process     │  Virtualenv / runtime                                  │
 # ├──────────────┼────────────────────────────────────────────────────────┤
 # │  server      │  Python 3.12 venv                                      │
-# │              │  경로: <repo>/server/.venv                             │
-# │              │  실행: server/.venv/bin/uvicorn  main:app              │
+# │              │  Path: <repo>/server/.venv                             │
+# │              │  Run:  server/.venv/bin/uvicorn  main:app              │
 # │              │  pip:  server/.venv/bin/pip                            │
 # ├──────────────┼────────────────────────────────────────────────────────┤
-# │  frontend    │  시스템 Node.js (별도 venv 없음)                       │
-# │              │  패키지: <repo>/ui/node_modules  (npm run dev)         │
+# │  frontend    │  System Node.js (no separate venv)                     │
+# │              │  Packages: <repo>/ui/node_modules  (npm run dev)       │
 # └──────────────┴────────────────────────────────────────────────────────┘
 
 set -e
@@ -21,7 +21,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND="$ROOT/server"
 UI="$ROOT/ui"
 
-# ─── 색상 ─────────────────────────────────────────────────────────────────────
+# ─── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -34,7 +34,7 @@ ok()   { echo -e "${GREEN}[✓]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[!]${RESET} $*"; }
 err()  { echo -e "${RED}[✗]${RESET} $*"; }
 
-# ─── cleanup: Ctrl+C 시 두 프로세스 모두 종료 ────────────────────────────────
+# ─── cleanup: stop both processes on Ctrl+C ──────────────────────────────────
 BACKEND_PID=""
 UI_PID=""
 
@@ -50,12 +50,12 @@ cleanup() {
 trap cleanup INT TERM
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# [프로세스 1] 백엔드
-#   가상환경 : $BACKEND/.venv   (Python 3.12)
+# [Process 1] Backend
+#   Virtualenv : $BACKEND/.venv   (Python 3.12)
 #   python   : $BACKEND/.venv/bin/python
 #   pip      : $BACKEND/.venv/bin/pip
 #   uvicorn  : $BACKEND/.venv/bin/uvicorn
-#   의존성   : $BACKEND/pyproject.toml  (fastapi, uvicorn, langgraph, langchain-*)
+#   Dependencies : $BACKEND/pyproject.toml  (fastapi, uvicorn, langgraph, langchain-*)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 BACKEND_VENV="$BACKEND/.venv"
 BACKEND_PYTHON="$BACKEND_VENV/bin/python"
@@ -64,102 +64,102 @@ BACKEND_UVICORN="$BACKEND_VENV/bin/uvicorn"
 echo -e "${BOLD}[server]${RESET} venv → ${CYAN}$BACKEND_VENV${RESET}"
 
 if ! command -v uv &> /dev/null; then
-  err "uv 가 설치되어 있지 않습니다. 설치해주세요: curl -LsSf https://astral.sh/uv/install.sh | sh"
+  err "uv is not installed. Please install it: curl -LsSf https://astral.sh/uv/install.sh | sh"
   exit 1
 fi
 
 if [ ! -d "$BACKEND_VENV" ]; then
-  log "Python venv 없음 → 생성: $BACKEND_VENV (uv 사용)"
+  log "No Python venv → creating: $BACKEND_VENV (using uv)"
   uv venv --python 3.12 "$BACKEND_VENV"
-  ok "venv 생성 완료"
+  ok "venv created"
 else
-  # 디렉토리 이동/rename 후 shebang이 깨진 경우 venv 재생성
-  # (uv venv는 기본적으로 pip를 설치하지 않으므로 uvicorn 스크립트로 확인한다)
+  # Recreate the venv if the shebang broke after a directory move/rename
+  # (uv venv doesn't install pip by default, so check via the uvicorn script)
   VENV_PYTHON_SHEBANG=$(head -1 "$BACKEND_VENV/bin/uvicorn" 2>/dev/null | sed 's/#!//')
   if [ -n "$VENV_PYTHON_SHEBANG" ] && [ ! -f "$VENV_PYTHON_SHEBANG" ]; then
-    warn "venv shebang 경로 깨짐 ($VENV_PYTHON_SHEBANG) → venv 재생성"
+    warn "venv shebang path is broken ($VENV_PYTHON_SHEBANG) → recreating venv"
     rm -rf "$BACKEND_VENV"
     uv venv --python 3.12 "$BACKEND_VENV"
-    ok "venv 재생성 완료"
+    ok "venv recreated"
   fi
 fi
 
-log "백엔드 의존성 설치/업데이트 (uv pip install)…"
+log "Installing/updating backend dependencies (uv pip install)…"
 (cd "$BACKEND" && uv pip install --python "$BACKEND_VENV" -e ".[dev]" -q)
-ok "백엔드 deps 준비"
+ok "Backend deps ready"
 
-# .env 체크
+# .env check
 if [ ! -f "$BACKEND/.env" ]; then
-  warn "server/.env 없음 → .env.example 복사"
+  warn "server/.env missing → copying .env.example"
   cp "$BACKEND/.env.example" "$BACKEND/.env"
-  warn "ANTHROPIC_API_KEY를 $BACKEND/.env 에 설정하세요."
+  warn "Set ANTHROPIC_API_KEY in $BACKEND/.env."
 fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# [프로세스 2] 프론트엔드
-#   런타임  : 시스템 Node.js  (별도 Python/가상환경 없음)
-#   패키지  : $UI/node_modules   (npm install)
-#   실행    : npm run dev  (Vite dev server)
+# [Process 2] Frontend
+#   Runtime  : system Node.js  (no separate Python/virtualenv)
+#   Packages : $UI/node_modules   (npm install)
+#   Run      : npm run dev  (Vite dev server)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 echo -e "${BOLD}[frontend]${RESET} node_modules → ${GREEN}$UI/node_modules${RESET}"
 
 if [ ! -d "$UI/node_modules" ]; then
-  log "프론트엔드 의존성 설치 중…"
+  log "Installing frontend dependencies…"
   (cd "$UI" && npm install --silent)
-  ok "프론트엔드 deps 준비"
+  ok "Frontend deps ready"
 fi
 
-# ─── 포트 충돌 확인 ───────────────────────────────────────────────────────────
+# ─── Port conflict check ──────────────────────────────────────────────────────
 check_port() {
   if lsof -i ":$1" -sTCP:LISTEN -t &>/dev/null; then
-    err "포트 $1 이미 사용 중. 프로세스를 종료하거나 포트를 변경하세요."
+    err "Port $1 is already in use. Stop the process or change the port."
     exit 1
   fi
 }
 check_port 8000
 check_port 5137
 
-# ─── LAN IP 탐지 (같은 네트워크의 다른 기기에서 접속할 때 안내용) ──────────────
+# ─── LAN IP detection (for pointing other devices on the same network) ───────
 LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}') || true
 
-# ─── 백엔드 실행 ──────────────────────────────────────────────────────────────
-# venv: $BACKEND_VENV  /  실행파일: $BACKEND_UVICORN
-log "백엔드 시작 → http://localhost:8000"
+# ─── Start backend ────────────────────────────────────────────────────────────
+# venv: $BACKEND_VENV  /  executable: $BACKEND_UVICORN
+log "Starting backend → http://localhost:8000"
 log "  venv    : $BACKEND_VENV"
 log "  uvicorn : $BACKEND_UVICORN"
 (cd "$BACKEND" && "$BACKEND_UVICORN" main:app --reload --host 0.0.0.0 --port 8000 --log-level warning) \
   2>&1 | sed $'s/^/\033[0;36m[server]\033[0m /' &
 BACKEND_PID=$!
 
-# 백엔드 헬스체크 (최대 10초)
-log "백엔드 준비 대기…"
+# Backend health check (up to 10s)
+log "Waiting for backend…"
 for i in $(seq 1 20); do
   if curl -sf http://localhost:8000/api/nodes > /dev/null 2>&1; then
-    ok "백엔드 준비 완료 (http://localhost:8000)"
+    ok "Backend ready (http://localhost:8000)"
     break
   fi
   sleep 0.5
   if [ $i -eq 20 ]; then
-    warn "백엔드 헬스체크 타임아웃 — 프론트엔드 시작 진행."
+    warn "Backend health check timed out — continuing with frontend startup."
   fi
 done
 
-# ─── 프론트엔드 실행 ──────────────────────────────────────────────────────────
-# Node.js 시스템 런타임 / 패키지: $UI/node_modules
-log "프론트엔드 시작 → http://0.0.0.0:5137 (LAN 공개)"
+# ─── Start frontend ───────────────────────────────────────────────────────────
+# Node.js system runtime / packages: $UI/node_modules
+log "Starting frontend → http://0.0.0.0:5137 (exposed on LAN)"
 log "  node_modules : $UI/node_modules"
 (cd "$UI" && npm run dev -- --host 0.0.0.0 --port 5137) \
   2>&1 | sed $'s/^/\033[0;32m[frontend]\033[0m /' &
 UI_PID=$!
 
-# ─── 실행 요약 ────────────────────────────────────────────────────────────────
+# ─── Run summary ──────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}  프로세스     가상환경 / 런타임${RESET}"
+echo -e "${BOLD}  Process      Virtualenv / runtime${RESET}"
 echo   "  ──────────  ──────────────────────────────────────────────────"
 echo -e "  ${CYAN}server${RESET}      Python 3.12  $BACKEND_VENV"
 echo -e "  ${GREEN}frontend${RESET}    Node.js      $UI/node_modules (0.0.0.0:5137)"
 echo ""
-ok "서버 실행 중. 브라우저: ${GREEN}http://localhost:5137${RESET}"
+ok "Servers running. Browser: ${GREEN}http://localhost:5137${RESET}"
 echo ""
 echo "  Backend  → http://localhost:8000"
 echo "  Frontend → http://localhost:5137"
@@ -167,9 +167,9 @@ if [ -n "$LAN_IP" ]; then
   echo "  LAN      → http://$LAN_IP:5137"
 fi
 echo ""
-echo "  Ctrl+C 로 모두 종료."
+echo "  Ctrl+C to stop all."
 echo ""
 
-# 어느 한 쪽이 죽으면 cleanup
+# If either one dies, cleanup
 wait "$BACKEND_PID" "$UI_PID"
 cleanup

@@ -3,13 +3,13 @@ import type { PendingInterrupt } from '@/execution/useExecutionStore'
 import type { ProgressEntry } from './NodeProgress'
 
 /**
- * 실행 이벤트 스트림(store의 `events`, 등장 순서 그대로)을 `NodeProgress`가 그릴
- * 방문 목록으로 접는다. 같은 nodeId가 여러 번 `node_start`하면 매번 새 항목이
- * 열린다 — 그래야 NodeProgress의 #1/#2 재방문 번호가 의미를 갖는다.
+ * Folds the execution event stream (the store's `events`, in arrival order) into the visit
+ * list that `NodeProgress` draws. Each `node_start` for the same nodeId opens a new entry
+ * — that's what gives NodeProgress's #1/#2 revisit numbering its meaning.
  *
- * 루프의 합성 가드 노드(`__guard_N`)도 다른 노드와 동일하게 취급한다 — flow
- * 문자열/다이어그램에는 없지만 이벤트는 실제로 온다(설계 결정, task-6 브리프
- * 참고). 다이어그램 색칠에서만 걸러낸다(`deriveFlowStatuses`).
+ * A loop's synthetic guard node (`__guard_N`) is treated like any other node — it isn't in the
+ * flow string/diagram, but its events really do arrive (design decision, see task-6 brief).
+ * It is filtered out only for diagram colouring (`deriveFlowStatuses`).
  */
 export function buildProgressEntries(
   events: ExecutionEvent[],
@@ -65,18 +65,18 @@ function findLastRunning(entries: ProgressEntry[], nodeId: string): number {
 }
 
 /**
- * FlowDiagram에 넘길 상태 맵 — `nodeIds`(백엔드가 준 `architecture.nodes[].id`,
- * 권위 있는 목록)에 실제로 있는 nodeId만 남긴다.
+ * The status map to pass to FlowDiagram — keeps only nodeIds that actually appear in `nodeIds`
+ * (the backend's `architecture.nodes[].id`, the authoritative list).
  *
- * 예전 구현은 `flow` mermaid 문자열을 정규식으로 토큰화해서 멤버십을 판단했는데,
- * 노드 이름에 비ASCII 문자(한글 등, 설계 스펙 §3.3의 예시 자체가 `초안`/`검토`)가
- * 오면 토큰 정규식이 그 글자들을 아예 못 잡아 다이어그램 색칠이 조용히 실패했다
- * (리뷰 finding 1). `architecture.nodes`는 서버가 이미 파싱해서 준 권위 있는
- * id 목록이라 재파싱이 필요 없다 — 이 목록을 직접 쓰면 이 문제가 클래스째 사라진다.
+ * The old implementation tokenized the `flow` mermaid string with a regex to decide membership,
+ * but when a node name contained non-ASCII characters (e.g. Korean; the design spec §3.3 example
+ * itself uses non-ASCII names) the token regex missed those characters entirely and diagram colouring
+ * silently failed (review finding 1). `architecture.nodes` is the authoritative id list already
+ * parsed by the server, so no re-parsing is needed — using it directly eliminates this whole class of problem.
  *
- * `__guard_N`(루프 합성 가드)은 `architecture.nodes`에는 있지만 flow 문자열/
- * 다이어그램에는 없으므로 (mermaid의 `class` 지시어가 미선언 노드를 암묵
- * 생성해 그림에 낯선 상자를 만들지 않도록) 여기서 걸러낸다.
+ * `__guard_N` (loop synthetic guard) is in `architecture.nodes` but not in the flow string/
+ * diagram, so it is filtered out here (so mermaid's `class` directive doesn't implicitly
+ * create the undeclared node and add a stray box to the picture).
  */
 export function deriveFlowStatuses(
   entries: ProgressEntry[],

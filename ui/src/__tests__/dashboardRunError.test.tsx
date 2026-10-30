@@ -23,7 +23,7 @@ function renderDashboard() {
 // store rather than something Dashboard remembers on its own.
 describe('Dashboard — runError banner', () => {
   beforeEach(() => {
-    // 파일 목록 배너가 같이 뜨는 걸 막아 이 테스트의 관심사(runError)만 본다.
+    // Keeps the file-list banner from appearing too, so this test only looks at its concern (runError).
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => [] }))
   })
 

@@ -10,8 +10,8 @@ from logging_config import logger
 
 class ExecutionEvent:
     """
-    프론트 ExecutionEventSchema와 1:1 대응.
-    serialize()가 WebSocket으로 나가는 camelCase dict를 반환한다.
+    1:1 with the frontend ExecutionEventSchema.
+    serialize() returns the camelCase dict sent over the WebSocket.
     """
 
     __slots__ = (
@@ -58,7 +58,7 @@ class ExecutionEvent:
         self.error = error
 
     def to_frontend(self) -> dict:
-        """프론트 ExecutionEventSchema와 일치하는 camelCase dict."""
+        """camelCase dict matching the frontend ExecutionEventSchema."""
         d: dict[str, Any] = {
             "eventType": self.event_type,
             "runId": self.run_id,
@@ -84,7 +84,7 @@ class ExecutionEvent:
         return d
 
     def model_dump(self) -> dict:
-        """harness용 snake_case dict (내부 직렬화). to_frontend()와 필드 대칭 유지."""
+        """snake_case dict for the harness (internal). Keep fields symmetric with to_frontend()."""
         return {
             "event_type": self.event_type,
             "run_id": self.run_id,
@@ -121,10 +121,10 @@ def make_error_event(
     *,
     message: str | None = None,
 ) -> ExecutionEvent:
-    """노드 실패 표준 이벤트. event_type="error" + 구조화된 error 필드.
+    """Standard node-failure event. event_type="error" + structured error field.
 
-    프론트 eventReducer가 'error' → status 'failed'로 매핑한다.
-    error 필드는 {type, detail} 형태로 LogPanel/Inspector에 그대로 표시된다.
+    The frontend eventReducer maps 'error' → status 'failed'.
+    The error field has the shape {type, detail} and is shown as-is in LogPanel/Inspector.
     """
     return ExecutionEvent(
         event_type="error",
@@ -139,11 +139,11 @@ def make_error_event(
 
 
 async def safe_send_json(ws: Any, payload: dict) -> None:
-    """ws.send_json이되, 클라이언트가 이미 연결을 끊은 뒤 호출돼도 조용히 무시한다.
+    """Like ws.send_json, but silently ignored if called after the client has already disconnected.
 
-    실행 도중 탭이 백그라운드로 가거나 네트워크가 끊기면 흔히 발생 — 그 자체가
-    버그는 아니므로(특히 오래 걸리는 run 도중 클라이언트가 먼저 끊는 경우) 서버
-    로그를 못 쓰는 RuntimeError로 채우지 않는다."""
+    This commonly happens when the tab goes to the background or the network drops mid-run — it is
+    not a bug in itself (especially when the client disconnects first during a long run), so we
+    don't fill the server log with RuntimeErrors."""
     if getattr(ws, "client_state", None) != WebSocketState.CONNECTED:
         logger.debug("safe_send_json: websocket already closed, dropping message")
         return
@@ -161,7 +161,7 @@ class WSEventEmitter:
 
     async def __call__(self, event: ExecutionEvent) -> None:
         self.history.append(event)
-        # node_end 이벤트의 output을 워크스페이스에 .md 파일로 영속화
+        # Persist node_end event output to the workspace as a .md file
         if event.event_type == "node_end" and event.output is not None:
             from workspace import write_node_output
 

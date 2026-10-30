@@ -1,4 +1,4 @@
-"""GET /api/nodes 의 응답 형태 검증 — 외부 의존성 없음."""
+"""Verify the response shape of GET /api/nodes — no external dependencies."""
 
 
 def test_get_nodes_returns_manifest_list(client):
@@ -13,23 +13,23 @@ def test_get_nodes_returns_manifest_list(client):
 def test_each_manifest_has_required_fields(client):
     data = client.get("/api/nodes").json()
 
-    # 프론트 manifest 스키마와의 계약: 모든 노드는 아래 키를 가진다.
+    # Contract with the frontend manifest schema: every node has the keys below.
     required = {"type", "runtime", "category", "label", "inputs", "outputs"}
     for node in data:
         missing = required - node.keys()
-        assert not missing, f"{node.get('type')!r} 매니페스트에 누락된 키: {missing}"
+        assert not missing, f"{node.get('type')!r} manifest is missing keys: {missing}"
         assert isinstance(node["inputs"], list)
         assert isinstance(node["outputs"], list)
 
 
 def test_manifest_types_are_unique(client):
     types = [n["type"] for n in client.get("/api/nodes").json()]
-    assert len(types) == len(set(types)), "중복된 노드 type 존재"
+    assert len(types) == len(set(types)), "duplicate node type present"
 
 
 def test_loop_guard_manifest_declares_one_feedback_input_and_two_outputs(client):
     manifests = {n["type"]: n for n in client.get("/api/nodes").json()}
-    assert "loop.guard" in manifests, "loop.guard 매니페스트가 /api/nodes에 없다"
+    assert "loop.guard" in manifests, "loop.guard manifest is missing from /api/nodes"
 
     loop = manifests["loop.guard"]
     assert loop["runtime"] == "loop_guard"

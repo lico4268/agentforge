@@ -1,8 +1,8 @@
-"""의도 정합성 리뷰 노드 — 결과물을 intent×criteria에 대조해 ReviewDelta(점수 없음)를 산출.
+"""Intent-alignment review node — diffs the result against intent×criteria into a ReviewDelta.
 
-reasoning의 자기보고 confidence 대신, 독립 검증자 프롬프트가 원본 의도와
-합격 기준에 결과물을 diff한다. 라우팅 판정(accept/refine/clarify)은 여기서
-확정해 state["review_branch"]에 저장하고, 라우터는 그것을 읽기만 한다.
+Instead of reasoning's self-reported confidence, an independent verifier prompt diffs the result
+against the original intent and acceptance criteria. The routing verdict (accept/refine/clarify) is
+decided here and stored in state["review_branch"]; the router only reads it.
 """
 
 from langchain_core.language_models import BaseChatModel
@@ -33,7 +33,7 @@ Also report:
 
 
 def _format_feedback(delta: dict, criteria: list[dict]) -> str:
-    """refine 재작업용 피드백 — unmet delta만 전달 (부분 재작업)."""
+    """Feedback for refine rework — passes only the unmet delta (partial rework)."""
     text_by_id = {c.get("id"): c.get("text", "") for c in criteria}
     lines = []
     for v in delta.get("per_criterion") or []:
@@ -62,7 +62,7 @@ def make_review(
     async def review(state: AgentState) -> dict:
         await emit(make_event(run_id, node_id, "node_start"))
 
-        # 노드 config 기준(seed)과 state 기준을 id로 병합 — state 쪽이 우선
+        # Merge node-config baseline (seed) and state baseline by id — state side wins
         merged: dict[str, dict] = {c["id"]: c for c in (seed_criteria or [])}
         merged.update({c["id"]: c for c in (state.get("criteria") or [])})
         criteria = list(merged.values())

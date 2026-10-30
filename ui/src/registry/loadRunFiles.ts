@@ -1,8 +1,8 @@
 import { RunFileSchema, RunFileContentSchema } from '@/types'
 import type { RunFile, RunFileContent } from '@/types'
 
-// 기본값은 same-origin('') — Vite dev 프록시(/api → :8000)를 타므로 CORS도,
-// LAN 접속 시 클라이언트 자기 자신을 가리키는 문제도 생기지 않는다.
+// Defaults to same-origin ('') — goes through the Vite dev proxy (/api → :8000), so there is no CORS
+// and no problem of the client pointing at itself when accessed over the LAN.
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
 
 export async function loadRunFiles(runId: string): Promise<RunFile[]> {

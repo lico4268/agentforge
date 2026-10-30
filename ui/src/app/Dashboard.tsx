@@ -10,11 +10,11 @@ import { NodeProgress } from './NodeProgress'
 import { buildProgressEntries, deriveFlowStatuses } from './buildProgressEntries'
 
 /**
- * 읽기 전용 대시보드 — 저작(캔버스 편집)은 없다. arch.yaml 목록에서 파일을
- * 고르면 서버가 이미 파싱해준 `flow` 문자열을 mermaid에 그대로 넘겨 그림을
- * 얻는다(레이아웃 코드 0줄, 설계 §3.2). 실행은 기존 WS 트랜스포트/스토어를
- * 그대로 재사용한다 — Run·체크포인트 승인/반려는 런타임 동작이라 "저작
- * read-only" 원칙과 무관하다(task-6 브리프 GLOBAL CONSTRAINTS).
+ * Read-only dashboard — no authoring (canvas editing). Picking a file from the
+ * arch.yaml list hands the already-parsed `flow` string from the server straight
+ * to mermaid to get the diagram (zero layout code, design §3.2). Execution reuses
+ * the existing WS transport/store as-is — Run and checkpoint approve/reject are
+ * runtime actions, so the "authoring read-only" rule doesn't apply (task-6 brief GLOBAL CONSTRAINTS).
  */
 export function Dashboard() {
   const transport = useTransport()
@@ -51,9 +51,9 @@ export function Dashboard() {
 
   const graph = archFile ? ArchGraphSchema.safeParse(archFile.architecture) : null
   const flow = graph?.success ? graph.data.flow : ''
-  // 다이어그램 색칠 대상은 서버가 이미 파싱해준 architecture.nodes[].id에서만
-  // 뽑는다 — flow 문자열을 정규식으로 재토큰화하면 한글 등 비ASCII id를 못
-  // 잡는다(리뷰 finding 1). __guard_N 제외는 deriveFlowStatuses의 책임.
+  // Diagram colouring targets come only from the server-parsed architecture.nodes[].id
+  // — re-tokenizing the flow string with a regex misses non-ASCII ids (e.g. Korean)
+  // (review finding 1). Excluding __guard_N is deriveFlowStatuses' job.
   const nodeIds = graph?.success ? graph.data.nodes.map((n) => n.id) : []
 
   const entries = buildProgressEntries(events, pendingInterrupt)
@@ -141,22 +141,22 @@ export function Dashboard() {
         </ul>
       )}
 
-      {/* 파일 로드 배너(위) 다음, 다이어그램/진행 목록(아래) 바로 위에 배치 —
-          "무엇을 실행했는데 왜 실패했는지"는 실행 결과이므로 그 결과를 보여줄
-          자리 바로 앞이 맞다. 파일 로드 에러와 동시에 떠도 서로 겹치지 않고
-          위아래로 쌓인다(경쟁하지 않음). 스토어의 runError를 그대로 읽으므로
-          reset()/다음 run_started가 오면 (둘 다 runError를 null로 되돌린다)
-          자동으로 사라진다 — 별도 dismiss 로직 없음. */}
+      {/* Placed after the file-load banner (above) and just above the diagram/progress list (below) —
+          "what was run and why it failed" is an execution result, so it belongs right before
+          where that result is shown. Even if it appears together with a file-load error, they
+          stack vertically without overlapping (no competition). It reads the store's runError directly,
+          so reset()/the next run_started (both set runError back to null)
+          clear it automatically — no separate dismiss logic. */}
       {runError && (
         <div className="shrink-0 rounded border border-[#ff8a80]/50 bg-[#ff8a80]/10 px-3 py-2 text-[#ff8a80]">
           {runError}
         </div>
       )}
 
-      {/* 실행이 끝난 뒤 최종 답을 화면 어딘가에서 볼 수 없으면(예전에는 마지막
-          노드를 펼쳐야만 보였다) 에이전트 파이프라인을 돌리는 도구로서 미완성이다
-          — 미니멀리즘과는 별개 문제(BLOCKING 3). runResult는 run_complete WS
-          메시지 그대로이므로 reset()/다음 run이 시작하면 자동으로 사라진다. */}
+      {/* If the final answer can't be seen anywhere on screen after a run (previously it was only
+          visible by expanding the last node), the tool is incomplete as an agent pipeline runner
+          — a separate issue from minimalism (BLOCKING 3). runResult is the run_complete WS
+          message as-is, so reset()/the next run start clears it automatically. */}
       {runResult && (
         <div className="shrink-0 rounded border border-[#4edea3]/50 bg-[#4edea3]/10 px-3 py-2 text-[#dde4dd]">
           <div className="font-mono text-[10px] font-semibold uppercase tracking-widest text-[#4edea3]">
@@ -172,9 +172,9 @@ export function Dashboard() {
         <NodeProgress entries={entries} onResume={onResume} />
       </div>
 
-      {/* 실행 로그 + run 아티팩트(server/workspace.py의 노드별 .md, 토큰 사용량)
-          뷰어 — Task 7이 이걸 유일하게 렌더하던 Layout.tsx를 지우면서 화면에서
-          사라졌었다(BLOCKING 3). workspace.py/REST가 죽은 코드가 되는 걸 막는다. */}
+      {/* Run log + run artifacts (per-node .md from server/workspace.py, token usage)
+          viewer — it disappeared from the screen when Task 7 deleted Layout.tsx, the only
+          place that rendered it (BLOCKING 3). Prevents workspace.py/REST from becoming dead code. */}
       <div className="h-64 shrink-0 overflow-hidden rounded border border-[#3c4a42]/50">
         <LogPanel />
       </div>

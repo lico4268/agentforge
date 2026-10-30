@@ -1,6 +1,6 @@
-"""판단 카드 분류 노드 — 카드 껍질 매칭 → 본문 로드 → criteria/intent 주입.
+"""Judgment-card classify node — match card shells → load bodies → inject criteria/intent.
 
-카드가 없거나 LLM 호출이 실패하면 카드 없이 진행한다 (Phase 1 동작으로 폴백).
+If there are no cards or the LLM call fails, proceed without cards (fall back to Phase 1 behavior).
 """
 
 from pathlib import Path
@@ -29,7 +29,7 @@ def make_classify(
     node_id: str = "classify",
     cards_dir: Path | None = None,
 ):
-    """classify 클로저 노드 팩토리."""
+    """classify closure node factory."""
     dir_arg = cards_dir if cards_dir is not None else CARDS_DIR
 
     async def classify(state: AgentState) -> dict:
@@ -65,7 +65,7 @@ def make_classify(
                 run_id=run_id,
             )
         except Exception:
-            logger.warning("classify LLM 호출 실패 — 카드 없이 폴백")
+            logger.warning("classify LLM call failed — falling back to no cards")
             output = {"matched_cards": [], "reason": "classify failed"}
             await emit(make_event(run_id, node_id, "node_end", output=output))
             return {"matched_cards": []}
@@ -74,7 +74,7 @@ def make_classify(
         valid_ids = {s.card_id for s in shells}
         llm_ids = [cid for cid in classify_out.card_ids if cid in valid_ids]
         always_ids = [s.card_id for s in shells if s.pin == "always"]
-        # pin-always 먼저, 그다음 LLM 순서, 중복 제거
+        # pin-always first, then LLM order, deduplicated
         matched_ids: list[str] = []
         seen: set[str] = set()
         for cid in always_ids + llm_ids:
@@ -84,14 +84,14 @@ def make_classify(
 
         cards = load_cards(matched_ids, dir_arg)
 
-        # 카드 criteria를 네임스페이스드 id(card_id:criterion_id)로 검증·보강
+        # Validate and augment card criteria with namespaced ids (card_id:criterion_id)
         card_criteria: list[dict] = []
         for card in cards:
             for c in card.criteria:
                 namespaced = f"{card.card_id}:{c.get('id', '')}"
                 card_criteria.append(Criterion(**{**c, "id": namespaced}).model_dump())
 
-        # 병합: 카드 criteria가 베이스, 같은 id면 state 쪽이 이김 (review 노드 관례와 동일)
+        # Merge: card criteria are the base, state wins on the same id (same as the review node)
         merged: dict[str, dict] = {c["id"]: c for c in card_criteria}
         merged.update({c["id"]: c for c in (state.get("criteria") or [])})
 
@@ -100,7 +100,7 @@ def make_classify(
             "criteria": list(merged.values()),
         }
 
-        # intent 폴백: 기존 intent가 None이고 매칭 카드가 있으면 representation으로 채움
+        # intent fallback: if intent is None and cards matched, fill with representation
         if state.get("intent") is None and cards:
             reps = [card.representation for card in cards if card.representation]
             if reps:

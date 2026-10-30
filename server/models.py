@@ -16,7 +16,7 @@ class PlanOut(BaseModel):
 
 class ReasonOut(BaseModel):
     answer: str
-    # 참고 지표로만 잔존 — 라우팅에는 사용하지 않는다 (POLICY_REDESIGN.md §1)
+    # Kept only as a reference metric — not used for routing (POLICY_REDESIGN.md §1)
     confidence: float = Field(ge=0.0, le=1.0)
 
 
@@ -25,9 +25,9 @@ class ReasonOut(BaseModel):
 
 class Criterion(BaseModel):
     id: str
-    text: str  # 이진 판정 가능한 한 문장
+    text: str  # one sentence that can be judged as binary
     severity: Literal["must_pass", "should_pass"] = "must_pass"
-    impl: Literal["llm", "code", "reminder"] = "llm"  # Phase 1은 llm만 실행
+    impl: Literal["llm", "code", "reminder"] = "llm"  # Phase 1 executes llm only
     code: str | None = None
     source: Literal["agent", "human"] = "human"
     status: Literal["proposed", "confirmed"] = "confirmed"
@@ -36,13 +36,13 @@ class Criterion(BaseModel):
 
 
 class CriterionVerdict(BaseModel):
-    id: str  # 대상 Criterion.id
+    id: str  # target Criterion.id
     verdict: Literal["met", "unmet", "unsure"]
-    evidence: str  # 결과물에서 인용한 근거 1개
+    evidence: str  # one piece of evidence quoted from the result
 
 
 class ReviewDelta(BaseModel):
-    """리뷰 출력 = diff. score 필드 없음 — confidence 재림 방지."""
+    """Review output = diff. No score field — prevents confidence from coming back."""
 
     per_criterion: list[CriterionVerdict] = []
     misalignments: list[str] = []
@@ -52,7 +52,7 @@ class ReviewDelta(BaseModel):
 
 
 class ClassifyOut(BaseModel):
-    """classify 노드 출력 — 매칭된 판단 카드 id 목록."""
+    """classify node output — list of matched judgment card ids."""
 
     card_ids: list[str] = []
     rationale: str = ""
@@ -63,11 +63,11 @@ class ClassifyOut(BaseModel):
 
 @dataclass
 class ModelSettings:
-    """컴파일 시점에 확정된 LLM 생성 설정.
+    """LLM generation settings fixed at compile time.
 
-    모든 값은 "해당 노드가 명시한 override" 또는 None(=모델 기본값 상속)이다.
-    build_model()이 provider별 생성자 인자로 변환한다. camelCase 계약은
-    아키텍처 JSON(modelSlots)에만 적용되고, 여기는 내부 Python 필드다.
+    Every value is either "an override the node specified" or None (= inherit the model default).
+    build_model() converts these to provider-specific constructor args. The camelCase contract
+    applies only to the architecture JSON (modelSlots); these are internal Python fields.
     """
 
     provider: str
@@ -77,16 +77,16 @@ class ModelSettings:
     top_p: float | None = None
     stop: list[str] | None = None
     seed: int | None = None
-    # OpenRouter 전용 — provider별 reasoning 파라미터를 "low"/"medium"/"high"로 정규화해 받아줌.
+    # OpenRouter only — takes the provider reasoning parameter normalized to "low"/"medium"/"high".
     reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 
 @dataclass
 class CallPolicy:
-    """LLM 호출 시점 정책 — build_model이 만든 모델과 별개로, 실제 ainvoke를 감싼다.
+    """LLM call-time policy — separate from the model build_model creates, wraps the actual ainvoke.
 
-    timeout_seconds / retry_count 는 노드 override → 전역 기본값 상속.
-    fallback 은 주 모델의 재시도를 전부 소진한 뒤 1회만 시도하는 대체 모델 설정.
+    timeout_seconds / retry_count: node override → inherit global default.
+    fallback is the replacement model config tried once after the primary's retries are exhausted.
     """
 
     timeout_seconds: float | None = None
@@ -95,10 +95,10 @@ class CallPolicy:
 
 
 def _provider_kwargs(provider: str, s: ModelSettings) -> dict:
-    """공통 ModelSettings → provider별 LangChain 생성자 kwargs.
+    """Common ModelSettings → provider-specific LangChain constructor kwargs.
 
-    지원하지 않는 옵션은 경고 로그만 남기고 조용히 누락시킨다 — 저장된 아키텍처가
-    다른 provider로 바뀌어도 실행이 불필요하게 깨지지 않게.
+    Unsupported options are dropped quietly with only a warning log — so a saved architecture
+    doesn't break needlessly when switched to a different provider.
     """
     kw: dict = {"model": s.model, "temperature": s.temperature}
     if provider == "anthropic":
@@ -109,7 +109,7 @@ def _provider_kwargs(provider: str, s: ModelSettings) -> dict:
         if s.stop:
             kw["stop_sequences"] = s.stop
         if s.seed is not None:
-            logger.warning("Anthropic은 seed를 지원하지 않음 — 무시 (model=%s)", s.model)
+            logger.warning("Anthropic does not support seed — ignoring (model=%s)", s.model)
     elif provider == "openai":
         if s.max_tokens is not None:
             kw["max_tokens"] = s.max_tokens
@@ -127,7 +127,7 @@ def _provider_kwargs(provider: str, s: ModelSettings) -> dict:
         if s.stop:
             kw["stop_sequences"] = s.stop
         if s.seed is not None:
-            logger.warning("Google은 seed를 지원하지 않음 — 무시 (model=%s)", s.model)
+            logger.warning("Google does not support seed — ignoring (model=%s)", s.model)
     elif provider in ("local", "openrouter"):
         if s.max_tokens is not None:
             kw["max_tokens"] = s.max_tokens
@@ -143,10 +143,10 @@ def _provider_kwargs(provider: str, s: ModelSettings) -> dict:
 
 
 def cost_for_usage(model_name: str, input_tokens: int, output_tokens: int) -> float:
-    """config.yaml models.pricing 기준 USD 비용. 단가 미등록 모델은 0.0.
+    """USD cost based on config.yaml models.pricing. 0.0 for models with no registered price.
 
-    provider가 붙이는 접두어("models/gemini-...")와 config id가 어긋날 수 있어
-    정확 일치 → 부분 일치 순으로 조회한다.
+    The prefix a provider adds ("models/gemini-...") may differ from the config id, so
+    lookup is exact match first, then partial match.
     """
     pricing = config.PRICING.get(model_name)
     if pricing is None:
@@ -163,10 +163,10 @@ def cost_for_usage(model_name: str, input_tokens: int, output_tokens: int) -> fl
 
 
 def build_model(settings: ModelSettings) -> BaseChatModel:
-    """ModelSettings → provider별 BaseChatModel.
+    """ModelSettings → provider-specific BaseChatModel.
 
-    공통 설정을 _provider_kwargs가 각 provider의 인자명으로 변환한다.
-    API 키 누락은 이 시점(컴파일)에 ValueError로 발생 — run_llm_step이 아니라.
+    _provider_kwargs converts the common settings to each provider's argument names.
+    A missing API key raises ValueError at this point (compile time) — not in run_llm_step.
     """
     provider = settings.provider
     if provider == "anthropic":

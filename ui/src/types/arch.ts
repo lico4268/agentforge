@@ -1,10 +1,10 @@
 import { z } from 'zod'
 
 /**
- * arch.yaml 저장소 REST 응답 계약 (server/arch_files.py:read_arch_file 대응, Task 5).
- * `architecture`는 의도적으로 unknown — 텍스트 우선 아키텍처의 노드는 캔버스 시절
- * `ArchitectureSchema`(position 필수)와 모양이 다르고(포지션 없음, `flow` 문자열 있음),
- * 대시보드는 저작이 아니라 조회만 하므로 전체 스키마를 다시 정의할 필요가 없다.
+ * REST response contract for the arch.yaml store (maps to server/arch_files.py:read_arch_file, Task 5).
+ * `architecture` is intentionally unknown — text-first architecture nodes differ in shape from the
+ * canvas-era `ArchitectureSchema` (position required): no position, but a `flow` string.
+ * The dashboard only views, never authors, so there's no need to redefine the full schema.
  */
 export const ArchFileSchema = z.object({
   name: z.string(),
@@ -18,11 +18,11 @@ export const ArchListItemSchema = z.object({ name: z.string(), size: z.number() 
 export type ArchListItem = z.infer<typeof ArchListItemSchema>
 
 /**
- * `architecture`(unknown) 중 대시보드가 실제로 읽는 최소 형태 — mermaid에 그대로
- * 넘길 `flow` 문자열과, 다이어그램 색칠 대상을 정하는 권위 있는 노드 id 목록
- * (`__guard_N` 합성 가드 포함 — 걸러내는 건 `deriveFlowStatuses`의 책임).
- * 파싱 실패 시 Dashboard는 다이어그램을 그냥 생략한다(설계 §3.2 — 변환 코드를
- * 두지 않는다).
+ * The minimal shape of `architecture` (unknown) that the dashboard actually reads — the `flow`
+ * string handed straight to mermaid, and the authoritative node id list that decides which
+ * diagram nodes get coloured (includes synthetic `__guard_N` guards — filtering them out is
+ * `deriveFlowStatuses`' job). On parse failure the Dashboard simply omits the diagram
+ * (design §3.2 — no conversion code).
  */
 export const ArchGraphSchema = z.object({
   flow: z.string().default(''),
