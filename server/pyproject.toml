@@ -6,6 +6,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "langgraph>=0.2.0",
+    "langgraph-checkpoint-sqlite>=3.1.2",
     "langchain-core>=0.3.0",
     "langchain-anthropic>=0.3.0",
     "langchain-openai>=0.2.0",
@@ -29,7 +30,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["main", "config", "events", "harness", "manifests", "models", "state", "logging_config"]
+py-modules = ["main", "config", "events", "harness", "manifests", "models", "state", "logging_config", "runner"]
 
 [tool.setuptools.packages.find]
 where = ["."]

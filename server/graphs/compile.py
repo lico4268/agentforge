@@ -680,7 +680,13 @@ def _build_plain_edge_plan(
     return plan
 
 
-def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitter, run_id: str):
+def compile_graph(
+    architecture: dict,
+    default_model_cfg: dict,
+    emit: EventEmitter,
+    run_id: str,
+    checkpointer=None,
+):
     nodes: list[dict] = architecture.get("nodes") or []
     raw_edges: list[dict] = architecture.get("edges") or []
 
@@ -865,5 +871,4 @@ def compile_graph(architecture: dict, default_model_cfg: dict, emit: EventEmitte
     for eid in entry_ids:
         graph.add_edge(START, eid)
 
-    checkpointer = MemorySaver()
-    return graph.compile(checkpointer=checkpointer)
+    return graph.compile(checkpointer=checkpointer or MemorySaver())

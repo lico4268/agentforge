@@ -21,3 +21,14 @@ flow: |
 nodes:
   draft: {in: [task], out: [answer], prompt: p}
 """
+
+CHECKPOINT_YAML = """\
+model: anthropic/claude-haiku-4-5-20251001
+flow: |
+  input --> draft --> gate
+  gate -->|approve| output
+  gate -->|reject| output
+nodes:
+  draft: {in: [task], out: [answer], prompt: p}
+  gate: {run: human.checkpoint}
+"""

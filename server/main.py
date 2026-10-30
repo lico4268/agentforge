@@ -15,6 +15,7 @@ from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
 from models import ModelSettings, build_model
+from runner import DEFAULT_MODEL_CFG, RECURSION_LIMIT
 from state import initial_state
 
 setup_logging()
@@ -188,12 +189,6 @@ async def read_run_file(run_id: str, name: str) -> dict:
 
 # ─── Graph dispatcher ─────────────────────────────────────────────────────────────
 
-DEFAULT_MODEL_CFG = {
-    "provider": "google",
-    "model": "gemini-3.1-flash-lite",
-    "temperature": 0.0,
-}
-
 
 def _model_settings(c: dict) -> ModelSettings:
     """Toolbar model selection → ModelSettings. Inherits max_tokens/top_p from the model defaults
@@ -346,7 +341,7 @@ async def ws_run(ws: WebSocket):
                     )
                     config = {
                         "configurable": {"thread_id": run_id},
-                        "recursion_limit": cfg.MAX_RETRIES * 10 + 20,
+                        "recursion_limit": RECURSION_LIMIT,
                     }
                     final = await graph.ainvoke(state0, config=config)
                     await _send_run_outcome(ws, run_id, final, history)
@@ -391,7 +386,7 @@ async def ws_run(ws: WebSocket):
 
                 config = {
                     "configurable": {"thread_id": run_id},
-                    "recursion_limit": cfg.MAX_RETRIES * 10 + 20,
+                    "recursion_limit": RECURSION_LIMIT,
                 }
                 try:
                     final = await graph.ainvoke(Command(resume=decision), config=config)
