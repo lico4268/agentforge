@@ -10,12 +10,15 @@ end to end over WS" — never died. They are still verified by swapping in an ar
 text fixture that archfile.py parses.
 """
 
+from arch_samples import CHECKPOINT_YAML
 from fastapi.testclient import TestClient
 
 import arch_files
 import graphs.compile as compile_mod
+import main
 import workspace as workspace_mod
 from main import app
+from workspace import read_run_record
 
 # input --> solve --> review, review -->|ok| output, review -->|retry| solve (back edge) —
 # archfile.py's _insert_guards automatically wraps this retry edge in a loop.guard
@@ -68,9 +71,7 @@ def _drain(ws) -> tuple[list[dict], dict]:
 
 
 def _run(ws, arch_file: str, task: str) -> tuple[list[dict], dict]:
-    ws.send_json(
-        {"kind": "run", "archFile": arch_file, "input": {"task": task}, "model": {}}
-    )
+    ws.send_json({"kind": "run", "archFile": arch_file, "input": {"task": task}, "model": {}})
     return _drain(ws)
 
 
@@ -88,10 +89,14 @@ def test_arch_file_loop_completes_over_the_websocket(tmp_path, monkeypatch):
             return {"answer": "4"}
         if node_id == "review":
             calls["review"] += 1
-            return {"feedback": "insufficient", "route": "retry"} if calls["review"] == 1 else {
-                "feedback": "ok",
-                "route": "ok",
-            }
+            return (
+                {"feedback": "insufficient", "route": "retry"}
+                if calls["review"] == 1
+                else {
+                    "feedback": "ok",
+                    "route": "ok",
+                }
+            )
         return {}
 
     monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
@@ -159,3 +164,48 @@ def test_arch_file_named_gsm8k_treatment_runs_its_own_graph_not_the_fixed_one(
     assert outcome["kind"] == "run_complete", outcome
     assert outcome["result"]["answer"] == "4"
     assert any(e["nodeId"] == "solve" for e in events)
+
+
+def _recv_until(ws, kind: str) -> dict:
+    while True:
+        msg = ws.receive_json()
+        if msg["kind"] == kind:
+            return msg
+
+
+def _gate_client_setup(tmp_path, monkeypatch):
+    (tmp_path / "gate.yaml").write_text(CHECKPOINT_YAML, encoding="utf-8")
+    monkeypatch.setattr(arch_files, "ARCH_DIR", tmp_path)
+
+
+def test_paused_run_resumes_after_server_restart(tmp_workspace, fake_llm, monkeypatch, tmp_path):
+    _gate_client_setup(tmp_path, monkeypatch)
+    with TestClient(app) as client:  # lifespan → SQLite checkpointer
+        with client.websocket_connect("/ws/run") as ws:
+            ws.send_json({"kind": "run", "archFile": "gate.yaml", "input": {"task": "t"}})
+            run_id = _recv_until(ws, "interrupt")["runId"]
+        assert read_run_record(run_id)["status"] == "paused"
+        main.active_runs.clear()  # simulate a restart: in-memory graph is gone
+        with client.websocket_connect("/ws/run") as ws:
+            ws.send_json({"kind": "resume", "runId": run_id, "decision": {"action": "approve"}})
+            assert _recv_until(ws, "run_complete")["runId"] == run_id
+    assert read_run_record(run_id)["status"] == "done"
+
+
+def test_resume_of_non_paused_run_after_restart_is_an_error(
+    tmp_workspace, fake_llm, monkeypatch, tmp_path
+):
+    _gate_client_setup(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/run") as ws:
+            ws.send_json({"kind": "run", "archFile": "gate.yaml", "input": {"task": "t"}})
+            run_id = _recv_until(ws, "interrupt")["runId"]
+            ws.send_json({"kind": "resume", "runId": run_id, "decision": {"action": "approve"}})
+            _recv_until(ws, "run_complete")
+        main.active_runs.clear()
+        calls = len(fake_llm.calls)
+        with client.websocket_connect("/ws/run") as ws:
+            ws.send_json({"kind": "resume", "runId": run_id, "decision": {"action": "approve"}})
+            msg = _recv_until(ws, "error")
+    assert "not paused" in msg["message"]
+    assert len(fake_llm.calls) == calls

@@ -1,5 +1,8 @@
 import json
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,16 +13,30 @@ from fastapi.middleware.cors import CORSMiddleware
 import arch_files
 import config as cfg
 import openrouter_catalog as orc
+import workspace
 from archfile import ArchError
 from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
 from models import ModelSettings, build_model
-from runner import DEFAULT_MODEL_CFG, RECURSION_LIMIT
+from runner import DEFAULT_MODEL_CFG, RECURSION_LIMIT, open_checkpointer, resume_run
 from state import initial_state
 
 setup_logging()
-app = FastAPI(title="Agentforge Backend", version="0.1.0")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # One SQLite checkpointer shared with the CLI, so paused runs survive a server restart.
+    async with open_checkpointer() as cp:
+        app.state.checkpointer = cp
+        try:
+            yield
+        finally:
+            app.state.checkpointer = None  # the connection closes with this block
+
+
+app = FastAPI(title="Agentforge Backend", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -203,7 +220,9 @@ def _model_settings(c: dict) -> ModelSettings:
     )
 
 
-def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
+def dispatch_graph(
+    architecture: dict, model_cfg: dict, emit: Any, run_id: str, checkpointer: Any = None
+):
     """
     v0.1: the names 'gsm8k-baseline'/'gsm8k-treatment' dispatch to the fixed graph builders.
     v0.3: anything else compiles the canvas directly with compile_graph(architecture) (§8 seam).
@@ -233,7 +252,7 @@ def dispatch_graph(architecture: dict, model_cfg: dict, emit: Any, run_id: str):
     else:
         from graphs.compile import compile_graph
 
-        return compile_graph(architecture, merged, emit, run_id)
+        return compile_graph(architecture, merged, emit, run_id, checkpointer)
 
 
 async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None:
@@ -316,6 +335,7 @@ async def ws_run(ws: WebSocket):
                     del run_history[oldest_id]
                     active_runs.pop(oldest_id, None)
 
+                recorded = False
                 emitter = WSEventEmitter(ws, run_id, history)
                 await safe_send_json(ws, {"kind": "run_started", "runId": run_id})
 
@@ -329,8 +349,29 @@ async def ws_run(ws: WebSocket):
                         arch = arch_files.read_arch_file(msg["archFile"])["architecture"]
                     arch = arch or {}
 
-                    graph = dispatch_graph(arch, model_cfg, emitter, run_id)
+                    checkpointer = getattr(app.state, "checkpointer", None)
+                    # Only passed when the lifespan opened one (no lifespan → MemorySaver).
+                    extra = {"checkpointer": checkpointer} if checkpointer else {}
+                    graph = dispatch_graph(arch, model_cfg, emitter, run_id, **extra)
                     active_runs[run_id] = graph
+                    # arch.yaml runs (parse_arch output has "flow") get a run.json record so
+                    # they can be resumed after a restart and are visible to the CLI.
+                    recorded = "flow" in arch
+                    if recorded:
+                        workspace.write_run_record(
+                            run_id,
+                            {
+                                "runId": run_id,
+                                "archPath": msg.get("archFile"),
+                                "archText": None,
+                                "architecture": arch,
+                                "modelCfg": model_cfg,
+                                "task": input_data.get("task", ""),
+                                "createdAt": datetime.now(UTC).isoformat(),
+                                "status": "running",
+                                "error": None,
+                            },
+                        )
 
                     state0 = initial_state(
                         task=input_data.get("task", ""),
@@ -344,6 +385,9 @@ async def ws_run(ws: WebSocket):
                         "recursion_limit": RECURSION_LIMIT,
                     }
                     final = await graph.ainvoke(state0, config=config)
+                    if recorded:
+                        status = "paused" if final.get("__interrupt__") else "done"
+                        workspace.update_run_record(run_id, status=status, error=None)
                     await _send_run_outcome(ws, run_id, final, history)
                 except FileNotFoundError:
                     active_runs.pop(run_id, None)
@@ -357,6 +401,10 @@ async def ws_run(ws: WebSocket):
                 except Exception as e:
                     active_runs.pop(run_id, None)
                     logger.exception("run %s failed", run_id)
+                    if recorded:
+                        workspace.update_run_record(
+                            run_id, status="error", error=f"{type(e).__name__}: {e}"
+                        )
                     await safe_send_json(
                         ws,
                         {
@@ -372,14 +420,27 @@ async def ws_run(ws: WebSocket):
                 graph = active_runs.get(run_id)
 
                 if not graph:
-                    await safe_send_json(
-                        ws,
-                        {
-                            "kind": "error",
-                            "runId": run_id,
-                            "message": "Run not found",
-                        },
-                    )
+                    # Not in memory (e.g. server restarted): fall back to the persisted record
+                    # + SQLite checkpoint.
+                    rec = workspace.read_run_record(run_id) if run_id else None
+                    if rec is None:
+                        message = "Run not found"
+                    elif rec.get("status") != "paused":
+                        message = f"Run {run_id} is not paused (status: {rec.get('status')})"
+                    else:
+                        history = run_history.setdefault(run_id, [])
+                        outcome = await resume_run(
+                            run_id,
+                            decision,
+                            emit=WSEventEmitter(ws, run_id, history),
+                            checkpointer=getattr(app.state, "checkpointer", None),
+                        )
+                        if outcome.error:
+                            message = outcome.error
+                        else:
+                            await _send_run_outcome(ws, run_id, outcome.final, history)
+                            continue
+                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
                     continue
 
                 from langgraph.types import Command
@@ -390,6 +451,9 @@ async def ws_run(ws: WebSocket):
                 }
                 try:
                     final = await graph.ainvoke(Command(resume=decision), config=config)
+                    if workspace.read_run_record(run_id) is not None:
+                        status = "paused" if final.get("__interrupt__") else "done"
+                        workspace.update_run_record(run_id, status=status, error=None)
                     resume_history = run_history.get(run_id) or []
                     await _send_run_outcome(ws, run_id, final, resume_history)
                 except Exception as e:
