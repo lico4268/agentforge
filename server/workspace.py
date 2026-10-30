@@ -11,6 +11,7 @@ and reads content via GET /api/runs/{run_id}/files/{name} to render Markdown.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,7 +26,21 @@ WORKSPACE_DIR = Path(__file__).parent / "workspace"
 _BODY_KEYS = ("answer", "plan", "reasoning", "summary", "result")
 
 
+_RUN_ID_RE = re.compile(r"^[\w-]+$")
+
+
+def _valid_run_id(run_id: Any) -> bool:
+    return isinstance(run_id, str) and _RUN_ID_RE.fullmatch(run_id) is not None
+
+
+def _check_run_id(run_id: Any) -> None:
+    """Run ids become directory names; reject anything that could escape WORKSPACE_DIR."""
+    if not _valid_run_id(run_id):
+        raise ValueError(f"invalid run id: {run_id!r}")
+
+
 def _run_dir(run_id: str) -> Path:
+    _check_run_id(run_id)
     d = WORKSPACE_DIR / run_id
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -63,6 +78,7 @@ def _seq_prefix(run_dir: Path, node_id: str) -> str:
 
 def write_node_output(run_id: str, node_id: str, output: Any) -> Path | None:
     """Save node output as a markdown file. Returns the file path on success, None on failure."""
+    _check_run_id(run_id)
     if output is None:
         return None
 
@@ -102,6 +118,8 @@ def write_node_output(run_id: str, node_id: str, output: Any) -> Path | None:
 
 def list_run_files(run_id: str) -> list[dict]:
     """Return the file list for the run_id directory. Uses camelCase keys (type contract)."""
+    if not _valid_run_id(run_id):
+        return []
     run_dir = WORKSPACE_DIR / run_id
     if not run_dir.exists():
         return []
@@ -124,6 +142,8 @@ def list_run_files(run_id: str) -> list[dict]:
 
 def read_run_file(run_id: str, name: str) -> dict | None:
     """Return a single file's content. None if missing."""
+    if not _valid_run_id(run_id):
+        return None
     run_dir = WORKSPACE_DIR / run_id
     path = run_dir / name
 
@@ -152,6 +172,8 @@ def persist_event(run_id: str, event: "ExecutionEvent") -> None:
 
 def read_events(run_id: str) -> list[dict]:
     """Return all events recorded for the run. [] if none."""
+    if not _valid_run_id(run_id):
+        return []
     path = WORKSPACE_DIR / run_id / "events.jsonl"
     if not path.exists():
         return []
@@ -165,6 +187,8 @@ def write_run_record(run_id: str, record: dict) -> None:
 
 
 def read_run_record(run_id: str) -> dict | None:
+    if not _valid_run_id(run_id):
+        return None
     path = WORKSPACE_DIR / run_id / "run.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 

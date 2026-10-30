@@ -255,6 +255,11 @@ def dispatch_graph(
         return compile_graph(architecture, merged, emit, run_id, checkpointer)
 
 
+def _record_error(recorded: bool, run_id: str, e: Exception) -> None:
+    if recorded:
+        workspace.update_run_record(run_id, status="error", error=f"{type(e).__name__}: {e}")
+
+
 async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None:
     """Distinguish whether the graph.ainvoke() result is a pause caused by an interrupt or a normal
     completion, and send accordingly.
@@ -389,22 +394,21 @@ async def ws_run(ws: WebSocket):
                         status = "paused" if final.get("__interrupt__") else "done"
                         workspace.update_run_record(run_id, status=status, error=None)
                     await _send_run_outcome(ws, run_id, final, history)
-                except FileNotFoundError:
+                except FileNotFoundError as e:
                     active_runs.pop(run_id, None)
                     message = f"arch file not found: {msg.get('archFile')}"
+                    _record_error(recorded, run_id, e)
                     logger.warning("run %s rejected: %s", run_id, message)
                     await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
                 except ValueError as e:
                     active_runs.pop(run_id, None)
                     logger.warning("run %s rejected: %s", run_id, e)
+                    _record_error(recorded, run_id, e)
                     await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": str(e)})
                 except Exception as e:
                     active_runs.pop(run_id, None)
                     logger.exception("run %s failed", run_id)
-                    if recorded:
-                        workspace.update_run_record(
-                            run_id, status="error", error=f"{type(e).__name__}: {e}"
-                        )
+                    _record_error(recorded, run_id, e)
                     await safe_send_json(
                         ws,
                         {
@@ -417,7 +421,7 @@ async def ws_run(ws: WebSocket):
             elif kind == "resume":
                 run_id = msg.get("runId") or current_run_id
                 decision = msg.get("decision") or {}
-                graph = active_runs.get(run_id)
+                graph = active_runs.get(run_id) if isinstance(run_id, str) else None
 
                 if not graph:
                     # Not in memory (e.g. server restarted): fall back to the persisted record
@@ -459,6 +463,7 @@ async def ws_run(ws: WebSocket):
                 except Exception as e:
                     active_runs.pop(run_id, None)
                     logger.exception("resume of run %s failed", run_id)
+                    _record_error(workspace.read_run_record(run_id) is not None, run_id, e)
                     await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": str(e)})
 
             elif kind == "reconnect":

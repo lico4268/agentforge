@@ -140,3 +140,18 @@ def test_run_record_round_trip_and_update(tmp_workspace):
     ws.update_run_record("r1", status="paused")
     assert ws.read_run_record("r1") == {"runId": "r1", "status": "paused"}
     assert ws.read_run_record("nope") is None
+
+
+def test_invalid_run_ids_are_rejected(tmp_workspace):
+
+    assert ws.read_run_record("../x") is None
+    assert ws.read_events("../x") == []
+    assert ws.list_run_files("../x") == []
+    assert ws.read_run_file("../x", "a.md") is None
+    for fn in (
+        lambda: ws.write_run_record("../x", {}),
+        lambda: ws.update_run_record("/abs", status="x"),
+        lambda: ws.write_node_output("../x", "n", "o"),
+    ):
+        with pytest.raises(ValueError):
+            fn()

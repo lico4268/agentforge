@@ -209,3 +209,26 @@ def test_resume_of_non_paused_run_after_restart_is_an_error(
             msg = _recv_until(ws, "error")
     assert "not paused" in msg["message"]
     assert len(fake_llm.calls) == calls
+
+
+def test_value_error_in_a_node_marks_the_run_record_error(
+    tmp_workspace, fake_llm, monkeypatch, tmp_path
+):
+    _gate_client_setup(tmp_path, monkeypatch)
+
+    async def boom(state, **kwargs):
+        raise ValueError("bad structured output")
+
+    monkeypatch.setattr(compile_mod, "run_llm_step", boom)
+    with TestClient(app) as client, client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"kind": "run", "archFile": "gate.yaml", "input": {"task": "t"}})
+        msg = _recv_until(ws, "error")
+    rec = read_run_record(msg["runId"])
+    assert rec["status"] == "error" and "bad structured output" in rec["error"]
+
+
+def test_resume_with_path_like_run_id_is_not_found(tmp_workspace):
+    with TestClient(app) as client, client.websocket_connect("/ws/run") as ws:
+        for bad in ("../x", "/etc", 5):
+            ws.send_json({"kind": "resume", "runId": bad, "decision": {}})
+            assert _recv_until(ws, "error")["message"] == "Run not found"
