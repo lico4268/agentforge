@@ -1,180 +1,181 @@
 # Agentforge
 
-텍스트(`arch.yaml`)로 LLM 에이전트 파이프라인을 짓고, 그 자리에서 실행·테스트하는
-도구. 저작은 YAML 파일이고, 그림(mermaid)은 그 텍스트에서 자동 생성되는 읽기 전용
-산출물이다 — 노드 캔버스로 그려서 짓던 방식(ComfyUI 스타일)은 2026-09-02 텍스트
-우선 전환으로 폐기됐다.
+A tool for building LLM agent pipelines as text (`arch.yaml`) and running/testing them in
+place. Authoring is a YAML file, and the diagram (mermaid) is a read-only artifact generated
+automatically from that text — the old approach of building by drawing on a node canvas
+(ComfyUI style) was retired in the 2026-09-02 text-first switch.
 
-> **설계 방향은 [DIRECTION.md](./DIRECTION.md)가 최우선이다** — 다른 문서와 충돌하면 그쪽이 낡은 것이다.
-> `docs/superpowers/**`, `work/**`, `POLICY_*.md`는 과거 기록이며 현재 설계가 아니다.
-> 코딩·린트·import·타입 계약 규칙은 [AGENTS.md](./AGENTS.md)를 따른다. 진행 상태는 [ROADMAP.md](./ROADMAP.md) 참고.
+> **[DIRECTION.md](./DIRECTION.md) takes top priority for design direction** — if another document conflicts with it, that document is out of date.
+> `docs/superpowers/**`, `work/**`, and `POLICY_*.md` are historical records, not the current design.
+> Coding, lint, import, and type contract rules follow [AGENTS.md](./AGENTS.md). For progress, see [ROADMAP.md](./ROADMAP.md).
 
 ---
 
-## 디렉토리 구조
+## Directory structure
 
 ```
 agentforge/
-├── config.yaml              # 중앙 설정 (서버·모델 목록·실행 파라미터·UI). config.py가 로드
-├── server/                  # FastAPI 백엔드 (Python 3.12)
-│   ├── main.py              # FastAPI 앱 진입점, CORS, REST, WebSocket, dispatch_graph
-│   ├── manifests.py         # GET /api/nodes — 빌트인 노드 manifest(dict) 목록
-│   ├── models.py            # LLM 출력 스키마(PlanOut/ReasonOut/Criterion/ReviewDelta) + build_model 팩토리
-│   ├── state.py             # AgentState(TypedDict) 정의 및 initial_state
+├── config.yaml              # Central config (server, model list, run parameters, UI). Loaded by config.py
+├── server/                  # FastAPI backend (Python 3.12)
+│   ├── main.py              # FastAPI app entry point, CORS, REST, WebSocket, dispatch_graph
+│   ├── manifests.py         # GET /api/nodes — list of builtin node manifests (dicts)
+│   ├── models.py            # LLM output schemas (PlanOut/ReasonOut/Criterion/ReviewDelta) + build_model factory
+│   ├── state.py             # AgentState (TypedDict) definition and initial_state
 │   ├── events.py            # ExecutionEvent + make_event/make_error_event + WS/List emitter
-│   ├── logging_config.py    # setup_logging() / logger (config.LOG_LEVEL 기준)
-│   ├── harness.py           # 벤치마크 하니스 (run_dataset + gsm8k_grader + Report) — pass@1 측정
-│   ├── workspace.py         # run 아티팩트 — node_end output을 workspace/<run_id>/*.md로 저장/조회
-│   ├── config.py            # config.yaml + .env(API 키) 로드
-│   ├── archfile.py           # parse_arch — arch.yaml(mermaid flow + node defs) → Architecture dict
-│   ├── arch_files.py         # server/arch/*.yaml 목록/조회 (파일 기반, GET /api/arch[/​{name}])
-│   ├── arch/                 # 사람이 저작하는 arch.yaml 파일들 (예: gsm8k.yaml)
-│   ├── nodes/               # 그래프가 호출하는 노드 헬퍼 (NodeRegistry 아님 — __init__.py는 빈 패키지 마커)
-│   │   ├── llm_step.py      # run_llm_step — 구조화 출력 LLM 호출 헬퍼
-│   │   ├── checkpoint.py    # make_human_checkpoint — interrupt 기반 인간 검토
-│   │   ├── review.py        # make_review — intent×criteria 대조 리뷰 (ReviewDelta 산출, treatment.py 전용)
-│   │   └── policy.py        # compute_review_branch / make_route_review — 순수 라우팅 함수
-│   └── graphs/              # LangGraph StateGraph 정의 (실제 실행 엔진)
-│       ├── baseline.py      # build_baseline — Reasoning만 하는 단발 베이스라인
-│       ├── treatment.py     # build_treatment — Planning→Reasoning→Policy 3분기 구조
-│       └── compile.py       # compile_graph — arch.yaml에서 parse_arch가 만든 Architecture dict를 동적 컴파일
+│   ├── logging_config.py    # setup_logging() / logger (based on config.LOG_LEVEL)
+│   ├── harness.py           # Benchmark harness (run_dataset + gsm8k_grader + Report) — measures pass@1
+│   ├── workspace.py         # Run artifacts — saves/reads node_end output as workspace/<run_id>/*.md
+│   ├── config.py            # Loads config.yaml + .env (API keys)
+│   ├── archfile.py           # parse_arch — arch.yaml (mermaid flow + node defs) → Architecture dict
+│   ├── arch_files.py         # List/read server/arch/*.yaml (file-based, GET /api/arch[/​{name}])
+│   ├── arch/                 # Human-authored arch.yaml files (e.g. gsm8k.yaml)
+│   ├── nodes/               # Node helpers called by graphs (not a NodeRegistry — __init__.py is an empty package marker)
+│   │   ├── llm_step.py      # run_llm_step — structured-output LLM call helper
+│   │   ├── checkpoint.py    # make_human_checkpoint — interrupt-based human review
+│   │   ├── review.py        # make_review — intent×criteria review (produces ReviewDelta, used only by treatment.py)
+│   │   └── policy.py        # compute_review_branch / make_route_review — pure routing functions
+│   └── graphs/              # LangGraph StateGraph definitions (the actual execution engine)
+│       ├── baseline.py      # build_baseline — single-shot baseline that only does Reasoning
+│       ├── treatment.py     # build_treatment — Planning→Reasoning→Policy three-way structure
+│       └── compile.py       # compile_graph — dynamically compiles the Architecture dict that parse_arch builds from arch.yaml
 │
-├── ui/                      # React + TypeScript 프론트엔드 (Vite)
+├── ui/                      # React + TypeScript frontend (Vite)
 │   └── src/
-│       ├── App.tsx           # 루트 컴포넌트 — <Dashboard /> 렌더
+│       ├── App.tsx           # Root component — renders <Dashboard />
 │       ├── app/
-│       │   ├── Dashboard.tsx            # 읽기 전용 대시보드 — arch.yaml 선택·Run·체크포인트 승인/반려
-│       │   ├── FlowDiagram.tsx          # architecture.flow(mermaid 문자열)를 그대로 렌더 + 실행 중 노드 색칠
-│       │   └── NodeProgress.tsx         # 실행 이벤트를 노드별 방문 목록으로 나열
+│       │   ├── Dashboard.tsx            # Read-only dashboard — pick arch.yaml, Run, approve/reject checkpoints
+│       │   ├── FlowDiagram.tsx          # Renders architecture.flow (mermaid string) as-is + colors nodes during a run
+│       │   └── NodeProgress.tsx         # Lists run events as per-node visits
 │       ├── panels/
-│       │   └── Markdown.tsx  # react-markdown + remark-gfm 렌더러 (LogPanel output 표시)
-│       ├── transport/        # WebSocket / MockTransport 추상 레이어
-│       │   └── TransportContext.tsx  # MockTransport ↔ WebSocketTransport 전환 지점
-│       ├── types/            # Zod 스키마 (백엔드 Pydantic과 1:1 대응)
-│       │   ├── arch.ts       # ArchGraphSchema 등 — archfile.py의 Architecture dict 대응
-│       │   └── workspace.ts  # run 파일 목록/내용 Zod 스키마 (workspace.py REST 대응)
-│       ├── registry/         # 백엔드 REST fetch 헬퍼
-│       │   ├── loadArchFiles.ts  # GET /api/arch[/​{name}] fetch + 파싱
-│       │   └── loadRunFiles.ts   # GET /api/runs/{id}/files fetch + 파싱
-│       └── execution/        # 실행 흐름 훅/컨텍스트
+│       │   └── Markdown.tsx  # react-markdown + remark-gfm renderer (LogPanel output display)
+│       ├── transport/        # WebSocket / MockTransport abstraction layer
+│       │   └── TransportContext.tsx  # Switch point between MockTransport ↔ WebSocketTransport
+│       ├── types/            # Zod schemas (1:1 with backend Pydantic)
+│       │   ├── arch.ts       # ArchGraphSchema etc. — mirrors archfile.py's Architecture dict
+│       │   └── workspace.ts  # Zod schemas for run file list/content (mirrors workspace.py REST)
+│       ├── registry/         # Backend REST fetch helpers
+│       │   ├── loadArchFiles.ts  # Fetch + parse GET /api/arch[/​{name}]
+│       │   └── loadRunFiles.ts   # Fetch + parse GET /api/runs/{id}/files
+│       └── execution/        # Execution flow hooks/context
 │
-├── refer_data/              # 기획 문서 및 참고 자료 (읽기 전용)
-│   ├── docs/                # 프로젝트 기획서 및 설계 스펙
-│   │   ├── agentforge.md    # 프로젝트 전체 기획서
-│   │   ├── backend-spec.md  # 백엔드 상세 스펙
-│   │   ├── node-spec.md     # 노드 타입 상세 스펙
-│   │   ├── ui-architecture.md  # UI 아키텍처 설계
-│   │   └── v0.1-validation.md  # v0.1 검증 기준
-│   └── papers/              # 참고 논문
+├── refer_data/              # Planning documents and reference material (read-only)
+│   ├── docs/                # Project plan and design specs
+│   │   ├── agentforge.md    # Overall project plan
+│   │   ├── backend-spec.md  # Detailed backend spec
+│   │   ├── node-spec.md     # Detailed node type spec
+│   │   ├── ui-architecture.md  # UI architecture design
+│   │   └── v0.1-validation.md  # v0.1 validation criteria
+│   └── papers/              # Reference papers
 │       ├── AgentFlow (Stanford, 2025).pdf
 │       ├── Agentic Auto-Scheduling.pdf
 │       ├── CCA (Cognitive Control Architecture) 2025.pdf
 │       └── CoALA (Cognitive Architectures for Language Agents) 2023.pdf
 │
-├── backend-architecture.md  # 백엔드 설계 & 프론트 연동 상세 문서
-├── start.sh                 # 개발 서버 통합 실행 스크립트
-└── CLAUDE.md                # 이 파일
+├── backend-architecture.md  # Detailed backend design & frontend integration document
+├── start.sh                 # Combined dev server startup script
+└── CLAUDE.md                # This file
 ```
 
 ---
 
-## 로컬 개발 환경 시작
+## Local development setup
 
-### 사전 요건
+### Prerequisites
 
 - Python 3.12
-- Node.js (시스템 설치)
-- `uv` 패키지 매니저: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Node.js (system install)
+- `uv` package manager: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-### 환경 변수 설정
+### Environment variables
 
-`server/.env` 파일에 API 키를 설정한다 (없으면 start.sh가 `.env.example`에서 자동 복사):
+Set API keys in `server/.env` (if missing, start.sh copies it from `.env.example` automatically):
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...        # 선택
+OPENAI_API_KEY=sk-...        # optional
 DATABASE_URL=sqlite:///./agentforge.db
 ```
 
-### 실행
+### Run
 
 ```bash
 ./start.sh
 ```
 
-백엔드(FastAPI)와 프론트엔드(Vite)를 동시에 시작한다. `Ctrl+C`로 모두 종료.
+Starts the backend (FastAPI) and frontend (Vite) together. `Ctrl+C` stops both.
 
-| 프로세스 | URL | 가상환경 |
-|---------|-----|---------|
+| Process | URL | Environment |
+|---------|-----|-------------|
 | Backend (FastAPI/uvicorn) | http://localhost:8000 | `server/.venv` (Python 3.12) |
 | Frontend (Vite) | http://localhost:5137 | `ui/node_modules` (Node.js) |
 
-### 개별 실행
+### Running individually
 
 ```bash
-# 백엔드만
+# Backend only
 cd server && ../.venv/bin/uvicorn main:app --reload --port 8000
 
-# 프론트엔드만
+# Frontend only
 cd ui && npm run dev -- --port 5137
 ```
 
-### 의존성 추가
+### Adding dependencies
 
 ```bash
-# Python (백엔드)
-cd server && ../server/.venv/bin/pip install <패키지>
-# 또는 pyproject.toml 편집 후: uv pip install -e ".[dev]"
+# Python (backend)
+cd server && ../server/.venv/bin/pip install <package>
+# or edit pyproject.toml, then: uv pip install -e ".[dev]"
 
-# Node (프론트엔드)
-cd ui && npm install <패키지>
+# Node (frontend)
+cd ui && npm install <package>
 ```
 
 ---
 
-## 핵심 연동 구조
+## Core integration flow
 
 ```
-사람이 server/arch/*.yaml 작성
+A human writes server/arch/*.yaml
     │
-프론트 Dashboard (arch.yaml 목록에서 선택 + task 입력 + Run)
+Frontend Dashboard (pick from the arch.yaml list + enter a task + Run)
     │ WebSocket ws://localhost:8000/ws/run
     ▼
-백엔드 WS 핸들러 (main.py: ws_run)
+Backend WS handler (main.py: ws_run)
     │ { kind: "run", archFile: "<name>.yaml", input, model }
     ▼
 archfile.parse_arch(yaml_text) → Architecture dict (nodes/edges/flow)
     │
-dispatch_graph(architecture) → graphs/*.py의 LangGraph StateGraph 빌더
+dispatch_graph(architecture) → LangGraph StateGraph builder in graphs/*.py
     │ graph.ainvoke(state0)
     ▼
-각 노드 함수 → emit(make_event(...)) → WSEventEmitter → WS 스트림
+Each node function → emit(make_event(...)) → WSEventEmitter → WS stream
     │
     ▼
-프론트 FlowDiagram(architecture.flow를 mermaid에 그대로 전달) 색칠 +
-NodeProgress 목록 업데이트 (running / done / failed / paused / skipped)
+Frontend FlowDiagram (passes architecture.flow straight to mermaid) coloring +
+NodeProgress list updates (running / done / failed / paused / skipped)
 ```
 
-> `dispatch_graph`는 고정 arch 이름(`gsm8k-baseline`/`gsm8k-treatment`)이면 고정 그래프 빌더에 디스패치하고,
-> 그 외에는 `compile_graph(architecture)`(`graphs/compile.py`)로 폴백해 파싱된 그래프를 직접 `StateGraph`로
-> 컴파일·실행한다 (v0.3, 커밋 `faa736e`). `architecture`를 캔버스가 아니라 `archfile.parse_arch`가 만든다는
-> 점만 2026-09-02 텍스트 우선 전환으로 바뀌었다 — `compile_graph` 자체는 무변경. 한계·남은 검증은 ROADMAP 참고.
+> `dispatch_graph` dispatches to a fixed graph builder for the fixed arch names (`gsm8k-baseline`/`gsm8k-treatment`);
+> otherwise it falls back to `compile_graph(architecture)` (`graphs/compile.py`), which compiles the parsed graph
+> directly into a `StateGraph` and runs it (v0.3, commit `faa736e`). The only thing the 2026-09-02 text-first switch
+> changed is that `architecture` is now built by `archfile.parse_arch` instead of the canvas — `compile_graph` itself
+> is unchanged. For limitations and remaining verification, see ROADMAP.
 
-**MockTransport → WebSocketTransport 전환**: `ui/src/transport/TransportContext.tsx`에서 한 줄 변경.
-
----
-
-## refer_data 사용 지침
-
-- `refer_data/docs/` — 초기 기획서. 참고하되 `DIRECTION.md`와 충돌하는 부분(노드 역할 고정, 분기 이름 `accept`/`refine`/`clarify` 고정)은 **무효**다.
-- `refer_data/papers/` — 알고리즘/아키텍처 설계 결정 시 참고 논문 확인.
-- 이 폴더는 **읽기 전용**이며 코드 생성의 근거 자료다. 수정하지 않는다.
+**Switching MockTransport → WebSocketTransport**: a one-line change in `ui/src/transport/TransportContext.tsx`.
 
 ---
 
-## 개발 규칙
+## Using refer_data
 
-- 타입 계약: 백엔드 Pydantic 필드명은 프론트 Zod 스키마와 **camelCase로 통일** (snake_case 변환 없음).
-- 노드 추가: 사용자가 arch.yaml에 새 노드를 쓰면 `archfile.py`가 전부 `custom.node`(runtime `llm_step`)로 발행하므로, 대부분은 매니페스트를 건드릴 필요가 없다. 진짜 새 **런타임**(입출력 계약이 다른 실행 로직)이 필요할 때만 `server/nodes/`에 헬퍼 함수(예: `run_llm_step` 패턴)를 만들고 `server/manifests.py`의 `BUILTIN_MANIFESTS`에 manifest(dict)를 추가한 뒤 `graphs/compile.py`에서 그 `runtime` 키로 분기한다. (구 `NodeBase`/`NodeRegistry` 방식 아님 — 그 규칙은 폐기됨. 프론트 노드 팔레트도 없다 — 그림은 mermaid 자동 생성이라 프론트에 매니페스트를 등록할 대상 자체가 없다.)
-- 이벤트 `output` 필드: 프론트 `NodeProgress`/`LogPanel`에 JSON/Markdown으로 그대로 표시되고, `node_end`의 output은 `WSEventEmitter`가 `server/workspace/<run_id>/`에 `.md` 파일로 자동 영속화하므로 직렬화 가능한 형태(`str`, `dict`, `list`)만 넣는다.
-- 실행 엔진은 v0.1부터 LangGraph `StateGraph`다. v0.3의 동적 컴파일(`compile_graph(architecture)`)은 구현 완료 — `architecture`의 출처만 2026-09-02에 캔버스에서 `archfile.parse_arch(arch.yaml)`로 바뀌었다. 남은 것은 ROADMAP 참고.
+- `refer_data/docs/` — early planning documents. Use as reference, but anything that conflicts with `DIRECTION.md` (fixed node roles, fixed branch names `accept`/`refine`/`clarify`) is **void**.
+- `refer_data/papers/` — consult the reference papers when making algorithm/architecture design decisions.
+- This folder is **read-only** and serves as source material for code generation. Do not modify it.
+
+---
+
+## Development rules
+
+- Type contract: backend Pydantic field names are **unified in camelCase** with the frontend Zod schemas (no snake_case conversion).
+- Adding nodes: when a user writes a new node in arch.yaml, `archfile.py` emits it as `custom.node` (runtime `llm_step`), so most of the time there is no need to touch manifests. Only when you truly need a new **runtime** (execution logic with a different input/output contract), create a helper function in `server/nodes/` (e.g. the `run_llm_step` pattern), add a manifest (dict) to `BUILTIN_MANIFESTS` in `server/manifests.py`, and branch on that `runtime` key in `graphs/compile.py`. (Not the old `NodeBase`/`NodeRegistry` approach — those rules are retired. There is no frontend node palette either — the diagram is auto-generated mermaid, so there is nothing on the frontend to register a manifest with.)
+- Event `output` field: shown as-is as JSON/Markdown in the frontend `NodeProgress`/`LogPanel`, and `node_end` output is automatically persisted by `WSEventEmitter` as `.md` files under `server/workspace/<run_id>/`, so only put serializable values in it (`str`, `dict`, `list`).
+- The execution engine has been LangGraph `StateGraph` since v0.1. v0.3's dynamic compilation (`compile_graph(architecture)`) is implemented — only the source of `architecture` changed on 2026-09-02, from the canvas to `archfile.parse_arch(arch.yaml)`. For what remains, see ROADMAP.

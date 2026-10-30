@@ -1,52 +1,52 @@
 # AGENTS.md
 
-AI 코딩 에이전트(Claude Code, Cursor, Antigravity 등)가 **이 저장소에서 코드를 작성·수정할 때 항상 따르는 규칙**의 단일 소스다.
-아키텍처·디렉토리·실행 방법은 [CLAUDE.md](./CLAUDE.md)를, 진행 상태는 [ROADMAP.md](./ROADMAP.md)를 참고한다.
+The single source of **rules that AI coding agents (Claude Code, Cursor, Antigravity, etc.) always follow when writing or modifying code in this repository**.
+For architecture, directory layout, and how to run things, see [CLAUDE.md](./CLAUDE.md); for progress, see [ROADMAP.md](./ROADMAP.md).
 
 ---
 
-## 1. 경로
+## 1. Paths
 
-- 파일 참조·도구 호출 시 **항상 절대 경로**를 사용한다.
-- 작업 디렉토리 가정에 의존하지 않는다 (`cd` 후 상대 경로 ❌).
+- Always use **absolute paths** when referencing files or calling tools.
+- Do not rely on assumptions about the working directory (no `cd` followed by relative paths ❌).
 
-## 2. 수정 후 검증 (필수)
+## 2. Verify after changes (required)
 
-코드를 변경했으면 커밋·완료 보고 전에 해당 영역의 검사를 **반드시 실행**한다.
+If you changed code, you **must run** the checks for that area before committing or reporting completion.
 
-| 영역 | 명령 (해당 디렉토리에서) |
-|------|--------------------------|
-| 백엔드 (`server/`) | `ruff check .` → `ruff format .` |
-| 프론트 (`ui/`) | `npm run lint` (oxlint) → `npm run build`(`tsc -b`)로 타입 확인 |
-| 테스트 | 백엔드 `pytest`, 프론트 `npm run test`(도입 후) |
+| Area | Command (run in that directory) |
+|------|----------------------------------|
+| Backend (`server/`) | `ruff check .` → `ruff format .` |
+| Frontend (`ui/`) | `npm run lint` (oxlint) → type-check with `npm run build` (`tsc -b`) |
+| Tests | Backend `pytest`, frontend `npm run test` (once introduced) |
 
-- 린트 에러는 남기지 않는다. 자동 수정 가능한 항목은 `ruff check --fix`로 정리.
+- Leave no lint errors. Clean up auto-fixable items with `ruff check --fix`.
 
-## 3. import 순서
+## 3. Import order
 
-- **백엔드**: ruff의 isort 규칙(`I`)을 따른다 — 표준 라이브러리 → 서드파티 → 로컬, 그룹 사이 빈 줄. `ruff check --fix`가 정렬한다.
-- **프론트**: oxlint 기준을 따르고, 외부 패키지 → 내부 모듈(`@/…` 또는 상대경로) 순으로 그룹화한다.
+- **Backend**: follow ruff's isort rules (`I`) — standard library → third-party → local, with a blank line between groups. `ruff check --fix` sorts them.
+- **Frontend**: follow oxlint, grouping external packages → internal modules (`@/…` or relative paths).
 
-## 4. 타입 계약 (백엔드 ↔ 프론트)
+## 4. Type contract (backend ↔ frontend)
 
-- 백엔드 Pydantic 필드명과 프론트 Zod 스키마는 **camelCase로 통일**한다. snake_case ↔ camelCase 변환 레이어를 두지 않는다.
-- WebSocket으로 나가는 페이로드는 `events.py`의 `to_frontend()`(camelCase)를 거친다. 새 필드 추가 시 백엔드 직렬화와 프론트 `ui/src/types/`의 Zod 스키마를 **동시에** 갱신한다.
+- Backend Pydantic field names and frontend Zod schemas are **unified in camelCase**. Do not add a snake_case ↔ camelCase conversion layer.
+- Payloads sent over WebSocket go through `to_frontend()` (camelCase) in `events.py`. When adding a field, update the backend serialization and the Zod schemas in `ui/src/types/` **at the same time**.
 
-## 5. 노드 추가 규칙
+## 5. Adding nodes
 
-> 실행 엔진은 LangGraph `StateGraph`다. 구 `NodeBase`/`NodeRegistry` 방식은 폐기됐다 (`server/nodes/__init__.py`는 빈 패키지 마커).
+> The execution engine is LangGraph `StateGraph`. The old `NodeBase`/`NodeRegistry` approach is deprecated (`server/nodes/__init__.py` is an empty package marker).
 
-- **백엔드 실행**: `server/nodes/`에 노드 헬퍼 함수를 만들고(예: `run_llm_step`/`make_human_checkpoint` 패턴), `server/graphs/`의 그래프 빌더에서 `graph.add_node(...)`로 연결한다. 분기는 `add_conditional_edges` + `policy.py`류 순수 라우팅 함수로 처리한다.
-- **프론트 노출**: `server/manifests.py`의 `BUILTIN_MANIFESTS`에 manifest(dict)를 추가한다. `GET /api/nodes`가 이를 반환하고 프론트 `NodeRegistry`(`ui/src/registry/`)가 이를 받아 팔레트·캔버스·Inspector를 렌더한다.
-- 이벤트 `output` 필드는 Inspector에 JSON으로 그대로 표시되므로 직렬화 가능한 형태(`str`, `dict`, `list`)만 넣는다.
+- **Backend execution**: create a node helper function in `server/nodes/` (e.g. the `run_llm_step`/`make_human_checkpoint` pattern) and wire it with `graph.add_node(...)` in a graph builder under `server/graphs/`. Handle branching with `add_conditional_edges` + a pure routing function like those in `policy.py`.
+- **Frontend exposure**: add a manifest (dict) to `BUILTIN_MANIFESTS` in `server/manifests.py`. `GET /api/nodes` returns it, and the frontend `NodeRegistry` (`ui/src/registry/`) receives it to render the palette, canvas, and Inspector.
+- The event `output` field is shown as-is as JSON in the Inspector, so only put serializable values in it (`str`, `dict`, `list`).
 
-## 6. 테스트 (권장)
+## 6. Tests (recommended)
 
-- 기능을 추가·수정하면 가능하면 **같은 PR에 테스트를 동반**한다. 백엔드는 `server/tests/`(pytest), 프론트는 `ui/src/__tests__/`(vitest).
-- 외부 LLM API 호출은 테스트에서 **목(mock)** 처리한다. 네트워크·실API 키에 의존하는 테스트는 만들지 않는다.
+- When adding or changing a feature, **include tests in the same PR** where possible. Backend: `server/tests/` (pytest); frontend: `ui/src/__tests__/` (vitest).
+- **Mock** external LLM API calls in tests. Do not write tests that depend on the network or real API keys.
 
-## 7. 에러·로깅 (표준화)
+## 7. Errors and logging (standardized)
 
-- 노드 실행 실패는 산발적으로 처리하지 말고 `events.make_error_event(run_id, node_id, exc)`로 방출한다. 이는 `event_type="error"` + 구조화된 `error={"type", "detail"}` 필드를 만든다. 프론트 `eventReducer`가 `'error'` → 노드 상태 `'failed'`로 매핑하고 `LogPanel`이 `error.detail`을 표시한다.
-- `error` 필드를 추가/변경하면 백엔드 `to_frontend()`와 프론트 `ui/src/types/events.ts`의 `ExecutionErrorSchema`를 함께 갱신한다 (§4 타입 계약).
-- `print`를 쓰지 않는다. `from logging_config import logger`를 사용하고, 앱 시작 시 `setup_logging()`이 `config.LOG_LEVEL` 기준으로 초기화한다.
+- Do not handle node execution failures ad hoc; emit them with `events.make_error_event(run_id, node_id, exc)`. This produces `event_type="error"` plus a structured `error={"type", "detail"}` field. The frontend `eventReducer` maps `'error'` → node status `'failed'`, and `LogPanel` displays `error.detail`.
+- When adding or changing the `error` field, update both the backend `to_frontend()` and `ExecutionErrorSchema` in the frontend `ui/src/types/events.ts` (§4 type contract).
+- Do not use `print`. Use `from logging_config import logger`; at app startup, `setup_logging()` initializes it based on `config.LOG_LEVEL`.
