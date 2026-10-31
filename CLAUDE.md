@@ -26,7 +26,7 @@ agentforge/
 │   ├── harness.py           # Benchmark harness (run_dataset + gsm8k_grader + Report) — measures pass@1
 │   ├── workspace.py         # Run artifacts — saves/reads node_end output as workspace/<run_id>/*.md
 │   ├── config.py            # Loads config.yaml + .env (API keys)
-│   ├── cli.py               # `agentforge` CLI — check/run/resume/show (exit 0 done / 3 paused / 1 error)
+│   ├── cli.py               # `agentforge` CLI — check/run/resume/replay/show (exit 0 done / 3 paused / 1 error)
 │   ├── runner.py            # Shared start/resume core (SQLite checkpointer) used by CLI and server
 │   ├── archfile.py           # parse_arch — arch.yaml (mermaid flow + node defs) → Architecture dict
 │   ├── arch_files.py         # List/read server/arch/*.yaml (file-based, GET /api/arch[/​{name}])
@@ -108,7 +108,7 @@ DATABASE_URL=sqlite:///./agentforge.db
 
 Starts the backend (FastAPI) and frontend (Vite) together. `Ctrl+C` stops both. `agentforge serve` does the same.
 
-Headless CLI (no servers): `agentforge check|run|resume|show` — see `skills/agentforge/SKILL.md`.
+Headless CLI (no servers): `agentforge check|run|resume|replay|show` — see `skills/agentforge/SKILL.md`.
 `run`/`resume` exit 0 when done, 3 when paused at a human checkpoint, 1 on error.
 
 | Process | URL | Environment |

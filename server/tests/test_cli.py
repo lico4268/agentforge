@@ -2,7 +2,7 @@ import json
 
 import graphs.compile as gc
 from cli import main, summarize
-from tests.arch_samples import CHECKPOINT_YAML, FAN_IN, LINEAR_YAML
+from tests.arch_samples import CHECKPOINT_YAML, FAN_IN, LINEAR_YAML, THREE_YAML
 from workspace import read_run_record
 
 
@@ -128,3 +128,61 @@ def test_summarize_reads_route_from_branch_output():
         },
     ]
     assert summarize(events, set())["visits"][0]["route"] == "ok"
+
+
+def _three(tmp_path, capsys, text=THREE_YAML, *args):
+    p = _write(tmp_path, text)
+    assert main(["run", str(p), "--task", "t", "--json", *args]) == 0
+    return json.loads(capsys.readouterr().out)["runId"]
+
+
+def test_replay_cli_prints_lineage_and_exit_0(tmp_workspace, fake_llm, tmp_path, capsys):
+    rid = _three(tmp_path, capsys)
+    p2 = _write(tmp_path, THREE_YAML.replace("prompt: pb", "prompt: NEW"), "b.yaml")
+    assert main(["replay", rid, "--arch", str(p2)]) == 0
+    assert f"replay of {rid} from b: reused 1 nodes, saved $0.0010" in capsys.readouterr().out
+
+
+def test_replay_cli_refusal_exit_1(tmp_workspace, fake_llm, tmp_path, capsys):
+    rid = _three(tmp_path, capsys)
+    p2 = _write(tmp_path, THREE_YAML, "b.yaml")
+    assert main(["replay", rid, "--arch", str(p2)]) == 1
+    assert "error: no node changed — pass --from <node>" in capsys.readouterr().err
+
+
+def test_replay_cli_flow_change_exit_1(tmp_workspace, fake_llm, tmp_path, capsys):
+    rid = _three(tmp_path, capsys)
+    p2 = _write(tmp_path, THREE_YAML.replace("a --> b --> c", "a --> c"), "b.yaml")
+    assert main(["replay", rid, "--arch", str(p2)]) == 1
+    assert "flow changed — run it fresh" in capsys.readouterr().err
+
+
+def test_replay_cli_unknown_run(tmp_workspace, capsys):
+    assert main(["replay", "nope", "--from", "b"]) == 1
+    assert "unknown run" in capsys.readouterr().err
+
+
+def test_replay_without_arch_uses_parent(tmp_workspace, fake_llm, tmp_path, capsys):
+    rid = _three(tmp_path, capsys)
+    fake_llm.calls.clear()
+    assert main(["replay", rid, "--from", "c"]) == 0
+    assert fake_llm.calls == ["c"]
+
+
+def test_replay_reuses_parent_default_model(tmp_workspace, fake_llm, tmp_path, capsys):
+    no_model = THREE_YAML.split("\n", 1)[1]
+    m = "anthropic/claude-haiku-4-5-20251001"
+    rid = _three(tmp_path, capsys, no_model, "--model", m)
+    p2 = _write(tmp_path, no_model.replace("prompt: pb", "prompt: NEW"), "b.yaml")
+    fake_llm.calls.clear()
+    assert main(["replay", rid, "--arch", str(p2)]) == 0
+    assert fake_llm.calls == ["b", "c"]
+
+
+def test_replay_json_has_lineage_keys(tmp_workspace, fake_llm, tmp_path, capsys):
+    rid = _three(tmp_path, capsys)
+    p2 = _write(tmp_path, THREE_YAML.replace("prompt: pb", "prompt: NEW"), "b.yaml")
+    assert main(["replay", rid, "--arch", str(p2), "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["parent"]["runId"] == rid and out["fromNode"] == "b" and out["reused"] == ["a"]
+    assert out["savedCost"] > 0

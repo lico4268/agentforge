@@ -1,4 +1,4 @@
-"""Headless CLI: agentforge check / run / resume / show."""
+"""Headless CLI: agentforge check / run / resume / replay / show."""
 
 from pathlib import Path
 
@@ -17,7 +17,14 @@ from archfile import ArchError, parse_arch  # noqa: E402
 from events import FileEventEmitter, ListEventEmitter  # noqa: E402
 from graphs.compile import PASSTHROUGH_TYPES, compile_graph  # noqa: E402
 from logging_config import setup_logging  # noqa: E402
-from runner import DEFAULT_MODEL_CFG, open_checkpointer, resume_run, start_run  # noqa: E402
+from replay import ReplayError  # noqa: E402
+from runner import (  # noqa: E402
+    DEFAULT_MODEL_CFG,
+    open_checkpointer,
+    replay_run,
+    resume_run,
+    start_run,
+)
 
 setup_logging()
 
@@ -107,6 +114,11 @@ def _short(s: str) -> str:
 
 def render_summary(summary: dict, run_id: str, status: str) -> str:
     lines = [f"run {run_id}"]
+    if "parent" in summary:
+        lines.append(
+            f"replay of {summary['parent']['runId']} from {summary['fromNode']}: "
+            f"reused {len(summary['reused'])} nodes, saved ${summary['savedCost']:.4f}"
+        )
     visits = summary["visits"]
     w = max([len(v["node"]) for v in visits] + [5])
     for v in visits:
@@ -142,8 +154,16 @@ def _hidden(run_id: str) -> set[str]:
     return {n["id"] for n in nodes if n["type"] in PASSTHROUGH_TYPES}
 
 
-def _report(run_id: str, status: str, as_json: bool) -> int:
+def _summary(run_id: str, rec: dict) -> dict:
     summary = summarize(workspace.read_events(run_id), _hidden(run_id))
+    if "parent" in rec:
+        for k in ("parent", "fromNode", "reused", "savedCost"):
+            summary[k] = rec[k]
+    return summary
+
+
+def _report(run_id: str, status: str, as_json: bool) -> int:
+    summary = _summary(run_id, workspace.read_run_record(run_id) or {})
     if status == "error":  # node raised without emitting an error event: blame the open visit
         err = (workspace.read_run_record(run_id) or {}).get("error") or ""
         _err(err)
@@ -186,6 +206,7 @@ async def _run(a, arch, text) -> int:
             checkpointer=cp,
             arch_path=str(Path(a.yaml).resolve()),
             arch_text=text,
+            default_model=a.model,
         )
     return _report(run_id, outcome.status, a.json)
 
@@ -229,6 +250,44 @@ def cmd_resume(a) -> int:
     return asyncio.run(_resume(a))
 
 
+async def _replay(a, arch, path, text, default_model) -> int:
+    run_id = str(uuid.uuid4())
+    async with open_checkpointer() as cp:
+        outcome = await replay_run(
+            a.run_id,
+            arch,
+            run_id=run_id,
+            from_node=a.from_node,
+            emit=FileEventEmitter(run_id),
+            checkpointer=cp,
+            arch_path=path,
+            arch_text=text,
+            default_model=default_model,
+        )
+    return _report(run_id, outcome.status, a.json)
+
+
+def cmd_replay(a) -> int:
+    rec = workspace.read_run_record(a.run_id)
+    if rec is None:
+        _err("unknown run")
+        return 1
+    model = a.model or rec.get("defaultModel")
+    try:
+        if a.arch:
+            path = str(Path(a.arch).resolve())
+            text = Path(path).read_text(encoding="utf-8")
+            arch, warnings = parse_arch(text, default_model=model)
+            for w in warnings:
+                sys.stderr.write(f"warning: {w}\n")
+        else:
+            arch, path, text = rec["architecture"], rec.get("archPath"), rec.get("archText")
+        return asyncio.run(_replay(a, arch, path, text, model))
+    except (ArchError, OSError, ReplayError, LookupError) as e:
+        _err(str(e))
+        return 1
+
+
 def cmd_show(a) -> int:
     rec = workspace.read_run_record(a.run_id)
     if rec is None:
@@ -238,7 +297,7 @@ def cmd_show(a) -> int:
         _out(f"status: {rec.get('status')}")
         _out(
             render_summary(
-                summarize(workspace.read_events(a.run_id), _hidden(a.run_id)),
+                _summary(a.run_id, rec),
                 a.run_id,
                 rec["status"],
             )
@@ -268,11 +327,24 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--choice", required=True)
     s.add_argument("--note")
     s.add_argument("--json", action="store_true")
+    q = sub.add_parser("replay")
+    q.add_argument("run_id")
+    q.add_argument("--arch")
+    q.add_argument("--from", dest="from_node")
+    q.add_argument("--model")
+    q.add_argument("--json", action="store_true")
     w = sub.add_parser("show")
     w.add_argument("run_id")
     w.add_argument("node", nargs="?")
     a = p.parse_args(argv)
-    return {"check": cmd_check, "run": cmd_run, "resume": cmd_resume, "show": cmd_show}[a.cmd](a)
+    cmds = {
+        "check": cmd_check,
+        "run": cmd_run,
+        "resume": cmd_resume,
+        "replay": cmd_replay,
+        "show": cmd_show,
+    }
+    return cmds[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,12 @@ Examples: `server/arch/gsm8k.yaml` (branch + retry loop), `server/arch/draft-app
    then `agentforge resume <run_id> --choice <label> [--note "<text>"] [--json]`.
 5. Read only the summary. For a specific node's full output:
    `agentforge show <run_id> <node>` (`agentforge show <run_id>` reprints the summary).
-6. Report the result and the per-node cost to the user.
+6. If the result is not what you wanted, edit the YAML and run
+   `agentforge replay <run_id> --arch <file.yaml> [--from <node>] [--json]`: it re-runs from the first
+   changed node and reuses the earlier nodes' outputs. `flow changed — run it fresh` means the wiring
+   changed: use `run` instead. `upstream node … changed` means start earlier: pass the `--from` it
+   suggests. `replay` also works on a failed run.
+7. Report the result and the per-node cost to the user.
 
 Run long pipelines with a long Bash timeout or in the background: a killed run stays
 `running` and cannot be resumed.
