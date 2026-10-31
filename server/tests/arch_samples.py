@@ -42,3 +42,14 @@ nodes:
   b: {in: [x], out: [y], prompt: pb}
   c: {in: [y], out: [answer], prompt: pc}
 """
+
+LOOP_YAML = """\
+model: anthropic/claude-haiku-4-5-20251001
+flow: |
+  input --> draft --> gate
+  gate -->|approve| output
+  gate -->|revise| draft
+nodes:
+  draft: {in: [task], out: [answer], prompt: pd}
+  gate: {run: human.checkpoint}
+"""

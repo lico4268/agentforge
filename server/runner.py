@@ -12,9 +12,10 @@ from langgraph.types import Command
 
 import config as cfg
 import workspace
-from events import EventEmitter
-from graphs.compile import compile_graph
+from events import EventEmitter, ListEventEmitter
+from graphs.compile import PASSTHROUGH_TYPES, compile_graph
 from logging_config import logger
+from replay import ReplayError, pick_from, reuse_stats, visit_order
 from state import initial_state
 
 DEFAULT_MODEL_CFG = {
@@ -73,6 +74,7 @@ async def start_run(
     checkpointer,
     arch_path: str | None = None,
     arch_text: str | None = None,
+    default_model: str | None = None,
 ) -> RunOutcome:
     workspace.write_run_record(
         run_id,
@@ -80,6 +82,7 @@ async def start_run(
             "runId": run_id,
             "archPath": arch_path,
             "archText": arch_text,
+            "defaultModel": default_model,
             "architecture": architecture,
             "modelCfg": model_cfg,
             "task": task,
@@ -109,3 +112,76 @@ async def resume_run(
     return await _invoke(
         rec["architecture"], rec["modelCfg"], run_id, Command(resume=decision), emit, checkpointer
     )
+
+
+async def replay_run(
+    parent_id: str,
+    architecture: dict,
+    *,
+    run_id: str,
+    from_node: str | None,
+    emit: EventEmitter,
+    checkpointer,
+    arch_path: str | None = None,
+    arch_text: str | None = None,
+    default_model: str | None = None,
+) -> RunOutcome:
+    """Fork the parent's checkpoint taken just before the start node into a new run and continue."""
+    rec = workspace.read_run_record(parent_id)
+    if rec is None:
+        raise LookupError(f"unknown run: {parent_id}")
+    reused = rec.get("reused", [])
+    evs = workspace.read_events(parent_id)
+    start = pick_from(rec["architecture"], architecture, visit_order(evs, reused), from_node)
+    if start in reused:
+        raise ReplayError(
+            f"node '{start}' was reused from run {rec['parent']['runId']} — replay that run instead"
+        )
+    old = rec["architecture"]
+    graph = compile_graph(
+        old,
+        {**DEFAULT_MODEL_CFG, **rec["modelCfg"]},
+        ListEventEmitter(),
+        parent_id,
+        checkpointer,
+    )
+    history = [
+        s async for s in graph.aget_state_history({"configurable": {"thread_id": parent_id}})
+    ]
+    # newest first, so the last match is the oldest snapshot: just before first visit
+    snaps = [s for s in history if start in s.next]
+    if not snaps:
+        raise ReplayError(f"no checkpoint before '{start}' in run {parent_id}")
+    snap = snaps[-1]
+    tup = await checkpointer.aget_tuple(snap.config)
+    await checkpointer.aput(
+        {"configurable": {"thread_id": run_id, "checkpoint_ns": ""}},
+        tup.checkpoint,
+        tup.metadata,
+        tup.checkpoint["channel_versions"],
+    )
+    hidden = {n["id"] for n in old["nodes"] if n["type"] in PASSTHROUGH_TYPES}
+    nodes, cost = reuse_stats(evs, start, snap.next, hidden)
+    workspace.write_run_record(
+        run_id,
+        {
+            "runId": run_id,
+            "archPath": arch_path,
+            "archText": arch_text,
+            "defaultModel": default_model,
+            "architecture": architecture,
+            "modelCfg": rec["modelCfg"],
+            "task": rec["task"],
+            "createdAt": datetime.now(UTC).isoformat(),
+            "status": "running",
+            "error": None,
+            "parent": {
+                "runId": parent_id,
+                "checkpointId": snap.config["configurable"]["checkpoint_id"],
+            },
+            "fromNode": start,
+            "reused": [*reused, *nodes],
+            "savedCost": rec.get("savedCost", 0) + cost,
+        },
+    )
+    return await _invoke(architecture, rec["modelCfg"], run_id, None, emit, checkpointer)
