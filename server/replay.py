@@ -15,7 +15,8 @@ def _spec(node: dict) -> dict:
 
 def _flow(arch: dict) -> tuple:
     nodes = arch["nodes"]
-    ids = sorted((n["id"], n["type"]) for n in nodes)
+    # joinMode is topology in compile_graph, so it belongs to the flow
+    ids = sorted((n["id"], n["type"], n.get("joinMode")) for n in nodes)
     edges = sorted(
         json.dumps({k: v for k, v in e.items() if k != "id"}, sort_keys=True) for e in arch["edges"]
     )

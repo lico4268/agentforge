@@ -1,5 +1,5 @@
 import pytest
-from arch_samples import CHECKPOINT_YAML, THREE_YAML
+from arch_samples import CHECKPOINT_YAML, FAN_IN, THREE_YAML
 
 from archfile import parse_arch
 from replay import ReplayError, changed_nodes, pick_from, reuse_stats, visit_order
@@ -100,3 +100,10 @@ def test_reuse_stats_excludes_siblings_in_next():
         _ev("log", "a", tokenUsage={"cost": 0.5}),
     ]
     assert reuse_stats(evs, "b", ("a", "b"), set()) == ([], 0.0)
+
+
+def test_join_mode_edit_is_a_flow_change():
+    old = _arch(FAN_IN % ", join: all")
+    new = _arch(FAN_IN % ", join: any")
+    with pytest.raises(ReplayError, match="flow changed"):
+        changed_nodes(old, new)

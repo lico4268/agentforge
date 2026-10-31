@@ -272,6 +272,9 @@ def cmd_replay(a) -> int:
     if rec is None:
         _err("unknown run")
         return 1
+    if a.model and not a.arch:
+        _err("--model needs --arch")
+        return 1
     model = a.model or rec.get("defaultModel")
     try:
         if a.arch:
@@ -283,7 +286,7 @@ def cmd_replay(a) -> int:
         else:
             arch, path, text = rec["architecture"], rec.get("archPath"), rec.get("archText")
         return asyncio.run(_replay(a, arch, path, text, model))
-    except (ArchError, OSError, ReplayError, LookupError) as e:
+    except (ArchError, OSError, ReplayError, LookupError, ValueError) as e:
         _err(str(e))
         return 1
 

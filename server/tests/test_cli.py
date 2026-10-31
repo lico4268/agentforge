@@ -186,3 +186,34 @@ def test_replay_json_has_lineage_keys(tmp_workspace, fake_llm, tmp_path, capsys)
     out = json.loads(capsys.readouterr().out)
     assert out["parent"]["runId"] == rid and out["fromNode"] == "b" and out["reused"] == ["a"]
     assert out["savedCost"] > 0
+
+
+def test_replay_model_without_arch_refused(tmp_workspace, fake_llm, tmp_path, capsys):
+    rid = _three(tmp_path, capsys)
+    assert main(["replay", rid, "--from", "c", "--model", "openai/gpt-x"]) == 1
+    assert "error: --model needs --arch" in capsys.readouterr().err
+    assert fake_llm.calls == ["a", "b", "c"]
+
+
+def test_replay_without_arch_records_parent_default_model(
+    tmp_workspace, fake_llm, tmp_path, capsys
+):
+    no_model = THREE_YAML.split("\n", 1)[1]
+    m = "anthropic/claude-haiku-4-5-20251001"
+    rid = _three(tmp_path, capsys, no_model, "--model", m)
+    assert main(["replay", rid, "--from", "c", "--json"]) == 0
+    child = json.loads(capsys.readouterr().out)["runId"]
+    assert read_run_record(child)["defaultModel"] == m
+
+
+def test_replay_compile_value_error_is_reported(
+    tmp_workspace, fake_llm, tmp_path, capsys, monkeypatch
+):
+    rid = _three(tmp_path, capsys)
+
+    async def boom(*a, **k):
+        raise ValueError("no key")
+
+    monkeypatch.setattr("cli.replay_run", boom)
+    assert main(["replay", rid, "--from", "c"]) == 1
+    assert "error: no key" in capsys.readouterr().err
