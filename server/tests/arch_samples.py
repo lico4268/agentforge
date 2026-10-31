@@ -32,3 +32,13 @@ nodes:
   draft: {in: [task], out: [answer], prompt: p}
   gate: {run: human.checkpoint}
 """
+
+THREE_YAML = """\
+model: anthropic/claude-haiku-4-5-20251001
+flow: |
+  input --> a --> b --> c --> output
+nodes:
+  a: {in: [task], out: [x], prompt: pa}
+  b: {in: [x], out: [y], prompt: pb}
+  c: {in: [y], out: [answer], prompt: pc}
+"""
