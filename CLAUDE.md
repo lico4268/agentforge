@@ -33,8 +33,11 @@ agentforge/
 │   ├── archfile.py           # parse_arch — arch.yaml (mermaid flow + node defs) → Architecture dict
 │   ├── arch_files.py         # List/read server/arch/*.yaml (file-based, GET /api/arch[/​{name}])
 │   ├── arch/                 # Human-authored arch.yaml files (e.g. gsm8k.yaml)
+│   ├── gitfiles.py          # Git plumbing for agent files/ (per-visit commits, --repo worktrees, replay clones)
+│   ├── agent_tools/         # Commands mounted on the agent sandbox PATH (search → Tavily)
 │   ├── nodes/               # Node helpers called by graphs (not a NodeRegistry — __init__.py is an empty package marker)
 │   │   ├── llm_step.py      # run_llm_step — structured-output LLM call helper
+│   │   ├── agent_step.py    # make_agent_node — `run: agent`: mini-swe-agent loop, commands in bwrap
 │   │   ├── checkpoint.py    # make_human_checkpoint — interrupt-based human review
 │   │   ├── review.py        # make_review — intent×criteria review (produces ReviewDelta, used only by treatment.py)
 │   │   └── policy.py        # compute_review_branch / make_route_review — pure routing functions

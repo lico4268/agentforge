@@ -8,7 +8,7 @@ It is built to be driven from Claude Code: Claude designs the pipeline as YAML, 
 AgentForge runs it cheaply, repeatedly, and measurably — a different model per node,
 replay from a middle node, and run records you can diff.
 
-> Current stage: **CLI, skill, replay, honest cost, eval, and compare are done; `run: agent` nodes are next.**
+> Current stage: **CLI, skill, replay, honest cost, eval, compare, and `run: agent` nodes are done; finer per-node sandbox rules are next.**
 > See the roadmap in [DIRECTION.md](./DIRECTION.md#5-roadmap).
 
 ## Features
@@ -18,6 +18,8 @@ replay from a middle node, and run records you can diff.
 - Dataset evals from an `eval:` block: success rate, cost per success, per-node cost
 - Side-by-side comparison of two variants with paired results and a noise warning
 - Replay a run from the first changed node, reusing earlier nodes' outputs
+- `run: agent` nodes: a mini-swe-agent bash loop in a bwrap sandbox (no network or secrets
+  unless the node asks), working in a per-run git repo or a branch of your own repo
 - Paused runs survive restarts (SQLite checkpointer shared by CLI and server)
 - A Claude Code skill (`skills/agentforge/`) that drives the CLI
 - Read-only execution diagrams rendered with Mermaid
@@ -88,6 +90,12 @@ Add an `eval:` block (dataset + grader) to an `arch.yaml` and run
 per-node cost over a dataset; `server/arch/gsm8k.yaml` has one. Compare two variants on
 the same items with `./agentforge compare a.yaml b.yaml`, or change one field in place:
 `./agentforge compare server/arch/gsm8k.yaml --set model=anthropic/claude-haiku-4-5-20251001`.
+
+An agent node (`run: agent`, see `server/arch/fib-agent.yaml`) lets a model run bash commands
+in a sandbox until it submits an answer; it needs [bubblewrap](https://github.com/containers/bubblewrap)
+(`bwrap`). Its files land in `server/workspace/<run_id>/files/`, a git repo with one commit per
+agent visit. Add `--repo <path>` to `run` to work on a branch `agentforge/<run_id>` of an
+existing repo instead; your checkout is never touched.
 
 To use it from Claude Code, link the skill:
 
@@ -187,7 +195,9 @@ server/
 ├── arch/              # User-authored arch.yaml files
 ├── archfile.py        # YAML and Mermaid flow parser
 ├── graphs/compile.py  # Dynamic LangGraph compiler
-├── nodes/             # Node execution helpers
+├── nodes/             # Node execution helpers (llm_step, agent_step, checkpoint, …)
+├── agent_tools/       # Commands on the agent sandbox PATH (search)
+├── gitfiles.py        # Git plumbing for agent files/ (commits, worktrees)
 ├── cli.py             # agentforge CLI
 ├── runner.py          # Shared start / resume / replay core
 ├── replay.py          # Replay start-node selection
@@ -207,8 +217,8 @@ ui/src/
 ## Current Scope and Next Steps
 
 Text-based authoring, dynamic execution, branches, loops, Human Checkpoints, the CLI,
-the Claude Code skill, replay, honest per-node cost, `eval:`, and `compare` are
-implemented. Next: `run: agent` nodes, then per-node sandboxing.
+the Claude Code skill, replay, honest per-node cost, `eval:`, `compare`, and sandboxed
+`run: agent` nodes are implemented. Next: finer per-node sandbox rules (`files:`, `tools:`).
 
 See [DIRECTION.md](./DIRECTION.md) for design principles and the roadmap, and
 [AGENTS.md](./AGENTS.md) for development guidelines.
