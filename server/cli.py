@@ -1,4 +1,4 @@
-"""Headless CLI: agentforge check / run / resume / replay / show / eval."""
+"""Headless CLI: agentforge check / run / resume / replay / show / eval / compare."""
 
 from pathlib import Path
 
@@ -14,7 +14,16 @@ import uuid  # noqa: E402
 
 import workspace  # noqa: E402
 from archfile import ArchError, parse_arch  # noqa: E402
-from evaluate import EvalError, check_eval, load_eval, render_report, run_eval  # noqa: E402
+from evaluate import (  # noqa: E402
+    EvalError,
+    apply_sets,
+    check_eval,
+    compare_report,
+    load_eval,
+    render_compare,
+    render_report,
+    run_eval,
+)
 from events import FileEventEmitter, ListEventEmitter  # noqa: E402
 from graphs.compile import PASSTHROUGH_TYPES, compile_graph  # noqa: E402
 from logging_config import setup_logging  # noqa: E402
@@ -252,7 +261,7 @@ def cmd_show(a) -> int:
     return 0
 
 
-async def _eval(a, arch, spec, text) -> dict:
+async def _eval(a, arch, spec, text, path=None) -> dict:
     async with open_checkpointer() as cp:
         return await run_eval(
             arch,
@@ -260,7 +269,7 @@ async def _eval(a, arch, spec, text) -> dict:
             limit=a.limit,
             checkpoint=a.checkpoint,
             checkpointer=cp,
-            arch_path=str(Path(a.yaml).resolve()),
+            arch_path=str(Path(path or a.yaml).resolve()),
             arch_text=text,
             default_model=a.model,
         )
@@ -279,6 +288,30 @@ def cmd_eval(a) -> int:
     for w in warnings:
         sys.stderr.write(f"warning: {w}\n")
     _out(json.dumps(r, ensure_ascii=False) if a.json else render_report(r, a.yaml))
+    return 0
+
+
+def cmd_compare(a) -> int:
+    if not a.yaml_b and not a.set:
+        _err("compare needs a second yaml or --set node.field=value")
+        return 1
+    try:
+        text_a = Path(a.yaml).read_text(encoding="utf-8")
+        path_b = a.yaml_b or a.yaml
+        text_b = apply_sets(Path(path_b).read_text(encoding="utf-8"), a.set or [])
+        arch_a, _ = parse_arch(text_a, default_model=a.model)
+        arch_b, _ = parse_arch(text_b, default_model=a.model)
+        spec = load_eval(text_a, Path(a.yaml))  # both variants run A's dataset
+        for arch in (arch_a, arch_b):
+            compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "check")
+        ra = asyncio.run(_eval(a, arch_a, spec, text_a))
+        rb = asyncio.run(_eval(a, arch_b, spec, text_b, path_b))
+    except (ArchError, EvalError, ValueError, OSError) as e:
+        _err(str(e))
+        return 1
+    c = compare_report(ra, rb)
+    name_b = " ".join([path_b, *(f"--set {s}" for s in a.set or [])])
+    _out(json.dumps(c, ensure_ascii=False) if a.json else render_compare(c, a.yaml, name_b))
     return 0
 
 
@@ -310,6 +343,14 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--checkpoint")
     e.add_argument("--model")
     e.add_argument("--json", action="store_true")
+    m = sub.add_parser("compare")
+    m.add_argument("yaml")
+    m.add_argument("yaml_b", nargs="?")
+    m.add_argument("--set", action="append")
+    m.add_argument("--limit", type=int)
+    m.add_argument("--checkpoint")
+    m.add_argument("--model")
+    m.add_argument("--json", action="store_true")
     w = sub.add_parser("show")
     w.add_argument("run_id")
     w.add_argument("node", nargs="?")
@@ -321,6 +362,7 @@ def main(argv: list[str] | None = None) -> int:
         "replay": cmd_replay,
         "show": cmd_show,
         "eval": cmd_eval,
+        "compare": cmd_compare,
     }
     return cmds[a.cmd](a)
 

@@ -146,3 +146,53 @@ async def test_llm_grader_asks_model_with_rubric(monkeypatch):
     grade = evaluate.make_grader({"llm": {"model": "anthropic/claude-x", "rubric": "be kind"}})
     assert await grade("the answer", "the gold", "the task")
     assert "be kind" in seen["prompt"] and "the gold" in seen["prompt"]
+
+
+# ── compare ────────────────────────────────────────────────────────────────────
+
+
+def test_apply_sets_edits_node_and_top_level_fields():
+    text = evaluate.apply_sets(LINEAR_YAML, ["draft.temperature=0.7", "model=openai/gpt-x"])
+    doc = __import__("yaml").safe_load(text)
+    assert doc["nodes"]["draft"]["temperature"] == 0.7
+    assert doc["model"] == "openai/gpt-x"
+
+
+@pytest.mark.parametrize(
+    "s, msg", [("nope.model=x", "no node 'nope'"), ("draft.model", "expected node.field=value")]
+)
+def test_apply_sets_rejects_bad_input(s, msg):
+    with pytest.raises(EvalError, match=msg):
+        evaluate.apply_sets(LINEAR_YAML, [s])
+
+
+def test_paired_p_value():
+    assert evaluate.paired_p(0, 0) == 1.0
+    assert evaluate.paired_p(1, 0) == 1.0
+    assert evaluate.paired_p(0, 10) == pytest.approx(2 / 1024)
+
+
+def test_compare_two_files_pairs_items(tmp_workspace, fake_llm, tmp_path, capsys):
+    a = _setup(tmp_path, LINEAR_YAML, golds=("draft2", "draft"))
+    b = tmp_path / "b.yaml"
+    b.write_text(a.read_text().replace("draft", "draft2"))
+    code = main(["compare", str(a), str(b), "--json"])
+    r = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert (r["a"]["passed"], r["b"]["passed"]) == (1, 2)
+    assert r["paired"] == {"aWins": 0, "bWins": 1, "ties": 1}
+    assert r["noise"] is True  # one discordant pair proves nothing
+
+
+def test_compare_with_set_uses_same_file(tmp_workspace, fake_llm, tmp_path, capsys):
+    a = _setup(tmp_path, LINEAR_YAML, golds=("draft",))
+    assert main(["compare", str(a), "--set", "draft.temperature=0.5"]) == 0
+    out = capsys.readouterr().out
+    assert "draft.temperature=0.5" in out
+    assert "within noise" in out
+
+
+def test_compare_needs_b_or_set(tmp_path, capsys):
+    a = _setup(tmp_path, LINEAR_YAML)
+    assert main(["compare", str(a)]) == 1
+    assert "second yaml or --set" in capsys.readouterr().err

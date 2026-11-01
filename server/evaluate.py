@@ -1,6 +1,7 @@
 """agentforge eval: run an arch.yaml over a dataset and report success rate and cost."""
 
 import json
+import math
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -243,3 +244,90 @@ def check_eval(text: str, yaml_path: Path) -> None:
         raise ArchError(str(e)) from e
     if has_eval:
         load_eval(text, yaml_path)
+
+
+# ── compare ────────────────────────────────────────────────────────────────────
+
+
+def apply_sets(text: str, sets: list[str]) -> str:
+    """Apply `node.field=value` (or top-level `field=value`) edits to arch.yaml text."""
+    doc = yaml.safe_load(text) or {}
+    for s in sets:
+        key, sep, raw = s.partition("=")
+        if not sep or not key:
+            raise EvalError(f"--set {s!r}: expected node.field=value")
+        value = yaml.safe_load(raw)
+        node, dot, field = key.partition(".")
+        if not dot:
+            doc[key] = value
+            continue
+        nodes = doc.get("nodes") or {}
+        if node not in nodes:
+            raise EvalError(f"--set {s!r}: no node {node!r} under nodes:")
+        nodes[node] = {**(nodes[node] or {}), field: value}
+    return yaml.safe_dump(doc, sort_keys=False, allow_unicode=True)
+
+
+def paired_p(a_wins: int, b_wins: int) -> float:
+    """Exact two-sided sign test on discordant pairs (McNemar): could chance explain the split?"""
+    n = a_wins + b_wins
+    if n == 0:
+        return 1.0
+    k = min(a_wins, b_wins)
+    return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2**n)
+
+
+def compare_report(a: dict, b: dict) -> dict:
+    pairs = list(zip(a["results"], b["results"], strict=True))
+    a_wins = sum(x["passed"] and not y["passed"] for x, y in pairs)
+    b_wins = sum(y["passed"] and not x["passed"] for x, y in pairs)
+    p = paired_p(a_wins, b_wins)
+    return {
+        "a": a,
+        "b": b,
+        "paired": {"aWins": a_wins, "bWins": b_wins, "ties": len(pairs) - a_wins - b_wins},
+        "pValue": p,
+        "noise": p >= 0.05,
+    }
+
+
+def _pct(r: dict) -> str:
+    return f"{r['successRate']:.1%} ({r['passed']}/{r['runs']})"
+
+
+def render_compare(c: dict, name_a: str, name_b: str) -> str:
+    a, b = c["a"], c["b"]
+    rows = [
+        ("success", _pct(a), _pct(b)),
+        ("cost/success", usd(a["costPerSuccess"]), usd(b["costPerSuccess"])),
+        ("total cost", usd(a["totalCost"]), usd(b["totalCost"])),
+        ("avg tok/run", f"{a['avgTokens']:.0f}", f"{b['avgTokens']:.0f}"),
+        ("paused", str(a["paused"]), str(b["paused"])),
+        ("errors", str(a["errors"]), str(b["errors"])),
+    ]
+    for node in dict.fromkeys([*a["nodes"], *b["nodes"]]):
+        na, nb = a["nodes"].get(node), b["nodes"].get(node)
+        rows.append(
+            (f"  {node} cost", usd(na["avgCost"]) if na else "-", usd(nb["avgCost"]) if nb else "-")
+        )
+    w = max(len(r[0]) for r in rows)
+    wa = max([len(r[1]) for r in rows] + [1])
+    lines = [
+        f"compare on {a['items']} items, {a['runs']} runs each",
+        f"A: {name_a}",
+        f"B: {name_b}",
+    ]
+    lines.append(f"{'':<{w}}  {'A':<{wa}}  B")
+    lines += [f"{k:<{w}}  {x:<{wa}}  {y}" for k, x, y in rows]
+    pr = c["paired"]
+    lines.append(f"paired: A wins {pr['aWins']}, B wins {pr['bWins']}, ties {pr['ties']}")
+    unpriced = sorted({*a["unpricedModels"], *b["unpricedModels"]})
+    if unpriced:
+        lines.append(f"cost unknown (no price for {', '.join(unpriced)})")
+    if c["noise"]:
+        lines.append(
+            f"warning: the success-rate difference is within noise (p={c['pValue']:.2f}, "
+            f"{pr['aWins'] + pr['bWins']} discordant pairs) — trust the cost numbers, "
+            "not the success rate; run more items to tell them apart"
+        )
+    return "\n".join(lines)

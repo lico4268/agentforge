@@ -67,6 +67,15 @@ cost, and branch-label counts. A run that pauses at a checkpoint counts as a fai
 `--checkpoint <label>` answers every pause with that label. Each item is a normal run:
 `agentforge show <run_id>` works on the failed ones it lists.
 
+### compare
+
+`agentforge compare a.yaml b.yaml [--limit N] [--checkpoint <label>] [--json]`, or change one field
+without copying the file: `agentforge compare a.yaml --set reviewer.model=google/gemini-3.1-flash-lite`
+(`--set` repeats; `model=...` without a dot sets the top-level default). Both variants run A's
+`eval:` dataset on the same items. It prints both reports side by side, per-node cost, and paired
+wins/losses/ties. When it warns that the success-rate difference is within noise, trust the cost
+numbers only: with few items, cost is the reliable signal.
+
 ## Working loop
 
 1. Write the arch.yaml.
@@ -83,7 +92,8 @@ cost, and branch-label counts. A run that pauses at a checkpoint counts as a fai
    changed: use `run` instead. `upstream node … changed` means start earlier: pass the `--from` it
    suggests. `replay` also works on a failed run.
 7. When the flow will be reused, measure it: `agentforge eval` on a small dataset (`--limit 5`
-   first). Report success rate and cost per success, not a single run.
+   first). Report success rate and cost per success, not a single run. To make it cheaper, change
+   one thing and `agentforge compare`; adopt the cheaper variant if the success rate did not drop.
 8. Report the result and the per-node cost to the user. `$?` with `cost unknown (no price for <model>)`
    means that model has no price: say so rather than reporting $0. OpenRouter models report their
    own cost; for others, add the price to `models.pricing` in `config.yaml`.

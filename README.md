@@ -8,14 +8,15 @@ It is built to be driven from Claude Code: Claude designs the pipeline as YAML, 
 AgentForge runs it cheaply, repeatedly, and measurably — a different model per node,
 replay from a middle node, and run records you can diff.
 
-> Current stage: **CLI, Claude Code skill, and replay are done; cost/eval/compare is next.**
+> Current stage: **CLI, skill, replay, honest cost, eval, and compare are done; `run: agent` nodes are next.**
 > See the roadmap in [DIRECTION.md](./DIRECTION.md#5-roadmap).
 
 ## Features
 
 - Text-based agent definitions in `server/arch/*.yaml`
-- Headless CLI: `agentforge check | run | resume | replay | show | eval`
+- Headless CLI: `agentforge check | run | resume | replay | show | eval | compare`
 - Dataset evals from an `eval:` block: success rate, cost per success, per-node cost
+- Side-by-side comparison of two variants with paired results and a noise warning
 - Replay a run from the first changed node, reusing earlier nodes' outputs
 - Paused runs survive restarts (SQLite checkpointer shared by CLI and server)
 - A Claude Code skill (`skills/agentforge/`) that drives the CLI
@@ -84,7 +85,9 @@ re-runs from the first changed node. Each run is stored under
 
 Add an `eval:` block (dataset + grader) to an `arch.yaml` and run
 `./agentforge eval <file.yaml> --limit 5` to get the success rate, cost per success, and
-per-node cost over a dataset; `server/arch/gsm8k.yaml` has one.
+per-node cost over a dataset; `server/arch/gsm8k.yaml` has one. Compare two variants on
+the same items with `./agentforge compare a.yaml b.yaml`, or change one field in place:
+`./agentforge compare server/arch/gsm8k.yaml --set model=anthropic/claude-haiku-4-5-20251001`.
 
 To use it from Claude Code, link the skill:
 
@@ -204,9 +207,8 @@ ui/src/
 ## Current Scope and Next Steps
 
 Text-based authoring, dynamic execution, branches, loops, Human Checkpoints, the CLI,
-the Claude Code skill, and replay are implemented. Next: honest per-node cost records,
-`eval:` in `arch.yaml`, and comparison reports; then `run: agent` nodes and per-node
-sandboxing.
+the Claude Code skill, replay, honest per-node cost, `eval:`, and `compare` are
+implemented. Next: `run: agent` nodes, then per-node sandboxing.
 
 See [DIRECTION.md](./DIRECTION.md) for design principles and the roadmap, and
 [AGENTS.md](./AGENTS.md) for development guidelines.

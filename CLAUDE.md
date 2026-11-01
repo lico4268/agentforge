@@ -26,9 +26,9 @@ agentforge/
 │   ├── harness.py           # Benchmark harness (run_dataset + gsm8k_grader + Report) — measures pass@1
 │   ├── workspace.py         # Run artifacts under workspace/<run_id>/: run.json, events.jsonl, per-node .md
 │   ├── config.py            # Loads config.yaml + .env (API keys)
-│   ├── cli.py               # `agentforge` CLI — check/run/resume/replay/show/eval (exit 0 done / 3 paused / 1 error)
+│   ├── cli.py               # `agentforge` CLI — check/run/resume/replay/show/eval/compare (exit 0 done / 3 paused / 1 error)
 │   ├── runner.py            # Shared start/resume/replay core (SQLite checkpointer) + run summary, used by CLI and server
-│   ├── evaluate.py          # agentforge eval — eval: block, graders, dataset runs, report
+│   ├── evaluate.py          # agentforge eval/compare — eval: block, graders, dataset runs, reports
 │   ├── replay.py            # Pick the node a replay starts from; refuse flow changes; reuse stats
 │   ├── archfile.py           # parse_arch — arch.yaml (mermaid flow + node defs) → Architecture dict
 │   ├── arch_files.py         # List/read server/arch/*.yaml (file-based, GET /api/arch[/​{name}])
@@ -113,7 +113,7 @@ OPENROUTER_API_KEY=...
 
 Starts the backend (FastAPI) and frontend (Vite) together. `Ctrl+C` stops both. `agentforge serve` does the same.
 
-Headless CLI (no servers): `agentforge check|run|resume|replay|show|eval` — see `skills/agentforge/SKILL.md`.
+Headless CLI (no servers): `agentforge check|run|resume|replay|show|eval|compare` — see `skills/agentforge/SKILL.md`.
 `run`/`resume` exit 0 when done, 3 when paused at a human checkpoint, 1 on error.
 
 | Process | URL | Environment |
