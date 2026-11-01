@@ -1,0 +1,13 @@
+name: fib-agent
+model: anthropic/claude-haiku-4-5-20251001
+flow: |
+  input --> coder --> output
+nodes:
+  coder:
+    run: agent
+    in: [task]
+    out: [answer]
+    prompt: |
+      Do the task in the current folder. Run what you write before you finish, and say
+      in your final answer which files you made and what running them printed.
+    limits: {steps: 15, cost: 0.10}

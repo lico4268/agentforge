@@ -61,6 +61,7 @@ Node types (`server/manifests.py`, `BUILTIN_MANIFESTS`) and how they compile:
 | `io.input` / `io.output` | `io` | passthrough nodes (`PASSTHROUGH_TYPES`) |
 | `custom.node` | `llm_step` | `run_llm_step` with an output model built from the node's `out` ports; a branch node also gets a `route` field limited to its labels (`_make_router`) |
 | `human.checkpoint` | `checkpoint` | `make_human_checkpoint` — `interrupt()`, then `Command(goto=…)` to the wired label |
+| `agent.node` (`run: agent`) | `agent` | `nodes/agent_step.make_agent_node` — mini-swe-agent loop over the run's `files/` |
 | `loop.guard` | `loop_guard` | `_make_loop_guard_node` — `loopBack`/`exit` self-routing with iteration/token/cost/time/stuck limits |
 
 Edges: nodes with no incoming edges hang off `START`, nodes with no outgoing edges go to `END`.
@@ -75,6 +76,16 @@ error (`_tarjan_scc` + `_validate_gated_cycles`). The checkpointer is passed in 
   for the call when it reports one (OpenRouter does, read by `UsageCostHandler`), otherwise
   `config.yaml models.pricing` via `models.cost_for_usage`. With neither, `cost` is `null` — never
   a silent `0.0` — and the CLI prints `$?` plus `cost unknown (no price for <model>)`.
+- `agent_step.make_agent_node` — runs mini-swe-agent's `DefaultAgent` in a thread. The model is
+  our LangChain model behind a small adapter (`_ChatModel`), so agent nodes share providers, keys,
+  and cost records with llm nodes; litellm is installed with mini-swe-agent but never called.
+  Each bash command runs in bwrap (`bwrap_args`): `--clearenv`, `--unshare-all` (plus
+  `--share-net` when `network: true`), read-only `/usr` and `/etc`, tmpfs `/tmp`, and only the
+  run's `files/` writable. `secrets:` names are copied from the server environment; tools from
+  `server/agent_tools/` (and `obscura` if installed) are mounted at `/opt/agentforge/bin`.
+  `files/` is a git repo (`gitfiles.py`) and every visit ends in a commit; the node output carries
+  `changedFiles`, `commit`, `steps`, and the trajectory path (`agent/<node>-<n>.json`). Hitting
+  `limits` (`steps` 30, `cost` 0.50 by default) fails the node after committing its work.
 - `checkpoint.make_human_checkpoint` — emits an `interrupt` event whose payload lists the wired
   labels, then pauses.
 - `loop_guard.py` — pure guard evaluation used by the `loop.guard` node.

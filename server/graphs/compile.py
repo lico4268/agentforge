@@ -761,6 +761,14 @@ def compile_graph(
                     ),
                 ),
             )
+        elif manifest.get("runtime") == "agent":
+            from nodes.agent_step import make_agent_node  # imports mini-swe-agent; only when used
+
+            model, _ = _resolve_model(node, default_model_cfg)
+            graph.add_node(
+                node_id,
+                make_agent_node(node, model, emit, run_id, node_to_policies.get(node_id)),
+            )
         elif manifest.get("runtime") == "checkpoint":
             _validate_branch_roles(node_id, manifest, outgoing.get(node_id, []))
             routes = {"approve": END, "revise": END, "reject": END}

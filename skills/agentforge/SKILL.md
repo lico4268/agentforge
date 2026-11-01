@@ -50,7 +50,31 @@ nodes:
   guard inserted automatically if you do not write one.
 
 Examples: `server/arch/gsm8k.yaml` (branch + retry loop, with an `eval:` block),
-`server/arch/draft-approve.yaml` (human checkpoint).
+`server/arch/draft-approve.yaml` (human checkpoint), `server/arch/fib-agent.yaml` (agent node).
+
+### run: agent (shell work)
+
+```yaml
+  coder:
+    run: agent
+    in:  [task, plan]
+    out: [result]          # exactly one: the agent's final answer
+    prompt: Implement the plan. Run the tests before finishing.
+    model: openrouter/qwen/qwen3-coder
+    limits: {steps: 30, cost: 0.50}   # defaults; hitting one fails the node
+    network: false         # default; true lets commands reach the internet
+    secrets: [TAVILY_API_KEY]          # env vars from server/.env passed into the sandbox
+```
+
+An agent node is a mini-swe-agent loop: the model runs bash commands until it submits an answer.
+Every command runs in a bwrap sandbox: empty environment (LLM API keys never enter it), no
+network unless `network: true`, read-only system, and only the run's
+`server/workspace/<run_id>/files/` writable. All agent nodes of a run share that folder; it is a
+git repo and each agent visit ends in a commit (`agentforge: <node> visit <n>`). The node's
+output lists `changedFiles`, the `commit`, `steps`, and the `trajectory` file
+(`agent/<node>-<n>.json`, the full conversation). Web search: `search "<query>"` is on the
+sandbox PATH; it needs `network: true` and `secrets: [TAVILY_API_KEY]`. Agent nodes need
+`bwrap` installed and cannot branch.
 
 ### eval: (optional)
 
@@ -101,7 +125,8 @@ numbers only: with few items, cost is the reliable signal.
 Run long pipelines with a long Bash timeout or in the background: a killed run stays
 `running` and cannot be resumed.
 
-Runs are stored under `server/workspace/<run_id>/` (`run.json`, `events.jsonl`, per-node `.md`).
+Runs are stored under `server/workspace/<run_id>/` (`run.json`, `events.jsonl`, per-node `.md`,
+and for agent nodes `files/` and `agent/`).
 
 ## Exit codes
 

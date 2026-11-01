@@ -100,6 +100,9 @@ PREDEFINED = {
 # Type emitted for user-defined nodes. The manifest is an empty llm_step node, so compile_graph
 # reads config.inputs/outputs/systemPrompt as-is (design §4).
 USER_NODE_TYPE = "custom.node"
+# `run: agent` — same in/out/prompt/model as a user node, run by mini-swe-agent (nodes/agent_step).
+AGENT_NODE_TYPE = "agent.node"
+_AGENT_LIMITS = {"steps", "cost"}
 
 # Types that compile.py `_branch_labels` (design §5) accepts as branches — only types that
 # have a way to pick a label themselves (LLM structured output or runtime-specific logic)
@@ -212,10 +215,10 @@ def _build_node(
     name: str, spec: dict, default_model: str | None, produced: dict, warnings: list
 ) -> dict:
     run = spec.get("run")
-    if run is not None or name in PREDEFINED:
+    if (run is not None and run != "agent") or name in PREDEFINED:
         type_ = PREDEFINED.get(run or name)
         if type_ is None:
-            raise ArchError(f"unknown run: {run!r} — expected one of {sorted(PREDEFINED)}")
+            raise ArchError(f"unknown run: {run!r} — expected agent or one of {sorted(PREDEFINED)}")
         config = {k: v for k, v in spec.items() if k != "run"}
         if "max" in config:
             config["maxIterations"] = config.pop("max")
@@ -273,7 +276,28 @@ def _build_node(
     }
     if "join" in spec:
         node["joinMode"] = _join_mode(name, spec["join"])
+    if run == "agent":
+        node["type"] = AGENT_NODE_TYPE
+        node["config"].update(_agent_config(name, spec))
     return node
+
+
+def _agent_config(name: str, spec: dict) -> dict:
+    if len(spec.get("out") or []) != 1:
+        raise ArchError(f"agent node {name!r} needs exactly one out: (its final answer)")
+    limits = spec.get("limits") or {}
+    if not isinstance(limits, dict) or set(limits) - _AGENT_LIMITS:
+        raise ArchError(f"agent node {name!r}: limits takes only {sorted(_AGENT_LIMITS)}")
+    for k, v in limits.items():
+        if isinstance(v, bool) or not isinstance(v, int | float) or v <= 0:
+            raise ArchError(f"agent node {name!r}: limits.{k} must be a positive number")
+    network = spec.get("network", False)
+    if not isinstance(network, bool):
+        raise ArchError(f"agent node {name!r}: network must be true or false")
+    secrets = spec.get("secrets") or []
+    if not isinstance(secrets, list) or not all(isinstance(s, str) for s in secrets):
+        raise ArchError(f"agent node {name!r}: secrets must be a list of env var names")
+    return {"limits": limits, "network": network, "secrets": secrets}
 
 
 def _join_mode(name: str, value: object) -> str:

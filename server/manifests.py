@@ -43,6 +43,16 @@ BUILTIN_MANIFESTS: list[dict[str, Any]] = [
         "config": [],
     },
     {
+        "type": "agent.node",
+        "runtime": "agent",
+        "category": "cognitive",
+        "label": "Agent",
+        "description": "mini-swe-agent loop: bash commands in a sandbox over the run's files/.",
+        "inputs": [],
+        "outputs": [],
+        "config": [],
+    },
+    {
         "type": "loop.guard",
         "runtime": "loop_guard",
         "category": "policy",

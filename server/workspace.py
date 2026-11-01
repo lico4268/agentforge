@@ -46,6 +46,11 @@ def _run_dir(run_id: str) -> Path:
     return d
 
 
+def files_dir(run_id: str) -> Path:
+    """The folder agent nodes of this run work in (a git repo or worktree)."""
+    return _run_dir(run_id) / "files"
+
+
 def _extract_body(output: Any) -> str | None:
     """Extract the representative string field from output. None if absent."""
     if isinstance(output, str):

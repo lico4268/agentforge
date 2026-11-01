@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""search "<query>" [-n N] — web search through Tavily; prints title, url, and snippet per hit.
+
+Needs network: true and secrets: [TAVILY_API_KEY] on the agent node.
+"""
+
+import argparse
+import json
+import os
+import sys
+import urllib.request
+
+p = argparse.ArgumentParser(prog="search")
+p.add_argument("query")
+p.add_argument("-n", type=int, default=5, help="max results (default 5)")
+a = p.parse_args()
+
+key = os.environ.get("TAVILY_API_KEY")
+if not key:
+    sys.exit("search: TAVILY_API_KEY is not set — add it to this node's secrets:")
+req = urllib.request.Request(
+    "https://api.tavily.com/search",
+    data=json.dumps({"query": a.query, "max_results": a.n}).encode(),
+    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+)
+try:
+    with urllib.request.urlopen(req, timeout=30) as r:
+        hits = json.load(r).get("results", [])
+except OSError as e:
+    sys.exit(f"search: {e}")
+for h in hits:
+    print(f"## {h.get('title', '')}\n{h.get('url', '')}\n{h.get('content', '')}\n")
