@@ -49,8 +49,23 @@ nodes:
 - `run: loop.guard` with `max: N` bounds a loop (labels `loopBack` / `exit`). Cycles get a
   guard inserted automatically if you do not write one.
 
-Examples: `server/arch/gsm8k.yaml` (branch + retry loop), `server/arch/draft-approve.yaml`
-(human checkpoint).
+Examples: `server/arch/gsm8k.yaml` (branch + retry loop, with an `eval:` block),
+`server/arch/draft-approve.yaml` (human checkpoint).
+
+### eval: (optional)
+
+```yaml
+eval:
+  dataset: data.jsonl   # relative to the yaml; one {"task": ..., "gold": ...} per line
+  grader: number        # number | exact | contains | {llm: {model: provider/model, rubric: "..."}}
+  repeat: 1             # runs per item
+```
+
+`agentforge eval <file.yaml> [--limit N] [--checkpoint <label>] [--model provider/model] [--json]`
+runs every item and prints the success rate, cost per success, per-node average tokens and
+cost, and branch-label counts. A run that pauses at a checkpoint counts as a failure unless
+`--checkpoint <label>` answers every pause with that label. Each item is a normal run:
+`agentforge show <run_id>` works on the failed ones it lists.
 
 ## Working loop
 
@@ -67,7 +82,9 @@ Examples: `server/arch/gsm8k.yaml` (branch + retry loop), `server/arch/draft-app
    changed node and reuses the earlier nodes' outputs. `flow changed — run it fresh` means the wiring
    changed: use `run` instead. `upstream node … changed` means start earlier: pass the `--from` it
    suggests. `replay` also works on a failed run.
-7. Report the result and the per-node cost to the user. `$?` with `cost unknown (no price for <model>)`
+7. When the flow will be reused, measure it: `agentforge eval` on a small dataset (`--limit 5`
+   first). Report success rate and cost per success, not a single run.
+8. Report the result and the per-node cost to the user. `$?` with `cost unknown (no price for <model>)`
    means that model has no price: say so rather than reporting $0. OpenRouter models report their
    own cost; for others, add the price to `models.pricing` in `config.yaml`.
 

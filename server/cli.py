@@ -1,4 +1,4 @@
-"""Headless CLI: agentforge check / run / resume / replay / show."""
+"""Headless CLI: agentforge check / run / resume / replay / show / eval."""
 
 from pathlib import Path
 
@@ -14,6 +14,7 @@ import uuid  # noqa: E402
 
 import workspace  # noqa: E402
 from archfile import ArchError, parse_arch  # noqa: E402
+from evaluate import EvalError, check_eval, load_eval, render_report, run_eval  # noqa: E402
 from events import FileEventEmitter, ListEventEmitter  # noqa: E402
 from graphs.compile import PASSTHROUGH_TYPES, compile_graph  # noqa: E402
 from logging_config import setup_logging  # noqa: E402
@@ -24,6 +25,8 @@ from runner import (  # noqa: E402
     replay_run,
     resume_run,
     start_run,
+    summarize,
+    usd,
 )
 
 setup_logging()
@@ -39,86 +42,9 @@ def _err(s: str) -> None:
     sys.stderr.write(f"error: {s}\n")
 
 
-def _body(output) -> str | None:
-    body = workspace._extract_body(output)
-    if body is None and isinstance(output, dict):
-        body = next((v for v in output.values() if isinstance(v, str)), None)
-    return body
-
-
-def summarize(events: list[dict], hidden: set[str]) -> dict:
-    visits: list[dict] = []
-    current: dict[str, dict] = {}  # node id -> its open visit
-    interrupt = None
-    result = None
-
-    def visit(node: str) -> dict:
-        if node not in current:
-            v = {
-                "node": node,
-                "status": "running",
-                "tokens": 0,
-                "cost": 0.0,
-                "model": None,
-                "preview": "",
-                "route": None,
-            }
-            current[node] = v
-            visits.append(v)
-        return current[node]
-
-    for ev in events:
-        t, node, out = ev.get("eventType"), ev.get("nodeId"), ev.get("output")
-        if t == "node_start":
-            current.pop(node, None)
-            visit(node)
-        elif t == "log" and ev.get("tokenUsage"):
-            u, v = ev["tokenUsage"], visit(node)
-            v["tokens"] += u.get("total_tokens", 0)
-            c = u.get("cost")
-            v["cost"] = None if c is None or v["cost"] is None else v["cost"] + c
-            v["model"] = u.get("model") or v["model"]
-        elif t == "node_end":
-            v = visit(node)
-            v["status"] = "done"
-            v["preview"] = _body(out) or ""
-            if isinstance(out, dict):
-                v["route"] = next((x for k, x in out.items() if k.startswith("__route__")), None)
-            if node not in hidden:
-                result = _body(out)
-        elif t == "error":
-            v = visit(node)
-            v["status"], v["preview"] = "failed", ev.get("message") or ""
-        elif t == "interrupt":
-            visit(node)["status"] = "paused"
-            interrupt = {"node": node, "question": out["summary"], "choices": out["actions"]}
-        elif t == "decision_record":
-            v = visit(node)
-            v["status"], v["route"] = "done", out["decision"]
-    visits = [v for v in visits if v["node"] not in hidden]
-    if interrupt and interrupt["node"] in hidden:
-        interrupt = None
-    # an interrupt that was later resolved is no longer pending
-    if interrupt and current.get(interrupt["node"], {}).get("status") != "paused":
-        interrupt = None
-    costs = [v["cost"] for v in visits]
-    return {
-        "visits": visits,
-        "totalTokens": sum(v["tokens"] for v in visits),
-        "totalCost": None if None in costs else sum(costs),
-        "unpricedModels": sorted({v["model"] or "?" for v in visits if v["cost"] is None}),
-        "interrupt": interrupt,
-        "result": result,
-    }
-
-
 def _short(s: str) -> str:
     s = " ".join(s.split())
     return s[:60] + "…" if len(s) > 60 else s
-
-
-def _usd(cost: float | None) -> str:
-    return "$?" if cost is None else f"${cost:.6f}"
 
 
 def render_summary(summary: dict, run_id: str, status: str) -> str:
@@ -126,7 +52,7 @@ def render_summary(summary: dict, run_id: str, status: str) -> str:
     if "parent" in summary:
         lines.append(
             f"replay of {summary['parent']['runId']} from {summary['fromNode']}: "
-            f"reused {len(summary['reused'])} nodes, saved {_usd(summary['savedCost'])}"
+            f"reused {len(summary['reused'])} nodes, saved {usd(summary['savedCost'])}"
         )
     visits = summary["visits"]
     w = max([len(v["node"]) for v in visits] + [5])
@@ -138,10 +64,10 @@ def render_summary(summary: dict, run_id: str, status: str) -> str:
         )
         lines.append(
             f"{v['node']:<{w}}  {v['status']:<7} {v['tokens']:>5} tok  "
-            f"{_usd(v['cost']):<9} {tail}".rstrip()
+            f"{usd(v['cost']):<9} {tail}".rstrip()
         )
     lines.append(
-        f"{'total':<{w}}  {'':<7} {summary['totalTokens']:>5} tok  {_usd(summary['totalCost'])}"
+        f"{'total':<{w}}  {'':<7} {summary['totalTokens']:>5} tok  {usd(summary['totalCost'])}"
     )
     if summary["unpricedModels"]:
         lines.append(f"cost unknown (no price for {', '.join(summary['unpricedModels'])})")
@@ -196,6 +122,7 @@ def cmd_check(a) -> int:
     try:
         arch, warnings = _parse(a.yaml, a.model)
         compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "check")
+        check_eval(Path(a.yaml).read_text(encoding="utf-8"), Path(a.yaml))
     except (ArchError, ValueError, OSError) as e:
         _err(str(e))
         return 1
@@ -325,6 +252,36 @@ def cmd_show(a) -> int:
     return 0
 
 
+async def _eval(a, arch, spec, text) -> dict:
+    async with open_checkpointer() as cp:
+        return await run_eval(
+            arch,
+            spec,
+            limit=a.limit,
+            checkpoint=a.checkpoint,
+            checkpointer=cp,
+            arch_path=str(Path(a.yaml).resolve()),
+            arch_text=text,
+            default_model=a.model,
+        )
+
+
+def cmd_eval(a) -> int:
+    try:
+        text = Path(a.yaml).read_text(encoding="utf-8")
+        arch, warnings = parse_arch(text, default_model=a.model)
+        spec = load_eval(text, Path(a.yaml))
+        compile_graph(arch, DEFAULT_MODEL_CFG, ListEventEmitter(), "check")
+        r = asyncio.run(_eval(a, arch, spec, text))
+    except (ArchError, EvalError, ValueError, OSError) as e:
+        _err(str(e))
+        return 1
+    for w in warnings:
+        sys.stderr.write(f"warning: {w}\n")
+    _out(json.dumps(r, ensure_ascii=False) if a.json else render_report(r, a.yaml))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="agentforge")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -347,6 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--from", dest="from_node")
     q.add_argument("--model")
     q.add_argument("--json", action="store_true")
+    e = sub.add_parser("eval")
+    e.add_argument("yaml")
+    e.add_argument("--limit", type=int)
+    e.add_argument("--checkpoint")
+    e.add_argument("--model")
+    e.add_argument("--json", action="store_true")
     w = sub.add_parser("show")
     w.add_argument("run_id")
     w.add_argument("node", nargs="?")
@@ -357,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         "resume": cmd_resume,
         "replay": cmd_replay,
         "show": cmd_show,
+        "eval": cmd_eval,
     }
     return cmds[a.cmd](a)
 

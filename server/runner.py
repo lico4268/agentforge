@@ -187,3 +187,80 @@ async def replay_run(
         },
     )
     return await _invoke(architecture, rec["modelCfg"], run_id, None, emit, checkpointer)
+
+
+def usd(cost: float | None) -> str:
+    return "$?" if cost is None else f"${cost:.6f}"
+
+
+def _body(output) -> str | None:
+    body = workspace._extract_body(output)
+    if body is None and isinstance(output, dict):
+        body = next((v for v in output.values() if isinstance(v, str)), None)
+    return body
+
+
+def summarize(events: list[dict], hidden: set[str]) -> dict:
+    visits: list[dict] = []
+    current: dict[str, dict] = {}  # node id -> its open visit
+    interrupt = None
+    result = None
+
+    def visit(node: str) -> dict:
+        if node not in current:
+            v = {
+                "node": node,
+                "status": "running",
+                "tokens": 0,
+                "cost": 0.0,
+                "model": None,
+                "preview": "",
+                "route": None,
+            }
+            current[node] = v
+            visits.append(v)
+        return current[node]
+
+    for ev in events:
+        t, node, out = ev.get("eventType"), ev.get("nodeId"), ev.get("output")
+        if t == "node_start":
+            current.pop(node, None)
+            visit(node)
+        elif t == "log" and ev.get("tokenUsage"):
+            u, v = ev["tokenUsage"], visit(node)
+            v["tokens"] += u.get("total_tokens", 0)
+            c = u.get("cost")
+            v["cost"] = None if c is None or v["cost"] is None else v["cost"] + c
+            v["model"] = u.get("model") or v["model"]
+        elif t == "node_end":
+            v = visit(node)
+            v["status"] = "done"
+            v["preview"] = _body(out) or ""
+            if isinstance(out, dict):
+                v["route"] = next((x for k, x in out.items() if k.startswith("__route__")), None)
+            if node not in hidden:
+                result = _body(out)
+        elif t == "error":
+            v = visit(node)
+            v["status"], v["preview"] = "failed", ev.get("message") or ""
+        elif t == "interrupt":
+            visit(node)["status"] = "paused"
+            interrupt = {"node": node, "question": out["summary"], "choices": out["actions"]}
+        elif t == "decision_record":
+            v = visit(node)
+            v["status"], v["route"] = "done", out["decision"]
+    visits = [v for v in visits if v["node"] not in hidden]
+    if interrupt and interrupt["node"] in hidden:
+        interrupt = None
+    # an interrupt that was later resolved is no longer pending
+    if interrupt and current.get(interrupt["node"], {}).get("status") != "paused":
+        interrupt = None
+    costs = [v["cost"] for v in visits]
+    return {
+        "visits": visits,
+        "totalTokens": sum(v["tokens"] for v in visits),
+        "totalCost": None if None in costs else sum(costs),
+        "unpricedModels": sorted({v["model"] or "?" for v in visits if v["cost"] is None}),
+        "interrupt": interrupt,
+        "result": result,
+    }

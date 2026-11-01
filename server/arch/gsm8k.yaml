@@ -25,3 +25,7 @@ nodes:
     prompt: |
       Check whether the answer fits the problem. If it does, send ok; if wrong, send retry and
       write in feedback what was wrong.
+
+eval:
+  dataset: ../data/gsm8k_subset.jsonl   # one {"question" or "task": ..., "gold": ...} per line
+  grader: number

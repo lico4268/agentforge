@@ -14,7 +14,8 @@ replay from a middle node, and run records you can diff.
 ## Features
 
 - Text-based agent definitions in `server/arch/*.yaml`
-- Headless CLI: `agentforge check | run | resume | replay | show`
+- Headless CLI: `agentforge check | run | resume | replay | show | eval`
+- Dataset evals from an `eval:` block: success rate, cost per success, per-node cost
 - Replay a run from the first changed node, reusing earlier nodes' outputs
 - Paused runs survive restarts (SQLite checkpointer shared by CLI and server)
 - A Claude Code skill (`skills/agentforge/`) that drives the CLI
@@ -80,6 +81,10 @@ on error. Answer a checkpoint with `./agentforge resume <run_id> --choice <label
 After editing a node's prompt or model, `./agentforge replay <run_id> --arch <file.yaml>`
 re-runs from the first changed node. Each run is stored under
 `server/workspace/<run_id>/` (`run.json`, `events.jsonl`, one `.md` per node output).
+
+Add an `eval:` block (dataset + grader) to an `arch.yaml` and run
+`./agentforge eval <file.yaml> --limit 5` to get the success rate, cost per success, and
+per-node cost over a dataset; `server/arch/gsm8k.yaml` has one.
 
 To use it from Claude Code, link the skill:
 

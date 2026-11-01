@@ -63,7 +63,7 @@ Each phase ships on its own and is useful before the next one starts.
 |---|---|---|
 | 1 | CLI (`check`/`run`/`resume`/`show`) + Claude Code skill, SQLite checkpointer, `join`/`temperature`/`max_tokens` in YAML | ✅ done |
 | 2 | `agentforge replay` — re-run from the first changed node, reusing earlier outputs | ✅ done |
-| 3 | Honest cost records (no silent $0 for unpriced models) ✅, `eval:` in `arch.yaml`, comparison reports | 🟡 in progress |
+| 3 | Honest cost records (no silent $0 for unpriced models) ✅, `eval:` in `arch.yaml` ✅, comparison reports | 🟡 in progress |
 | 4 | `run: agent` nodes wrapping mini-swe-agent (bash-only tools, per-run git worktree, Tavily search) | ⬜ |
 | 5 | Per-node sandbox with bwrap (`network`/`files`/`secrets`/`limits` per node) | ⬜ |
 

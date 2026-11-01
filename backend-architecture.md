@@ -137,6 +137,13 @@ starts the dev servers instead).
 | `resume <run_id> --choice <label> [--note "…"] [--json]` | same as `run` |
 | `replay <run_id> [--arch edited.yaml [--model p/m]] [--from <node>] [--json]` | same as `run` |
 | `show <run_id> [<node>]` | 0 / 1 — the summary, or one node's full output |
+| `eval <arch.yaml> [--limit N] [--checkpoint <label>] [--model p/m] [--json]` | 0 / 1 — runs the `eval:` dataset and prints the report (`evaluate.py`) |
+
+`eval` runs each dataset item (× `repeat`) as a normal run via `runner.start_run`, answers
+checkpoints only when `--checkpoint` names a wired label (otherwise the run ends `paused` and
+counts as a failure), grades the final answer (`number` | `exact` | `contains` | `llm`), and
+reports success rate, cost per success, error rate, per-node average tokens/cost, and branch-label
+counts. `check` also validates an `eval:` block when present.
 
 Output is one short line per node visit (status, tokens, cost, a snippet) plus a total, to keep
 what Claude reads back small. `--json` prints the same data as JSON.
