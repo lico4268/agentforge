@@ -28,10 +28,25 @@ def ensure_repo(path: Path) -> None:
         return
     path.mkdir(parents=True, exist_ok=True)
     git(path, "init", "-q")
-    # Build litter stays out of the per-visit commits (info/exclude is not itself committed).
+    _exclude(path)
+    git(path, "commit", "-q", "--allow-empty", "-m", "agentforge: start")
+
+
+def _exclude(path: Path) -> None:
+    """Build litter stays out of the per-visit commits (info/exclude is not itself committed)."""
     (path / ".git" / "info").mkdir(exist_ok=True)
     (path / ".git" / "info" / "exclude").write_text(_EXCLUDE)
-    git(path, "commit", "-q", "--allow-empty", "-m", "agentforge: start")
+
+
+def clone_at(src: Path, dst: Path, commit: str) -> None:
+    """A replay's own files/ repo: a copy of the parent's, rewound to `commit`."""
+    git(src.parent, "clone", "-q", str(src), str(dst))
+    git(dst, "reset", "-q", "--hard", commit)
+    _exclude(dst)
+
+
+def root(path: Path) -> str:
+    return git(path, "rev-list", "--max-parents=0", "HEAD").splitlines()[-1]
 
 
 def commit(path: Path, message: str) -> str:

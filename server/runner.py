@@ -16,7 +16,7 @@ import workspace
 from events import EventEmitter, ListEventEmitter
 from graphs.compile import PASSTHROUGH_TYPES, compile_graph
 from logging_config import logger
-from replay import ReplayError, pick_from, reuse_stats, visit_order
+from replay import ReplayError, commit_before, pick_from, reuse_stats, visit_order
 from state import initial_state
 
 DEFAULT_MODEL_CFG = {
@@ -73,6 +73,22 @@ def _open_worktree(run_id: str, repo: Path, start: str = "HEAD") -> dict:
     branch = f"agentforge/{run_id}"
     base = gitfiles.add_worktree(repo, workspace.files_dir(run_id), branch, start)
     return {"path": str(repo), "branch": branch, "base": base}
+
+
+def _fork_files(parent_id: str, run_id: str, rec: dict, commit: str | None) -> dict:
+    """The replay's files/ starts where the parent's stood just before the start node: the last
+    agent commit before it, else where the parent's files/ started. Returns run.json fields."""
+    commit = commit or rec.get("filesStart")
+    if repo := rec.get("repo"):
+        commit = commit or repo["base"]
+        new = _open_worktree(run_id, Path(repo["path"]), commit)
+        return {"repo": {**new, "base": repo["base"]}, "filesStart": commit}
+    parent_files = workspace.files_dir(parent_id)
+    if not (parent_files / ".git").exists():
+        return {}  # no agent ran in the parent; agent nodes start a fresh repo
+    commit = commit or gitfiles.root(parent_files)
+    gitfiles.clone_at(parent_files, workspace.files_dir(run_id), commit)
+    return {"filesStart": commit}
 
 
 def _close_worktree(run_id: str) -> None:
@@ -208,6 +224,7 @@ async def replay_run(
             },
             "fromNode": start,
             "reused": [*reused, *nodes],
+            **_fork_files(parent_id, run_id, rec, commit_before(evs, start)),
             "savedCost": None
             if cost is None or rec.get("savedCost", 0) is None
             else rec.get("savedCost", 0) + cost,

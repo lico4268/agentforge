@@ -2,7 +2,10 @@
 
 import json
 
-from archfile import USER_NODE_TYPE
+from archfile import AGENT_NODE_TYPE, USER_NODE_TYPE
+
+# Node types whose spec (prompt, ports, model, …) may change in a replay; anything else is flow.
+_EDITABLE = {USER_NODE_TYPE, AGENT_NODE_TYPE}
 
 
 class ReplayError(Exception):
@@ -21,7 +24,7 @@ def _flow(arch: dict) -> tuple:
         json.dumps({k: v for k, v in e.items() if k != "id"}, sort_keys=True) for e in arch["edges"]
     )
     fixed = sorted(
-        json.dumps(_spec(n), sort_keys=True) for n in nodes if n["type"] != USER_NODE_TYPE
+        json.dumps(_spec(n), sort_keys=True) for n in nodes if n["type"] not in _EDITABLE
     )
     return ids, edges, fixed
 
@@ -33,7 +36,7 @@ def changed_nodes(old: dict, new: dict) -> set[str]:
     return {
         n["id"]
         for n in new["nodes"]
-        if n["type"] == USER_NODE_TYPE and _spec(n) != _spec(old_by_id[n["id"]])
+        if n["type"] in _EDITABLE and _spec(n) != _spec(old_by_id[n["id"]])
     }
 
 
@@ -89,3 +92,15 @@ def reuse_stats(
         if e["eventType"] == "log" and e.get("tokenUsage")
     ]
     return nodes, None if None in costs else sum(costs)
+
+
+def commit_before(events: list[dict], start: str) -> str | None:
+    """The last agent commit recorded before the start node's first visit."""
+    last = None
+    for e in events:
+        if e["eventType"] == "node_start" and e["nodeId"] == start:
+            break
+        out = e.get("output")
+        if e["eventType"] == "node_end" and isinstance(out, dict) and out.get("commit"):
+            last = out["commit"]
+    return last

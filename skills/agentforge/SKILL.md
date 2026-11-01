@@ -120,7 +120,9 @@ numbers only: with few items, cost is the reliable signal.
    `agentforge replay <run_id> --arch <file.yaml> [--from <node>] [--json]`: it re-runs from the first
    changed node and reuses the earlier nodes' outputs. `flow changed — run it fresh` means the wiring
    changed: use `run` instead. `upstream node … changed` means start earlier: pass the `--from` it
-   suggests. `replay` also works on a failed run.
+   suggests. `replay` also works on a failed run. Agent nodes' `files/` is rewound too: the replay
+   starts from the parent's last agent commit before the start node (with `--repo`, on a new
+   branch).
 7. When the flow will be reused, measure it: `agentforge eval` on a small dataset (`--limit 5`
    first). Report success rate and cost per success, not a single run. To make it cheaper, change
    one thing and `agentforge compare`; adopt the cheaper variant if the success rate did not drop.

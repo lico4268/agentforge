@@ -119,6 +119,12 @@ and updates `run.json` to match.
   `upstream node '…' changed — replay from '…' instead`.
 - The fork starts at the **first visit** of the start node, so loop counters and feedback reset.
 - `run.json` records `parent {runId, checkpointId}`, `fromNode`, `reused` nodes, and `savedCost`.
+- Agent nodes (`agent.node`) may change like `custom.node`. `files/` forks too (`_fork_files`):
+  it starts at the last agent `commit` in the parent's events before the start node
+  (`commit_before`), else at the parent's `filesStart`, else its root commit. Without `--repo` the
+  parent's repo is cloned and reset to that commit (`gitfiles.clone_at`); with `--repo` a new
+  worktree branch `agentforge/<run_id>` starts there and keeps the parent's `base` for the
+  diffstat. `run.json` records `filesStart`.
 
 ---
 

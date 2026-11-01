@@ -258,7 +258,7 @@ def cmd_replay(a) -> int:
         else:
             arch, path, text = rec["architecture"], rec.get("archPath"), rec.get("archText")
         return asyncio.run(_replay(a, arch, path, text, model))
-    except (ArchError, OSError, ReplayError, LookupError, ValueError) as e:
+    except (ArchError, OSError, ReplayError, LookupError, ValueError, RuntimeError) as e:
         _err(str(e))
         return 1
 

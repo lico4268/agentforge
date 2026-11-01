@@ -242,3 +242,80 @@ def test_dirty_repo_warns(repo_run, repo):
     (repo / "README").write_text("edited\n")
     _, cap = repo_run([SUBMIT + "done"], repo)
     assert "uncommitted changes" in cap.err
+
+
+# ── replay ─────────────────────────────────────────────────────────────────────
+
+TWO_AGENTS = """\
+model: anthropic/claude-haiku-4-5-20251001
+flow: |
+  input --> coder --> fixer --> output
+nodes:
+  coder: {run: agent, in: [task], out: [code], prompt: write}
+  fixer: {run: agent, in: [code], out: [answer], prompt: %s}
+"""
+
+
+def _replay(tmp_path, monkeypatch, capsys, run_id, yaml, script, *extra):
+    import graphs.compile as gc
+
+    monkeypatch.setattr(gc, "build_model", lambda s: ScriptedChat(script=script))
+    p = tmp_path / "b.yaml"
+    p.write_text(yaml)
+    code = main(["replay", run_id, "--arch", str(p), "--json", *extra])
+    return code, json.loads(capsys.readouterr().out)
+
+
+@needs_bwrap
+def test_replay_rewinds_files_to_before_the_start_node(agent_run, tmp_path, monkeypatch, capsys):
+    code, out, files = agent_run(
+        ["echo a > a.txt", SUBMIT + "a", "echo b > b.txt", SUBMIT + "b"],
+        yaml=TWO_AGENTS % "fix",
+    )
+    assert code == 0 and {p.name for p in files.iterdir()} == {".git", "a.txt", "b.txt"}
+    code, out2 = _replay(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        out["runId"],
+        TWO_AGENTS % "fix better",
+        ["ls > seen.txt", SUBMIT + "c"],
+    )
+    assert code == 0
+    assert out2["reused"] == ["coder"]
+    files2 = workspace.files_dir(out2["runId"])
+    assert (files2 / "seen.txt").read_text().split() == ["a.txt", "seen.txt"]  # no b.txt
+    assert (files / "b.txt").exists()  # parent's files untouched
+    rec = workspace.read_run_record(out2["runId"])
+    coder_commit = next(
+        e["output"]["commit"]
+        for e in workspace.read_events(out["runId"])
+        if e["eventType"] == "node_end" and e["nodeId"] == "coder"
+    )
+    assert rec["filesStart"] == coder_commit
+
+
+@needs_bwrap
+def test_replay_of_a_repo_run_branches_from_the_fork_commit(
+    repo_run, repo, tmp_path, monkeypatch, capsys
+):
+    code, cap = repo_run(
+        ["echo a > a.txt", SUBMIT + "a", "echo b > b.txt", SUBMIT + "b"],
+        repo,
+        yaml=TWO_AGENTS % "fix",
+    )
+    run_id = cap.out.split()[1]
+    code, out2 = _replay(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        run_id,
+        TWO_AGENTS % "fix better",
+        ["echo c > c.txt", SUBMIT + "c"],
+    )
+    assert code == 0
+    branch = f"agentforge/{out2['runId']}"
+    assert _git(repo, "ls-tree", "--name-only", branch).split() == ["README", "a.txt", "c.txt"]
+    rec = workspace.read_run_record(out2["runId"])
+    assert rec["repo"]["base"] == workspace.read_run_record(run_id)["repo"]["base"]
+    assert "2 files changed" in rec["repo"]["diffstat"]  # a.txt + c.txt vs the user's HEAD
