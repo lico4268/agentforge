@@ -30,7 +30,10 @@ os.environ.setdefault("MSWEA_GLOBAL_CONFIG_DIR", str(_MSWEA_DIR))
 
 from minisweagent import package_dir  # noqa: E402
 from minisweagent.agents.default import DefaultAgent  # noqa: E402
-from minisweagent.environments.extra.bubblewrap import BubblewrapEnvironment  # noqa: E402
+from minisweagent.environments.extra.bubblewrap import (  # noqa: E402
+    BubblewrapEnvironment,
+    BubblewrapEnvironmentConfig,
+)
 from minisweagent.models.utils.actions_toolcall import (  # noqa: E402
     BASH_TOOL,
     format_toolcall_observation_messages,
@@ -75,8 +78,11 @@ def files_mounts(files: Path, scope: dict | None) -> list[str]:
     """Mounts for the run's files/ folder. No scope: all of it, writable. Scoped: a tmpfs
     (writes outside the listed folders vanish) with only the listed folders mounted on top."""
     f = str(files)
+    # .git is read-only everywhere (last, so it wins over a parent rw bind): the host runs
+    # git on it outside the sandbox, so hooks/config written there would execute unsandboxed.
+    git_ro = ["--ro-bind-try", f"{f}/.git", f"{f}/.git"]
     if scope is None:
-        return ["--bind", f, f]
+        return ["--bind", f, f, *git_ro]
     mounts = [(p, "--ro-bind-try") for p in scope["read"]] + [
         (p, "--bind") for p in scope["write"]
     ]
@@ -86,7 +92,18 @@ def files_mounts(files: Path, scope: dict | None) -> list[str]:
     for p, flag in mounts:
         path = f if p == "." else f"{f}/{p}"
         args += [flag, path, path]
-    return args
+    return args + (git_ro if "." in scope["read"] + scope["write"] else [])
+
+
+def check_scope(files: Path, scope: dict | None) -> None:
+    """bwrap follows host-side symlinks when resolving bind sources, so a scope folder that is
+    (or sits under) a symlink would mount something outside files/. Fail closed."""
+    root = os.path.realpath(files)
+    for p in (scope["read"] + scope["write"]) if scope else []:
+        if os.path.realpath(files / p) != os.path.normpath(os.path.join(root, p)):
+            raise RuntimeError(
+                f"files scope {p!r} goes through a symlink inside files/ — refusing to mount it"
+            )
 
 
 def bwrap_args(
@@ -113,11 +130,22 @@ def bwrap_args(
     return args + list(mounts)
 
 
+class SandboxConfig(BubblewrapEnvironmentConfig):
+    files_root: str = ""
+    scope: dict | None = None
+
+
 class SandboxEnvironment(BubblewrapEnvironment):
     """Like BubblewrapEnvironment, but the working-dir mount comes from wrapper_args (it does
     not append `--bind cwd cwd`, which would cover the scoped mounts)."""
 
+    def __init__(self, **kwargs):
+        super().__init__(config_class=SandboxConfig, **kwargs)
+
     def execute(self, action: dict, cwd: str = "", *, timeout: int | None = None) -> dict:
+        # Re-checked before every command: the agent can plant a symlink between commands.
+        # ponytail: check-then-mount race with parallel agent nodes; openat mounts if it matters
+        check_scope(Path(self.config.files_root), self.config.scope)
         command = action.get("command", "")
         cwd = cwd or self.config.cwd or str(self.working_dir)
         cmd = [self.config.executable, *self.config.wrapper_args, "--chdir", cwd]
@@ -258,6 +286,7 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
         await emit(make_event(run_id, node_id, "node_start"))
         files = workspace.files_dir(run_id)
         gitfiles.ensure_repo(files)
+        check_scope(files, scope)
         for d in (scope or {}).get("write", []):
             (files / d).mkdir(parents=True, exist_ok=True)
         before = gitfiles.head(files)
@@ -277,6 +306,8 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
         git_ro = tuple(filter(None, [gitfiles.common_dir(files)])) if sees_root else ()
         env = SandboxEnvironment(
             cwd=str(files),
+            files_root=str(files),
+            scope=scope,
             timeout=COMMAND_TIMEOUT,
             wrapper_args=bwrap_args(network, tools, git_ro, files_mounts(files, scope)),
             env={

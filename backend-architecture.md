@@ -87,7 +87,8 @@ error (`_tarjan_scc` + `_validate_gated_cycles`). The checkpointer is passed in 
   `changedFiles`, `commit`, `steps`, and the trajectory path (`agent/<node>-<n>.json`). Hitting
   `limits` (`steps` 30, `cost` 0.50 by default) fails the node after committing its work.
   With a `files:` scope, `files_mounts` puts a tmpfs over `files/` and mounts only the listed
-  folders on top (and withholds `.git`); `SandboxEnvironment` (a `BubblewrapEnvironment` subclass)
+  folders on top (`.git` only visible when `.` is listed, and an unscoped or `.` node gets it
+  read-only; `check_scope` fails the node before every command if a scope folder is a symlink); `SandboxEnvironment` (a `BubblewrapEnvironment` subclass)
   runs commands without mini's extra `--bind cwd cwd`, which would hide those mounts.
 - `checkpoint.make_human_checkpoint` — emits an `interrupt` event whose payload lists the wired
   labels, then pauses.

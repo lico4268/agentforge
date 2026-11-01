@@ -78,8 +78,10 @@ sandbox PATH; it needs `network: true` and `secrets: [TAVILY_API_KEY]`. Agent no
 `bwrap` installed and cannot branch.
 
 `files:` narrows what a node sees inside `files/`: it can read the `read` and `write` folders and
-write only the `write` ones. Anything else it writes there is discarded (not committed), and it
-does not see `.git`. `"."` means the whole folder; a path in both lists is an error.
+write only the `write` ones. Anything else it writes there is discarded (not committed). It sees
+no `.git` unless `"."` is listed (`.` means the whole folder); a path in both lists is an error.
+A scope folder that is or sits under a symlink fails the node. `.git` is read-only in the sandbox
+for every node, so git can read history but not change it.
 
 To work on an existing repo, add `--repo <path>` to `run`: `files/` becomes a git worktree on a
 new branch `agentforge/<run_id>` from the repo's `HEAD`, so the user's checkout is never touched

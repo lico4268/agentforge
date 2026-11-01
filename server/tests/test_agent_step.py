@@ -352,12 +352,17 @@ def test_files_mounts(tmp_path):
     from nodes.agent_step import files_mounts
 
     f = str(tmp_path)
-    assert files_mounts(tmp_path, None) == ["--bind", f, f]
+    git = ["--ro-bind-try", f"{f}/.git", f"{f}/.git"]
+    assert files_mounts(tmp_path, None) == ["--bind", f, f, *git]
+    assert files_mounts(tmp_path, {"read": ["a"], "write": []}) == [
+        "--tmpfs", f, "--ro-bind-try", f"{f}/a", f"{f}/a"
+    ]
     assert files_mounts(tmp_path, {"read": ["src/secret", "."], "write": ["src"]}) == [
         "--tmpfs", f,
         "--ro-bind-try", f, f,
         "--bind", f"{f}/src", f"{f}/src",
         "--ro-bind-try", f"{f}/src/secret", f"{f}/src/secret",
+        *git,
     ]
 
 
@@ -401,3 +406,50 @@ def test_scoped_node_sees_only_its_folders(agent_run):
     assert not (files / "junk.txt").exists()
     end = next(e for e in _events(out["runId"], "node_end") if e["nodeId"] == "coder")
     assert end["output"]["changedFiles"] == ["src/copy.txt", "src/ls.txt", "src/notes.txt"]
+
+
+@needs_bwrap
+def test_scope_through_preplanted_symlink_fails(agent_run):
+    code, out, files = agent_run(
+        [
+            "mkdir -p ../outside && echo SECRET > ../outside/s.txt && ln -s ../outside notes",
+            SUBMIT + "'prep done'",
+            "cp notes/s.txt src/leak.txt",
+            SUBMIT + "done",
+        ],
+        yaml=SCOPED_YAML,
+    )
+    assert code == 1
+    assert "symlink" in workspace.read_run_record(out["runId"])["error"]
+    assert not (files / "src" / "leak.txt").exists()
+
+
+SELF_PLANT_YAML = SCOPED_YAML.replace(
+    "files: {read: [notes], write: [src]}", "files: {read: [src/secret], write: [src]}"
+)
+
+
+@needs_bwrap
+def test_scoped_node_cannot_plant_symlink_to_escape(agent_run):
+    code, out, files = agent_run(
+        [
+            SUBMIT + "'prep done'",
+            "ln -s ../.. src/secret",
+            "cp src/secret/server/.env src/leak.txt 2>/dev/null; ls src/secret > src/leak2.txt",
+            SUBMIT + "done",
+        ],
+        yaml=SELF_PLANT_YAML,
+    )
+    assert code == 1
+    assert "symlink" in workspace.read_run_record(out["runId"])["error"]
+    assert not (files / "src" / "leak2.txt").exists()
+
+
+@needs_bwrap
+def test_git_dir_is_read_only_in_sandbox(agent_run):
+    code, out, files = agent_run(
+        ["echo x > .git/hooks/pre-commit 2>/dev/null || echo ro > r.txt", SUBMIT + "done"]
+    )
+    assert code == 0
+    assert (files / "r.txt").read_text() == "ro\n"
+    assert not (files / ".git" / "hooks" / "pre-commit").exists()
