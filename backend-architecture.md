@@ -71,9 +71,10 @@ error (`_tarjan_scc` + `_validate_gated_cycles`). The checkpointer is passed in 
 
 - `llm_step.run_llm_step` — builds the prompt from the node's `in` keys, calls
   `model.with_structured_output(...)`, retries once, and emits a `log` event with `token_usage`
-  (`prompt`, `completion`, `total_tokens`, `cost`, `model`). Cost comes from
-  `config.yaml models.pricing` via `models.cost_for_usage`; a model without a price records `0.0`
-  (fixing this is roadmap phase 3).
+  (`prompt`, `completion`, `total_tokens`, `cost`, `model`). Cost is what the provider reported
+  for the call when it reports one (OpenRouter does, read by `UsageCostHandler`), otherwise
+  `config.yaml models.pricing` via `models.cost_for_usage`. With neither, `cost` is `null` — never
+  a silent `0.0` — and the CLI prints `$?` plus `cost unknown (no price for <model>)`.
 - `checkpoint.make_human_checkpoint` — emits an `interrupt` event whose payload lists the wired
   labels, then pauses.
 - `loop_guard.py` — pure guard evaluation used by the `loop.guard` node.

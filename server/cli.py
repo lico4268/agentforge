@@ -59,6 +59,7 @@ def summarize(events: list[dict], hidden: set[str]) -> dict:
                 "status": "running",
                 "tokens": 0,
                 "cost": 0.0,
+                "model": None,
                 "preview": "",
                 "route": None,
             }
@@ -74,7 +75,9 @@ def summarize(events: list[dict], hidden: set[str]) -> dict:
         elif t == "log" and ev.get("tokenUsage"):
             u, v = ev["tokenUsage"], visit(node)
             v["tokens"] += u.get("total_tokens", 0)
-            v["cost"] += u.get("cost", 0.0)
+            c = u.get("cost")
+            v["cost"] = None if c is None or v["cost"] is None else v["cost"] + c
+            v["model"] = u.get("model") or v["model"]
         elif t == "node_end":
             v = visit(node)
             v["status"] = "done"
@@ -98,10 +101,12 @@ def summarize(events: list[dict], hidden: set[str]) -> dict:
     # an interrupt that was later resolved is no longer pending
     if interrupt and current.get(interrupt["node"], {}).get("status") != "paused":
         interrupt = None
+    costs = [v["cost"] for v in visits]
     return {
         "visits": visits,
         "totalTokens": sum(v["tokens"] for v in visits),
-        "totalCost": sum(v["cost"] for v in visits),
+        "totalCost": None if None in costs else sum(costs),
+        "unpricedModels": sorted({v["model"] or "?" for v in visits if v["cost"] is None}),
         "interrupt": interrupt,
         "result": result,
     }
@@ -112,12 +117,16 @@ def _short(s: str) -> str:
     return s[:60] + "…" if len(s) > 60 else s
 
 
+def _usd(cost: float | None) -> str:
+    return "$?" if cost is None else f"${cost:.6f}"
+
+
 def render_summary(summary: dict, run_id: str, status: str) -> str:
     lines = [f"run {run_id}"]
     if "parent" in summary:
         lines.append(
             f"replay of {summary['parent']['runId']} from {summary['fromNode']}: "
-            f"reused {len(summary['reused'])} nodes, saved ${summary['savedCost']:.4f}"
+            f"reused {len(summary['reused'])} nodes, saved {_usd(summary['savedCost'])}"
         )
     visits = summary["visits"]
     w = max([len(v["node"]) for v in visits] + [5])
@@ -129,11 +138,13 @@ def render_summary(summary: dict, run_id: str, status: str) -> str:
         )
         lines.append(
             f"{v['node']:<{w}}  {v['status']:<7} {v['tokens']:>5} tok  "
-            f"${v['cost']:.4f}  {tail}".rstrip()
+            f"{_usd(v['cost']):<9} {tail}".rstrip()
         )
     lines.append(
-        f"{'total':<{w}}  {'':<7} {summary['totalTokens']:>5} tok  ${summary['totalCost']:.4f}"
+        f"{'total':<{w}}  {'':<7} {summary['totalTokens']:>5} tok  {_usd(summary['totalCost'])}"
     )
+    if summary["unpricedModels"]:
+        lines.append(f"cost unknown (no price for {', '.join(summary['unpricedModels'])})")
     if summary["result"] is not None:
         r = summary["result"]
         if len(r) > 500:

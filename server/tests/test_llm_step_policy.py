@@ -175,7 +175,7 @@ async def test_emit_token_usage_populates_usage_sink():
     )
     assert usage["prompt"] == 100
     assert usage["completion"] == 50
-    assert usage["cost"] >= 0
+    assert usage["cost"] is None  # "claude-3" has no price
     assert any(e.event_type == "log" and e.token_usage for e in emit.events)
 
 
@@ -221,3 +221,49 @@ async def test_fallback_failure_emits_error(monkeypatch):
             ),
         )
     assert any(e.event_type == "error" for e in emit.events)
+
+
+def test_cost_for_usage_is_none_without_a_price():
+    from models import cost_for_usage
+
+    assert cost_for_usage("no-such-model-xyz", 100, 50) is None
+    assert cost_for_usage("claude-haiku-4-5-20251001", 1_000_000, 0) == 1.0
+
+
+async def test_emit_token_usage_cost_is_none_for_unpriced_model():
+    class FakeUsageCallback:
+        usage_metadata = {"no-such-model-xyz": {"input_tokens": 10, "output_tokens": 5}}
+
+    emit = ListEventEmitter()
+    await llm_mod._emit_token_usage(FakeUsageCallback(), emit=emit, run_id="r", node_id="n")
+    assert [e.token_usage["cost"] for e in emit.events] == [None]
+
+
+async def test_emit_token_usage_prefers_provider_reported_cost():
+    class FakeUsageCallback:
+        usage_metadata = {"no-such-model-xyz": {"input_tokens": 10, "output_tokens": 5}}
+        reported_cost = {"no-such-model-xyz": 0.0123}
+
+    emit = ListEventEmitter()
+    await llm_mod._emit_token_usage(FakeUsageCallback(), emit=emit, run_id="r", node_id="n")
+    assert [e.token_usage["cost"] for e in emit.events] == [0.0123]
+
+
+def test_usage_handler_collects_openrouter_reported_cost():
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    msg = AIMessage(
+        content="",
+        usage_metadata={"input_tokens": 47, "output_tokens": 11, "total_tokens": 58},
+        response_metadata={"model_name": "google/gemini-3.1-flash-lite"},
+    )
+    result = LLMResult(
+        generations=[[ChatGeneration(message=msg)]],
+        llm_output={"token_usage": {"cost": 2.5e-05}},
+    )
+    h = llm_mod.UsageCostHandler()
+    h.on_llm_end(result)
+    h.on_llm_end(result)
+    assert h.reported_cost == {"google/gemini-3.1-flash-lite": 5e-05}
+    assert h.usage_metadata["google/gemini-3.1-flash-lite"]["input_tokens"] == 94

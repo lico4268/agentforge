@@ -284,7 +284,8 @@ def _make_llm_step_node(
             updates["loop_runtime"] = {
                 pid: {
                     "total_tokens": usage.get("prompt", 0) + usage.get("completion", 0),
-                    "total_cost_usd": usage.get("cost", 0.0),
+                    # ponytail: unpriced calls (cost None) don't count toward maxCostUsd
+                    "total_cost_usd": usage.get("cost") or 0.0,
                 }
                 for pid in policy_ids
             }

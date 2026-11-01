@@ -140,7 +140,7 @@ def test_replay_cli_prints_lineage_and_exit_0(tmp_workspace, fake_llm, tmp_path,
     rid = _three(tmp_path, capsys)
     p2 = _write(tmp_path, THREE_YAML.replace("prompt: pb", "prompt: NEW"), "b.yaml")
     assert main(["replay", rid, "--arch", str(p2)]) == 0
-    assert f"replay of {rid} from b: reused 1 nodes, saved $0.0010" in capsys.readouterr().out
+    assert f"replay of {rid} from b: reused 1 nodes, saved $0.001000" in capsys.readouterr().out
 
 
 def test_replay_cli_refusal_exit_1(tmp_workspace, fake_llm, tmp_path, capsys):
@@ -217,3 +217,27 @@ def test_replay_compile_value_error_is_reported(
     monkeypatch.setattr("cli.replay_run", boom)
     assert main(["replay", rid, "--from", "c"]) == 1
     assert "error: no key" in capsys.readouterr().err
+
+
+def test_summary_marks_cost_unknown_for_unpriced_model():
+    from cli import render_summary
+
+    def usage(node, tokens, cost, model):
+        u = {"total_tokens": tokens, "cost": cost, "model": model}
+        return {"eventType": "log", "nodeId": node, "tokenUsage": u}
+
+    events = [
+        {"eventType": "node_start", "nodeId": "a"},
+        usage("a", 10, 0.5, "m1"),
+        {"eventType": "node_end", "nodeId": "a", "output": {"x": "1"}},
+        {"eventType": "node_start", "nodeId": "b"},
+        usage("b", 20, None, "m2"),
+        {"eventType": "node_end", "nodeId": "b", "output": {"x": "2"}},
+    ]
+    s = summarize(events, set())
+    assert [(v["model"], v["cost"]) for v in s["visits"]] == [("m1", 0.5), ("m2", None)]
+    assert s["totalCost"] is None
+    assert s["unpricedModels"] == ["m2"]
+    text = render_summary(s, "r1", "done")
+    assert "$?" in text
+    assert "cost unknown (no price for m2)" in text

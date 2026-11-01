@@ -67,7 +67,9 @@ Examples: `server/arch/gsm8k.yaml` (branch + retry loop), `server/arch/draft-app
    changed node and reuses the earlier nodes' outputs. `flow changed — run it fresh` means the wiring
    changed: use `run` instead. `upstream node … changed` means start earlier: pass the `--from` it
    suggests. `replay` also works on a failed run.
-7. Report the result and the per-node cost to the user.
+7. Report the result and the per-node cost to the user. `$?` with `cost unknown (no price for <model>)`
+   means that model has no price: say so rather than reporting $0. OpenRouter models report their
+   own cost; for others, add the price to `models.pricing` in `config.yaml`.
 
 Run long pipelines with a long Bash timeout or in the background: a killed run stays
 `running` and cannot be resumed.

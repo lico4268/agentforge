@@ -107,3 +107,13 @@ def test_join_mode_edit_is_a_flow_change():
     new = _arch(FAN_IN % ", join: any")
     with pytest.raises(ReplayError, match="flow changed"):
         changed_nodes(old, new)
+
+
+def test_reuse_stats_cost_unknown_when_a_reused_call_has_no_price():
+    evs = [
+        _ev("node_start", "a"),
+        _ev("log", "a", tokenUsage={"cost": None}),
+        _ev("node_end", "a"),
+        _ev("node_start", "b"),
+    ]
+    assert reuse_stats(evs, "b", ("b",), set()) == (["a"], None)

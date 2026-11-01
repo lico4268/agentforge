@@ -181,7 +181,9 @@ async def replay_run(
             },
             "fromNode": start,
             "reused": [*reused, *nodes],
-            "savedCost": rec.get("savedCost", 0) + cost,
+            "savedCost": None
+            if cost is None or rec.get("savedCost", 0) is None
+            else rec.get("savedCost", 0) + cost,
         },
     )
     return await _invoke(architecture, rec["modelCfg"], run_id, None, emit, checkpointer)

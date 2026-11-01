@@ -14,6 +14,26 @@ from models import CallPolicy, build_model, cost_for_usage
 from state import AgentState, read_state_value
 
 
+class UsageCostHandler(UsageMetadataCallbackHandler):
+    """Token usage per model, plus the cost the provider reported per call (OpenRouter puts
+    it in token_usage.cost), which beats our price table when present."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reported_cost: dict[str, float] = {}
+
+    def on_llm_end(self, response, **kwargs) -> None:
+        super().on_llm_end(response, **kwargs)
+        cost = ((response.llm_output or {}).get("token_usage") or {}).get("cost")
+        try:
+            model = response.generations[0][0].message.response_metadata.get("model_name")
+        except (IndexError, AttributeError):
+            return
+        if model and cost is not None:
+            with self._lock:
+                self.reported_cost[model] = self.reported_cost.get(model, 0.0) + float(cost)
+
+
 def _render(value: Any) -> str:
     if value is None:
         return ""
@@ -64,7 +84,7 @@ async def run_llm_step(
     structured = model.with_structured_output(output_model)
     # Structured output hides usage metadata, so collect token usage via a callback.
     # Primary retries + fallback accumulate into the same handler → cost/token totals are accurate.
-    usage_cb = UsageMetadataCallbackHandler()
+    usage_cb = UsageCostHandler()
     invoke_config = {"callbacks": [usage_cb]}
 
     last_err: BaseException | None = None
@@ -149,7 +169,7 @@ async def run_llm_step(
 
 
 async def _emit_token_usage(
-    usage_cb: UsageMetadataCallbackHandler,
+    usage_cb: UsageCostHandler,
     *,
     emit: EventEmitter,
     run_id: str,
@@ -166,13 +186,15 @@ async def _emit_token_usage(
     Emission is skipped if empty.
     """
     prompt = completion = 0
-    cost = 0.0
+    cost: float | None = 0.0
+    reported = getattr(usage_cb, "reported_cost", {})
     for name, usage in (usage_cb.usage_metadata or {}).items():
         in_tok = int(usage.get("input_tokens", 0))
         out_tok = int(usage.get("output_tokens", 0))
         prompt += in_tok
         completion += out_tok
-        cost += cost_for_usage(name, in_tok, out_tok)
+        c = reported[name] if name in reported else cost_for_usage(name, in_tok, out_tok)
+        cost = None if cost is None or c is None else cost + c
     if prompt == 0 and completion == 0:
         return
     if usage_sink is not None:

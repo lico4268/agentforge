@@ -142,8 +142,9 @@ def _provider_kwargs(provider: str, s: ModelSettings) -> dict:
     return kw
 
 
-def cost_for_usage(model_name: str, input_tokens: int, output_tokens: int) -> float:
-    """USD cost based on config.yaml models.pricing. 0.0 for models with no registered price.
+def cost_for_usage(model_name: str, input_tokens: int, output_tokens: int) -> float | None:
+    """USD cost based on config.yaml models.pricing. None for models with no registered price —
+    a wrong $0 is worse than an unknown.
 
     The prefix a provider adds ("models/gemini-...") may differ from the config id, so
     lookup is exact match first, then partial match.
@@ -155,7 +156,7 @@ def cost_for_usage(model_name: str, input_tokens: int, output_tokens: int) -> fl
                 pricing = value
                 break
     if not pricing:
-        return 0.0
+        return None
     return (
         input_tokens * float(pricing.get("input", 0)) / 1_000_000
         + output_tokens * float(pricing.get("output", 0)) / 1_000_000

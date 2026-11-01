@@ -65,7 +65,7 @@ def pick_from(old: dict, new: dict, order: list[str], from_node: str | None) -> 
 
 def reuse_stats(
     events: list[dict], from_node: str, next_nodes: tuple[str, ...], hidden: set[str]
-) -> tuple[list[str], float]:
+) -> tuple[list[str], float | None]:
     """Nodes (first-visit order) and cost the replay reuses from before `from_node` started.
 
     The cut sits at the earliest start among `next_nodes` seen up to from_node's first
@@ -83,9 +83,9 @@ def reuse_stats(
     ]
     prefix = events[: min(cuts)]
     nodes = [n for n in _first_visits(prefix) if n not in hidden]
-    cost = sum(
-        e["tokenUsage"].get("cost", 0.0)
+    costs = [
+        e["tokenUsage"].get("cost")
         for e in prefix
         if e["eventType"] == "log" and e.get("tokenUsage")
-    )
-    return nodes, cost
+    ]
+    return nodes, None if None in costs else sum(costs)

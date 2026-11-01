@@ -108,7 +108,7 @@ def make_review(
             contribution: dict = {"progress_history": [float(unmet)]}
             if usage:
                 contribution["total_tokens"] = usage.get("prompt", 0) + usage.get("completion", 0)
-                contribution["total_cost_usd"] = usage.get("cost", 0.0)
+                contribution["total_cost_usd"] = usage.get("cost") or 0.0
             if updates.get("feedback") is not None:
                 contribution["last_feedback"] = updates["feedback"]
             updates["loop_runtime"] = {pid: dict(contribution) for pid in policy_ids}

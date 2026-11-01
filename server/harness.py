@@ -100,7 +100,8 @@ async def run_dataset(
         for ev in emitter.events:
             if ev.token_usage:
                 total_tokens += ev.token_usage.get("total_tokens", 0)
-                total_cost += ev.token_usage.get("cost", 0.0)
+                # ponytail: unpriced calls count as 0; the phase 3.2 eval report replaces this
+                total_cost += ev.token_usage.get("cost") or 0.0
             decision = ev.policy_decision
             if decision:
                 decision_count += 1
