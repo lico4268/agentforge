@@ -1,44 +1,37 @@
 # Agentforge UI
 
-ComfyUI-style node canvas for designing agent cognitive architectures.
-Design rationale: [../ui-architecture.md](../ui-architecture.md).
+Optional read-only dashboard for AgentForge. Pick an `arch.yaml` from
+`server/arch/`, enter a task, and run it: the `flow:` is rendered as a Mermaid
+diagram, nodes are colored as they run, and human checkpoints can be answered
+in the browser. Authoring happens in the YAML, not here.
 
 ## Run
 
 ```bash
-npm install        # first time (uses ../.npm-cache locally)
+npm install
 npm run dev        # http://localhost:5137
-npm run build      # type-check + production build
+npm run build      # type-check (tsc -b) + production build
+npm run test       # vitest
+npm run lint       # oxlint
 ```
 
-No backend needed yet — `MockTransport` replays execution events so the live
-canvas works standalone. Press **Run** to watch nodes highlight.
+Or start backend and frontend together with `../start.sh`.
 
-## Structure (see ui-architecture.md §3)
+Without `VITE_WS_URL` in `ui/.env`, the dashboard uses `MockTransport`, which
+replays canned events so the UI works without a backend. Copy `.env.example`
+to `.env` to connect to the real backend through the Vite proxy (`/ws` → `:8000`).
+
+## Structure
 
 ```
 src/
-  types/        Zod contracts shared with the backend (manifest, graph, events)
-  registry/     Node registry — manifests drive rendering (extensibility core)
+  app/          Dashboard, FlowDiagram (Mermaid), NodeProgress
+  panels/       LogPanel, Markdown renderer
+  execution/    Execution state (useExecutionStore + eventReducer)
   transport/    Transport interface + MockTransport / WebSocketTransport
-  stores/       Topology state (useGraphStore) — what the user draws
-  execution/    Execution state (useExecutionStore) — backend event stream
-  canvas/       React Flow canvas + GenericNode (manifest-driven node)
-  panels/       NodeLibrary · Inspector · LogPanel
-  app/          Shell: providers, layout, toolbar, starter graph
+  registry/     REST clients (arch files, models, run files, OpenRouter catalog)
+  types/        Zod contracts mirroring the backend (arch, events)
 ```
 
-## Two rules that hold the design together
-
-1. **Topology state ≠ execution state.** Editing and the high-frequency event
-   stream live in separate stores; nodes subscribe to their own runtime so a
-   single event re-renders only that node.
-2. **Nodes are data-driven.** `GenericNode` renders any node from its manifest.
-   Adding a node = adding a manifest (`registry/builtinManifests.ts`, or the
-   backend serving `/api/nodes`). No component changes.
-
-## Wiring the backend later
-
-Swap `MockTransport` for `WebSocketTransport` in
-`src/transport/TransportContext.tsx`. Nothing else changes — the protocol and
-event types are already defined in `src/transport/protocol.ts` and `src/types/`.
+Backend payloads are camelCase and parsed with the Zod schemas in `src/types/`;
+see `../AGENTS.md` §4.

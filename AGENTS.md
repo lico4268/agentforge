@@ -1,7 +1,7 @@
 # AGENTS.md
 
 The single source of **rules that AI coding agents (Claude Code, Cursor, Antigravity, etc.) always follow when writing or modifying code in this repository**.
-For architecture, directory layout, and how to run things, see [CLAUDE.md](./CLAUDE.md); for progress, see [ROADMAP.md](./ROADMAP.md).
+For architecture, directory layout, and how to run things, see [CLAUDE.md](./CLAUDE.md); for direction and progress, see [DIRECTION.md](./DIRECTION.md).
 
 ---
 
@@ -18,7 +18,7 @@ If you changed code, you **must run** the checks for that area before committing
 |------|----------------------------------|
 | Backend (`server/`) | `ruff check .` → `ruff format .` |
 | Frontend (`ui/`) | `npm run lint` (oxlint) → type-check with `npm run build` (`tsc -b`) |
-| Tests | Backend `pytest`, frontend `npm run test` (once introduced) |
+| Tests | Backend `pytest`, frontend `npm run test` |
 
 - Leave no lint errors. Clean up auto-fixable items with `ruff check --fix`.
 
@@ -36,9 +36,9 @@ If you changed code, you **must run** the checks for that area before committing
 
 > The execution engine is LangGraph `StateGraph`. The old `NodeBase`/`NodeRegistry` approach is deprecated (`server/nodes/__init__.py` is an empty package marker).
 
-- **Backend execution**: create a node helper function in `server/nodes/` (e.g. the `run_llm_step`/`make_human_checkpoint` pattern) and wire it with `graph.add_node(...)` in a graph builder under `server/graphs/`. Handle branching with `add_conditional_edges` + a pure routing function like those in `policy.py`.
-- **Frontend exposure**: add a manifest (dict) to `BUILTIN_MANIFESTS` in `server/manifests.py`. `GET /api/nodes` returns it, and the frontend `NodeRegistry` (`ui/src/registry/`) receives it to render the palette, canvas, and Inspector.
-- The event `output` field is shown as-is as JSON in the Inspector, so only put serializable values in it (`str`, `dict`, `list`).
+- **Most new nodes need no code**: a node written in `arch.yaml` becomes `custom.node` (runtime `llm_step`) via `archfile.py`.
+- **A new runtime** (execution logic with a different input/output contract): write a helper in `server/nodes/` (e.g. the `run_llm_step`/`make_human_checkpoint` pattern), add a manifest (dict) with that `runtime` to `BUILTIN_MANIFESTS` in `server/manifests.py`, and branch on the `runtime` key in `server/graphs/compile.py`. Teach `archfile.py` the `run:` name if users should write it in YAML, and document it in `skills/agentforge/SKILL.md`.
+- The event `output` field is shown as-is in the dashboard and written to the run's workspace files, so only put serializable values in it (`str`, `dict`, `list`).
 
 ## 6. Tests (recommended)
 

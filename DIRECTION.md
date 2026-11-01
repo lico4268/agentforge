@@ -1,32 +1,40 @@
 # Current direction (source of truth)
 
-> Last updated: 2026-09-02. **This document takes precedence over every other design document.**
+> Last updated: 2026-11-01. **This document takes precedence over every other design document.**
 > If another document conflicts with this one, that document is out of date.
 
-> **2026-09-02 text-first switch**: the authoring model assumed by §1 and §4 below —
-> "build by drawing on a node canvas (React Flow)" — has been retired. Authoring is now
-> `server/arch/*.yaml` text, and the diagram (mermaid) is a read-only artifact generated
-> automatically from that text. Detailed design:
-> `docs/superpowers/specs/2026-09-02-text-first-architecture-design.md`.
-> The principles in §2 and §3 (unfixed roles, decision maker) remain valid — a `custom.node`
-> instance defines its name, prompt, and inputs/outputs, and branching is still determined by
-> the number of labels, not by names. The canvas, Inspector, and node palette themselves have
-> been deleted (see `.superpowers/sdd/2026-09-02-text-first-architecture/task-7-report.md`).
+## 1. What we are building
 
-## 1. What we are building (as of 2026-08-28 — written before the canvas was retired, see banner above)
+**Claude Code designs; AgentForge runs it cheaply, repeatedly, and measurably.**
 
-**A canvas for drawing LLM agent architectures and running/testing them in place.**
-It is not a static diagramming tool (cf. archify), nor a general-purpose system architecture tool.
-What you draw is an LLM agent pipeline, and what you draw runs as-is.
+AgentForge turns a short `arch.yaml` into a runnable LangGraph pipeline. The main way to use it
+is from inside Claude Code: the user asks for a pipeline, Claude writes `server/arch/*.yaml`,
+runs it with the headless `agentforge` CLI, asks the user in chat when a human checkpoint
+pauses the run, and reports the result. The browser dashboard stays as an optional viewer.
 
-Now: **build it as text (`arch.yaml`) and run/test it in place.** The diagram is not the
-authoring medium; it is a read-only by-product showing what the text produced.
+AgentForge is only worth using where Claude Code alone is weak:
+
+| Strength | Why Claude Code can't do it alone |
+|---|---|
+| A model per node (non-Claude and local models included) | Claude Code subagents only run Claude models |
+| The pipeline is a file | Re-run it, diff it, run it from cron/CI without a Claude Code session |
+| **Replay from a middle node** | Change a late prompt and re-run from there; earlier steps cost nothing |
+| **Comparison reports** | Same input, two variants, per-node cost and success side by side |
+| Per-node OS isolation | Claude Code's sandbox is per session, not per step |
+
+A one-off task ("research this and write a doc") is faster done directly in Claude Code. The
+skill says so, so Claude does not reach for a pipeline when one is not needed.
+
+Not in scope: marketplace packaging, supporting agents other than Claude Code, Claude Code
+standing in for nodes (nodes run on the model written in the YAML), deleting the dashboard.
+
+Authoring is text. The diagram (mermaid) is a read-only artifact generated from `flow:`; the
+old node canvas was retired on 2026-09-02.
 
 ## 2. We do not fix node roles
 
 - We do **not hard-code roles** such as "reviewer" or "planner" into node types. The user
-  defines roles through the name, system prompt, and input/output ports (`custom.node`,
-  edited in the Inspector).
+  defines a node's role through its name, prompt, and `in`/`out` keys in `arch.yaml`.
 - Branch names (`accept`/`refine`/`clarify`, `approve`/`revise`/`reject`) are **examples,
   not a contract.** Users must be able to create branches with any count and any names.
 - What we provide is **the switch as a mechanism**, not the meaning of the switch.
@@ -35,53 +43,46 @@ authoring medium; it is a read-only by-product showing what the text produced.
 
 The system knows exactly one thing about a branching node — **who chooses.**
 
-| `decidedBy` | Behavior |
-|-------------|----------|
-| `llm`       | The LLM picks one of the declared branch names |
-| `human`     | Interrupt, and a human picks via branch buttons |
+| Decided by | Behavior |
+|------------|----------|
+| LLM        | A node with 2+ labelled outgoing edges; the model picks one label |
+| Human      | `run: human.checkpoint` interrupts, and a person picks one of the wired labels |
 
-`review.intent` (LLM decision) and `human.checkpoint` (human decision) converge into **two
-settings of the same node**. We do not keep them as separate types with separate code paths.
+## 4. Flow grammar
 
-## 4. Diagram grammar (before 2026-09-02: canvas visual grammar — now applies to the auto-generated mermaid diagram)
-
-- Whether a node branches is determined by **the number of output ports (labels), not names**. No name whitelists.
+- Whether a node branches is determined by **the number of labelled outgoing edges, not names**. No name whitelists.
 - A node has one outgoing edge by default. Multiple edges only when branching.
-- The decision maker is either the LLM or a human (`custom.node` is LLM-decided, `human.checkpoint` is human-decided).
+- A node with 2+ plain incoming edges needs `join: all` or `join: any`.
+- Cycles get a `loop.guard` inserted automatically if the author does not write one.
 
-The part of this section that said "the canvas colors edges directly by branch index" is void
-now that the canvas is gone — mermaid draws the diagram, and mermaid/the browser decides colors.
-There are no canvas-only UI devices such as node badges either.
+## 5. Roadmap
 
-## 5. Known stale code (to fix)
+Each phase ships on its own and is useful before the next one starts.
 
-> 2026-09-02: the canvas-related items (struck through below) disappeared along with the
-> canvas itself — resolved as "no longer exists" rather than "to fix". The rest (hard-coded
-> branch names) is still a valid to-do — `treatment.py`/`baseline.py`/`harness.py` were not
-> touched in this switch.
-
-- ~~`ui/src/canvas/edges/edgePresentation.ts` — branch name whitelist~~ (file deleted)
-- `server/nodes/policy.py` — `ReviewBranch = Literal["accept","refine","clarify"]`
-- ~~`server/manifests.py` / `ui/src/registry/builtinManifests.ts` — the three fixed output
-  ports of `review.intent`~~ (both deleted — `review.intent` from `manifests.py`, and the
-  `ui/src/registry/builtinManifests.ts` file itself)
-- `server/nodes/review.py` — the prompt is written in the vocabulary above (still used by treatment.py)
-- `server/harness.py` — metrics count branch names (`refine_rate`/`clarify_rate`)
-- ~~`ui/src/canvas/edges/AgentEdge.tsx` — edges were drawn to the target's center so the
-  arrowhead was buried inside the node circle (a real bug: direction was invisible)~~ (file deleted)
-
-## 6. Document handling rules (four banners)
-
-The banner on the first line of each document tells you how to read it.
-
-| Banner | Applies to | How to read |
+| Phase | Scope | Status |
 |---|---|---|
-| 📄 **Completed work log** | `docs/superpowers/plans/*`, `work/**` | A log of work already done. Do not treat as design |
-| 📚 **Stale design / research notes** | `docs/superpowers/specs/*`, `POLICY_RESEARCH.md` | Only when looking for the reasoning behind a past decision |
-| 🔁 **Superseded by the 2026-09-02 text-first switch** | `specs/2026-08-16-freeform-connections-node-templates-design.md`, `specs/2026-08-22-loop-reentry-node-design.md` | Void. The canvas/node palette premise is gone — the follow-up design in its place is `specs/2026-09-02-text-first-architecture-design.md` |
-| ✅ **Currently in progress** | `specs/2026-09-02-text-first-architecture-design.md`, `plans/2026-09-02-text-first-architecture.md` | Valid. These take precedence for anything about arch.yaml authoring and mermaid diagrams |
-| No banner | `CLAUDE.md`, `ROADMAP.md`, `backend-architecture.md`, `POLICY_REDESIGN.md` | Current documents. These still take precedence for the target design |
+| 1 | CLI (`check`/`run`/`resume`/`show`) + Claude Code skill, SQLite checkpointer, `join`/`temperature`/`max_tokens` in YAML | ✅ done |
+| 2 | `agentforge replay` — re-run from the first changed node, reusing earlier outputs | ✅ done |
+| 3 | Honest cost records (no silent $0 for unpriced models), `eval:` in `arch.yaml`, comparison reports | ⬜ next |
+| 4 | `run: agent` nodes wrapping mini-swe-agent (bash-only tools, per-run git worktree, Tavily search) | ⬜ |
+| 5 | Per-node sandbox with bwrap (`network`/`files`/`secrets`/`limits` per node) | ⬜ |
 
-- `POLICY_REDESIGN.md` §0 has a table of what was invalidated.
-- `refer_data/docs/**` — early planning documents, read-only. Anything conflicting with §2–4 is void.
+## 6. Known stale code (to fix)
+
+These still use fixed branch vocabulary, against §2:
+
+- `server/nodes/policy.py` — `ReviewBranch = Literal["accept","refine","clarify"]`
+- `server/nodes/review.py` — the prompt is written in that vocabulary (still used by `graphs/treatment.py`)
+- `server/harness.py` — metrics count branch names (`refine_rate`/`clarify_rate`)
+
+`graphs/baseline.py`/`graphs/treatment.py` are the pre-YAML fixed GSM8K graphs, kept for the
+benchmark harness.
+
+## 7. Documents
+
+- Tracked: `README.md` (users), `CLAUDE.md` (layout and setup), `AGENTS.md` (coding rules),
+  `backend-architecture.md` (how the backend works today), `skills/agentforge/SKILL.md` (the skill).
+- `docs/` and `refer_data/` are local and not in the repository. Design notes in `docs/` are
+  working material, not the current design. `refer_data/docs/**` are early planning documents,
+  read-only; anything conflicting with §2–4 is void.
 - Git handles backups. Do not keep separate copies of documents.
