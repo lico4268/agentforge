@@ -76,6 +76,12 @@ output lists `changedFiles`, the `commit`, `steps`, and the `trajectory` file
 sandbox PATH; it needs `network: true` and `secrets: [TAVILY_API_KEY]`. Agent nodes need
 `bwrap` installed and cannot branch.
 
+To work on an existing repo, add `--repo <path>` to `run`: `files/` becomes a git worktree on a
+new branch `agentforge/<run_id>` from the repo's `HEAD`, so the user's checkout is never touched
+and uncommitted changes are not included (the CLI warns). Inside the sandbox `git` works
+read-only. When the run finishes the worktree folder is removed and the branch stays; the summary
+prints its diffstat. Tell the user the branch name; merging is their call.
+
 ### eval: (optional)
 
 ```yaml
@@ -105,7 +111,7 @@ numbers only: with few items, cost is the reliable signal.
 1. Write the arch.yaml.
 2. `agentforge check <file.yaml>` until it prints `ok`. Add `--model provider/m` to also catch a missing provider API key
    before running.
-3. `agentforge run <file.yaml> --task "<text>" [--model provider/model] [--json]`.
+3. `agentforge run <file.yaml> --task "<text>" [--model provider/model] [--repo <path>] [--json]`.
 4. If it exits 3 (paused), read the `question` and `choices` it prints, ask the user in chat,
    then `agentforge resume <run_id> --choice <label> [--note "<text>"] [--json]`.
 5. Read only the summary. For a specific node's full output:

@@ -168,3 +168,77 @@ def test_agent_node_parses_to_agent_type():
     assert coder["config"]["network"] is True
     assert coder["config"]["limits"] == {"steps": 5}
     assert coder["config"]["modelSlots"][0]["model"] == "claude-haiku-4-5-20251001"
+
+
+# ── --repo ─────────────────────────────────────────────────────────────────────
+
+
+def _git(path, *args):
+    return subprocess.run(
+        ["git", "-C", str(path), *args], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+@pytest.fixture
+def repo(tmp_path):
+    r = tmp_path / "repo"
+    r.mkdir()
+    _git(r, "init", "-q", "-b", "main")
+    (r / "README").write_text("hi\n")
+    _git(r, "add", "-A")
+    _git(r, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+    return r
+
+
+@pytest.fixture
+def repo_run(tmp_workspace, tmp_path, monkeypatch, capsys):
+    import graphs.compile as gc
+
+    monkeypatch.setattr(config, "PRICING", {"fake-model": {"input": 1, "output": 5}})
+
+    def run(script, repo, yaml=AGENT_YAML, json_out=False):
+        monkeypatch.setattr(gc, "build_model", lambda s: ScriptedChat(script=script))
+        p = tmp_path / "a.yaml"
+        p.write_text(yaml)
+        args = ["run", str(p), "--task", "t", "--repo", str(repo)]
+        code = main(args + (["--json"] if json_out else []))
+        return code, capsys.readouterr()
+
+    return run
+
+
+@needs_bwrap
+def test_repo_run_leaves_a_branch_and_the_checkout_alone(repo_run, repo):
+    script = ["echo more >> README && git log --oneline | wc -l > count.txt", SUBMIT + "done"]
+    code, cap = repo_run(script, repo)
+    assert code == 0
+    assert "review and merge it yourself" in cap.out
+    run_id = cap.out.split()[1]
+    assert _git(repo, "log", "-1", "--format=%s", f"agentforge/{run_id}") == (
+        "agentforge: coder visit 1"
+    )
+    assert _git(repo, "show", f"agentforge/{run_id}:count.txt") == "1"  # git worked inside
+    assert (repo / "README").read_text() == "hi\n"  # user's checkout untouched
+    assert not workspace.files_dir(run_id).exists()  # worktree folder removed
+    assert "2 files changed" in workspace.read_run_record(run_id)["repo"]["diffstat"]
+
+
+def test_repo_needs_an_agent_node(repo_run, repo, capsys):
+    from tests.arch_samples import LINEAR_YAML
+
+    code, cap = repo_run([], repo, yaml=LINEAR_YAML)
+    assert code == 1
+    assert "--repo needs a run: agent node" in cap.err
+
+
+def test_repo_must_be_a_git_repo(repo_run, tmp_path):
+    code, cap = repo_run([], tmp_path)
+    assert code == 1
+    assert "git rev-parse" in cap.err
+
+
+@needs_bwrap
+def test_dirty_repo_warns(repo_run, repo):
+    (repo / "README").write_text("edited\n")
+    _, cap = repo_run([SUBMIT + "done"], repo)
+    assert "uncommitted changes" in cap.err

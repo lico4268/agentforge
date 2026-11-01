@@ -11,6 +11,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
 import config as cfg
+import gitfiles
 import workspace
 from events import EventEmitter, ListEventEmitter
 from graphs.compile import PASSTHROUGH_TYPES, compile_graph
@@ -61,7 +62,31 @@ async def _invoke(
         logger.exception("run %s failed", run_id)
         outcome = RunOutcome(run_id, "error", None, f"{type(e).__name__}: {e}")
     workspace.update_run_record(run_id, status=outcome.status, error=outcome.error)
+    if outcome.status != "paused":
+        _close_worktree(run_id)
     return outcome
+
+
+def _open_worktree(run_id: str, repo: Path, start: str = "HEAD") -> dict:
+    """--repo: the run's files/ becomes a worktree of `repo` on a new branch, so the user's
+    checkout is never touched."""
+    branch = f"agentforge/{run_id}"
+    base = gitfiles.add_worktree(repo, workspace.files_dir(run_id), branch, start)
+    return {"path": str(repo), "branch": branch, "base": base}
+
+
+def _close_worktree(run_id: str) -> None:
+    """A finished --repo run drops its worktree folder and keeps the branch for the user."""
+    repo = (workspace.read_run_record(run_id) or {}).get("repo")
+    files = workspace.files_dir(run_id)
+    if not repo or not files.exists():
+        return
+    try:
+        gitfiles.remove_worktree(Path(repo["path"]), files)
+        repo["diffstat"] = gitfiles.shortstat(Path(repo["path"]), repo["base"], repo["branch"])
+        workspace.update_run_record(run_id, repo=repo)
+    except RuntimeError:
+        logger.exception("run %s: could not close worktree", run_id)
 
 
 async def start_run(
@@ -75,6 +100,7 @@ async def start_run(
     arch_path: str | None = None,
     arch_text: str | None = None,
     default_model: str | None = None,
+    repo: Path | None = None,
 ) -> RunOutcome:
     workspace.write_run_record(
         run_id,
@@ -89,6 +115,7 @@ async def start_run(
             "createdAt": datetime.now(UTC).isoformat(),
             "status": "running",
             "error": None,
+            "repo": _open_worktree(run_id, repo) if repo else None,
         },
     )
     return await _invoke(

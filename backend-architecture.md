@@ -144,7 +144,7 @@ starts the dev servers instead).
 | Command | Exit codes |
 |---------|-----------|
 | `check <arch.yaml> [--model p/m]` | 0 ok / 1 error — parse + compile only, no LLM calls |
-| `run <arch.yaml> --task "…" [--model p/m] [--json]` | 0 done / 3 paused / 1 error |
+| `run <arch.yaml> --task "…" [--model p/m] [--repo <path>] [--json]` | 0 done / 3 paused / 1 error |
 | `resume <run_id> --choice <label> [--note "…"] [--json]` | same as `run` |
 | `replay <run_id> [--arch edited.yaml [--model p/m]] [--from <node>] [--json]` | same as `run` |
 | `show <run_id> [<node>]` | 0 / 1 — the summary, or one node's full output |
@@ -161,6 +161,12 @@ counts. `check` also validates an `eval:` block when present.
 (`apply_sets`), runs both through `run_eval` on the same items, pairs results per run, and flags
 the success-rate difference as noise when an exact sign test on the discordant pairs gives
 p ≥ 0.05 (`paired_p`).
+
+`run --repo <path>` (needs an agent node) makes the run's `files/` a git worktree of that repo on
+a new branch `agentforge/<run_id>` from `HEAD` (`runner._open_worktree`); `run.json` records
+`repo {path, branch, base}`. The sandbox mounts the repo's git dir read-only so `git` works
+inside. When the run ends (not paused) `_close_worktree` removes the worktree, keeps the branch,
+and stores its `diffstat`, which the summary prints.
 
 Output is one short line per node visit (status, tokens, cost, a snippet) plus a total, to keep
 what Claude reads back small. `--json` prints the same data as JSON.

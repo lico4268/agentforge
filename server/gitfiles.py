@@ -15,9 +15,9 @@ _lock = threading.Lock()
 
 
 def git(path: Path, *args: str) -> str:
-    out = subprocess.run(
-        [*_GIT, "-C", str(path), *args], check=True, capture_output=True, text=True
-    )
+    out = subprocess.run([*_GIT, "-C", str(path), *args], capture_output=True, text=True)
+    if out.returncode:
+        raise RuntimeError(f"git {args[0]} in {path}: {out.stderr.strip()}")
     return out.stdout.strip()
 
 
@@ -47,3 +47,32 @@ def head(path: Path) -> str:
 
 def changed(path: Path, before: str, after: str) -> list[str]:
     return git(path, "diff", "--name-only", before, after).splitlines()
+
+
+def toplevel(path: Path) -> Path:
+    return Path(git(path, "rev-parse", "--show-toplevel"))
+
+
+def dirty(repo: Path) -> bool:
+    return bool(git(repo, "status", "--porcelain"))
+
+
+def add_worktree(repo: Path, path: Path, branch: str, start: str = "HEAD") -> str:
+    """New branch `branch` at `start`, checked out at `path`. Returns the start commit."""
+    git(repo, "worktree", "add", "-q", "-b", branch, str(path), start)
+    return head(path)
+
+
+def remove_worktree(repo: Path, path: Path) -> None:
+    git(repo, "worktree", "remove", "--force", str(path))
+
+
+def common_dir(path: Path) -> Path | None:
+    """The main repo's .git for a worktree (its `.git` is a file pointing there), else None."""
+    if not (path / ".git").is_file():
+        return None
+    return Path(git(path, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+
+
+def shortstat(repo: Path, a: str, b: str) -> str:
+    return git(repo, "diff", "--shortstat", a, b)

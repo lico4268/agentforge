@@ -68,7 +68,7 @@ def sandbox_tools() -> dict[str, str]:
     return tools
 
 
-def bwrap_args(network: bool, tools: dict[str, str]) -> list[str]:
+def bwrap_args(network: bool, tools: dict[str, str], ro: tuple[Path, ...] = ()) -> list[str]:
     args = ["--clearenv", "--unshare-all", "--die-with-parent", "--new-session"]
     if network:
         args.append("--share-net")
@@ -78,6 +78,8 @@ def bwrap_args(network: bool, tools: dict[str, str]) -> list[str]:
     args += ["--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--tmpfs", SANDBOX_BIN]
     for name, path in tools.items():
         args += ["--ro-bind", path, f"{SANDBOX_BIN}/{name}"]
+    for p in ro:
+        args += ["--ro-bind", str(p), str(p)]
     return args
 
 
@@ -192,7 +194,10 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
         env = BubblewrapEnvironment(
             cwd=str(files),
             timeout=COMMAND_TIMEOUT,
-            wrapper_args=bwrap_args(network, tools),
+            # --repo: files/ is a worktree; its git data lives in the main repo (read-only here)
+            wrapper_args=bwrap_args(
+                network, tools, tuple(filter(None, [gitfiles.common_dir(files)]))
+            ),
             env={
                 "PATH": f"{SANDBOX_BIN}:/usr/local/bin:/usr/bin:/bin",
                 "HOME": "/tmp",

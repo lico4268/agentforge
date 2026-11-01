@@ -12,8 +12,9 @@ import json  # noqa: E402
 import sys  # noqa: E402
 import uuid  # noqa: E402
 
+import gitfiles  # noqa: E402
 import workspace  # noqa: E402
-from archfile import ArchError, parse_arch  # noqa: E402
+from archfile import AGENT_NODE_TYPE, ArchError, parse_arch  # noqa: E402
 from evaluate import (  # noqa: E402
     EvalError,
     apply_sets,
@@ -85,6 +86,14 @@ def render_summary(summary: dict, run_id: str, status: str) -> str:
         if len(r) > 500:
             r = f"{r[:500]}… (full: agentforge show {run_id} <node>)"
         lines.append(f"result: {r}")
+    if r := summary.get("repo"):
+        if status == "paused":
+            lines.append(f"branch {r['branch']} (worktree kept until the run finishes)")
+        else:
+            lines.append(
+                f"branch {r['branch']} in {r['path']}: {r.get('diffstat') or 'no changes'} "
+                "— review and merge it yourself"
+            )
     if (i := summary["interrupt"]) and status == "paused":
         lines += [
             f"paused at {i['node']}: {i['question']}",
@@ -105,6 +114,8 @@ def _summary(run_id: str, rec: dict) -> dict:
     if "parent" in rec:
         for k in ("parent", "fromNode", "reused", "savedCost"):
             summary[k] = rec[k]
+    if rec.get("repo"):
+        summary["repo"] = rec["repo"]
     return summary
 
 
@@ -141,7 +152,7 @@ def cmd_check(a) -> int:
     return 0
 
 
-async def _run(a, arch, text) -> int:
+async def _run(a, arch, text, repo=None) -> int:
     run_id = str(uuid.uuid4())
     async with open_checkpointer() as cp:
         outcome = await start_run(
@@ -154,20 +165,34 @@ async def _run(a, arch, text) -> int:
             arch_path=str(Path(a.yaml).resolve()),
             arch_text=text,
             default_model=a.model,
+            repo=repo,
         )
     return _report(run_id, outcome.status, a.json)
+
+
+def _repo(a, arch) -> Path | None:
+    """--repo <path> → the repo's top level; warns that uncommitted changes are left out."""
+    if not a.repo:
+        return None
+    if not any(n["type"] == AGENT_NODE_TYPE for n in arch["nodes"]):
+        raise ValueError("--repo needs a run: agent node")
+    top = gitfiles.toplevel(Path(a.repo))
+    if gitfiles.dirty(top):
+        sys.stderr.write(f"warning: {top} has uncommitted changes; the run starts from HEAD\n")
+    return top
 
 
 def cmd_run(a) -> int:
     try:
         text = Path(a.yaml).read_text(encoding="utf-8")
         arch, warnings = parse_arch(text, default_model=a.model)
-    except (ArchError, OSError) as e:
+        repo = _repo(a, arch)
+    except (ArchError, OSError, ValueError, RuntimeError) as e:
         _err(str(e))
         return 1
     for w in warnings:
         sys.stderr.write(f"warning: {w}\n")
-    return asyncio.run(_run(a, arch, text))
+    return asyncio.run(_run(a, arch, text, repo))
 
 
 async def _resume(a) -> int:
@@ -325,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("yaml")
     r.add_argument("--task", required=True)
     r.add_argument("--model")
+    r.add_argument("--repo", help="work on a branch of this git repo (agent nodes)")
     r.add_argument("--json", action="store_true")
     s = sub.add_parser("resume")
     s.add_argument("run_id")
