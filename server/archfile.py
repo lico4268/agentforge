@@ -103,7 +103,7 @@ PREDEFINED = {
 USER_NODE_TYPE = "custom.node"
 # `run: agent` — same in/out/prompt/model as a user node, run by mini-swe-agent (nodes/agent_step).
 AGENT_NODE_TYPE = "agent.node"
-_AGENT_LIMITS = {"steps", "cost"}
+_AGENT_LIMITS = {"steps", "cost", "memory_mb", "cpu_seconds"}
 
 # Types that compile.py `_branch_labels` (design §5) accepts as branches — only types that
 # have a way to pick a label themselves (LLM structured output or runtime-specific logic)
@@ -290,7 +290,10 @@ def _agent_config(name: str, spec: dict) -> dict:
     if not isinstance(limits, dict) or set(limits) - _AGENT_LIMITS:
         raise ArchError(f"agent node {name!r}: limits takes only {sorted(_AGENT_LIMITS)}")
     for k, v in limits.items():
-        if isinstance(v, bool) or not isinstance(v, int | float) or v <= 0:
+        if k in ("memory_mb", "cpu_seconds"):
+            if isinstance(v, bool) or not isinstance(v, int) or v <= 0:
+                raise ArchError(f"agent node {name!r}: limits.{k} must be a positive integer")
+        elif isinstance(v, bool) or not isinstance(v, int | float) or v <= 0:
             raise ArchError(f"agent node {name!r}: limits.{k} must be a positive number")
     network = spec.get("network", False)
     if not isinstance(network, bool):

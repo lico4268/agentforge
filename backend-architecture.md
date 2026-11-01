@@ -90,6 +90,8 @@ error (`_tarjan_scc` + `_validate_gated_cycles`). The checkpointer is passed in 
   folders on top (`.git` only visible when `.` is listed, and an unscoped or `.` node gets it
   read-only; `check_scope` fails the node before every command if a scope folder is a symlink); `SandboxEnvironment` (a `BubblewrapEnvironment` subclass)
   runs commands without mini's extra `--bind cwd cwd`, which would hide those mounts.
+  `limits.memory_mb` / `cpu_seconds` become a `ulimit_prefix` (`ulimit -v`, `ulimit -t`) put in
+  front of every command, so each command gets its own cap.
 - `checkpoint.make_human_checkpoint` — emits an `interrupt` event whose payload lists the wired
   labels, then pauses.
 - `loop_guard.py` — pure guard evaluation used by the `loop.guard` node.

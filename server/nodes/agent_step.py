@@ -150,9 +150,22 @@ def bwrap_args(
     return args + list(mounts)
 
 
+def ulimit_prefix(memory_mb: int | None, cpu_seconds: int | None) -> str:
+    """Shell lines lowering rlimits before a command. bash's ulimit sets soft and hard, so the
+    command cannot raise them again. -v is virtual memory in KiB."""
+    out = ""
+    if memory_mb:
+        out += f"ulimit -v {memory_mb * 1024}; "
+    if cpu_seconds:
+        out += f"ulimit -t {cpu_seconds}"
+    return (out.rstrip("; ") + "\n") if out else ""
+
+
 class SandboxConfig(BubblewrapEnvironmentConfig):
     files_root: str = ""
     scope: dict | None = None
+    memory_mb: int | None = None
+    cpu_seconds: int | None = None
 
 
 class SandboxEnvironment(BubblewrapEnvironment):
@@ -171,7 +184,9 @@ class SandboxEnvironment(BubblewrapEnvironment):
         cmd = [self.config.executable, *self.config.wrapper_args, "--chdir", cwd]
         for key, value in self.config.env.items():
             cmd.extend(["--setenv", key, value])
-        cmd.extend(["bash", "-c", command])
+        # ponytail: per-command rlimits; a node-wide total needs a cgroup (systemd-run)
+        prefix = ulimit_prefix(self.config.memory_mb, self.config.cpu_seconds)
+        cmd.extend(["bash", "-c", prefix + command])
         try:
             result = subprocess.run(
                 cmd,
@@ -328,6 +343,8 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
             cwd=str(files),
             files_root=str(files),
             scope=scope,
+            memory_mb=limits.get("memory_mb"),
+            cpu_seconds=limits.get("cpu_seconds"),
             timeout=COMMAND_TIMEOUT,
             wrapper_args=bwrap_args(network, tools, git_ro, files_mounts(files, scope)),
             env={

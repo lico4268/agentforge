@@ -61,7 +61,7 @@ Examples: `server/arch/gsm8k.yaml` (branch + retry loop, with an `eval:` block),
     out: [result]          # exactly one: the agent's final answer
     prompt: Implement the plan. Run the tests before finishing.
     model: openrouter/qwen/qwen3-coder
-    limits: {steps: 30, cost: 0.50}   # defaults; hitting one fails the node
+    limits: {steps: 30, cost: 0.50, memory_mb: 2048, cpu_seconds: 60}   # steps/cost default as shown; memory/cpu apply per command, unset = none
     network: false         # default; true lets commands reach the internet
     secrets: [TAVILY_API_KEY]          # env vars from server/.env passed into the sandbox
     tools: [search, git]   # optional; default is every agentforge tool
@@ -77,6 +77,7 @@ output lists `changedFiles`, the `commit`, `steps`, and the `trajectory` file
 (`agent/<node>-<n>.json`, the full conversation). Web search: `search "<query>"` is on the
 sandbox PATH; it needs `network: true` and `secrets: [TAVILY_API_KEY]`. Agent nodes need
 `bwrap` installed and cannot branch.
+`memory_mb` is virtual memory, so V8-based tools such as `obscura` need a generous value.
 
 `tools:` only decides which agentforge tools are put on PATH and named in the prompt; it is not a wall — bash can still run anything under /usr. The walls are network, mounts, and env.
 

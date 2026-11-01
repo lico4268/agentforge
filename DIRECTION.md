@@ -65,7 +65,7 @@ Each phase ships on its own and is useful before the next one starts.
 | 2 | `agentforge replay` — re-run from the first changed node, reusing earlier outputs | ✅ done |
 | 3 | Honest cost records (no silent $0 for unpriced models), `eval:` in `arch.yaml`, comparison reports (`agentforge compare`) | ✅ done |
 | 4 | `run: agent` nodes wrapping mini-swe-agent (bash-only tools, per-run git repo or `--repo` worktree, Tavily search), always in bwrap with per-node `network`/`secrets`/`limits` | ✅ done |
-| 5 | Finer per-node sandbox rules: `files:` read/write scopes, `tools:` list, CPU/memory limits | ⬜ next |
+| 5 | Finer per-node sandbox rules: `files:` read/write scopes, `tools:` list, CPU/memory limits | ✅ done |
 
 ## 6. Known stale code (to fix)
 

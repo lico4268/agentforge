@@ -8,7 +8,7 @@ It is built to be driven from Claude Code: Claude designs the pipeline as YAML, 
 AgentForge runs it cheaply, repeatedly, and measurably — a different model per node,
 replay from a middle node, and run records you can diff.
 
-> Current stage: **CLI, skill, replay, honest cost, eval, compare, and `run: agent` nodes are done; finer per-node sandbox rules are next.**
+> Current stage: **CLI, skill, replay, honest cost, eval, compare, and `run: agent` nodes are done, including finer per-node sandbox rules (`files:`, `tools:`, memory/CPU limits).**
 > See the roadmap in [DIRECTION.md](./DIRECTION.md#5-roadmap).
 
 ## Features
@@ -218,7 +218,8 @@ ui/src/
 
 Text-based authoring, dynamic execution, branches, loops, Human Checkpoints, the CLI,
 the Claude Code skill, replay, honest per-node cost, `eval:`, `compare`, and sandboxed
-`run: agent` nodes are implemented. Next: finer per-node sandbox rules (`files:`, `tools:`).
+`run: agent` nodes are implemented, with finer per-node sandbox rules (`files:`, `tools:`,
+memory/CPU limits). Next: see DIRECTION.md §6 (stale fixed-vocabulary code).
 
 See [DIRECTION.md](./DIRECTION.md) for design principles and the roadmap, and
 [AGENTS.md](./AGENTS.md) for development guidelines.

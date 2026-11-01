@@ -147,6 +147,8 @@ def test_missing_secret_fails_at_compile(agent_run, monkeypatch):
     [
         ("    limits: {turns: 3}\n", "limits takes only"),
         ("    limits: {steps: 0}\n", "limits.steps must be a positive number"),
+        ("    limits: {memory_mb: 1.5}\n", "limits.memory_mb must be a positive integer"),
+        ("    limits: {cpu_seconds: 0}\n", "limits.cpu_seconds must be a positive integer"),
         ("    network: yes please\n", "network must be true or false"),
         ("    secrets: KEY\n", "secrets must be a list"),
         ("    tools: git\n", "tools must be a list of command names"),
@@ -474,3 +476,26 @@ def test_tools_list_limits_the_sandbox_path(agent_run):
     )
     lines = (files / "t.txt").read_text().split()
     assert lines[0] == "none" and lines[1].endswith("/git")
+
+
+def test_ulimit_prefix():
+    from nodes.agent_step import ulimit_prefix
+
+    assert ulimit_prefix(None, None) == ""
+    assert ulimit_prefix(256, 5) == "ulimit -v 262144; ulimit -t 5\n"
+    assert ulimit_prefix(None, 5) == "ulimit -t 5\n"
+
+
+@needs_bwrap
+def test_memory_and_cpu_limits_apply_to_commands(agent_run):
+    _, _, files = agent_run(
+        [
+            "python3 -c 'b = bytearray(512 * 1024 * 1024)' 2>/dev/null && echo big > m.txt "
+            "|| echo capped > m.txt; "
+            "python3 -c 'while True: pass' 2>/dev/null; echo $? > c.txt",
+            SUBMIT + "done",
+        ],
+        extra="    limits: {memory_mb: 128, cpu_seconds: 1}\n",
+    )
+    assert (files / "m.txt").read_text() == "capped\n"
+    assert (files / "c.txt").read_text().strip() != "0"
