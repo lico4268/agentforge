@@ -149,6 +149,8 @@ def test_missing_secret_fails_at_compile(agent_run, monkeypatch):
         ("    limits: {steps: 0}\n", "limits.steps must be a positive number"),
         ("    network: yes please\n", "network must be true or false"),
         ("    secrets: KEY\n", "secrets must be a list"),
+        ("    tools: git\n", "tools must be a list of command names"),
+        ("    tools: [bin/git]\n", "tools must be a list of command names"),
         ("    files: notes\n", "files must be a mapping"),
         ("    files: {exec: [a]}\n", r"files takes only \['read', 'write'\]"),
         ("    files: {read: notes}\n", "files.read must be a list"),
@@ -453,3 +455,22 @@ def test_git_dir_is_read_only_in_sandbox(agent_run):
     assert code == 0
     assert (files / "r.txt").read_text() == "ro\n"
     assert not (files / ".git" / "hooks" / "pre-commit").exists()
+
+
+def test_pick_tools():
+    from nodes.agent_step import TOOLS_DIR, pick_tools, sandbox_tools
+
+    assert pick_tools("n", None) == sandbox_tools()
+    assert pick_tools("n", ["search", "git"]) == {"search": str(TOOLS_DIR / "search"), "git": None}
+    with pytest.raises(ValueError, match="node 'n': tool 'no-such-tool-xyz' not found"):
+        pick_tools("n", ["no-such-tool-xyz"])
+
+
+@needs_bwrap
+def test_tools_list_limits_the_sandbox_path(agent_run):
+    _, _, files = agent_run(
+        ["(command -v search || echo none) > t.txt; command -v git >> t.txt", SUBMIT + "done"],
+        extra="    tools: [git]\n",
+    )
+    lines = (files / "t.txt").read_text().split()
+    assert lines[0] == "none" and lines[1].endswith("/git")

@@ -82,7 +82,7 @@ error (`_tarjan_scc` + `_validate_gated_cycles`). The checkpointer is passed in 
   Each bash command runs in bwrap (`bwrap_args`): `--clearenv`, `--unshare-all` (plus
   `--share-net` when `network: true`), read-only `/usr` and `/etc`, tmpfs `/tmp`, and only the
   run's `files/` writable. `secrets:` names are copied from the server environment; tools from
-  `server/agent_tools/` (and `obscura` if installed) are mounted at `/opt/agentforge/bin`.
+  `server/agent_tools/` (and `obscura` if installed) are mounted at `/opt/agentforge/bin`. `pick_tools` narrows that set to the node's `tools:` list (system commands under /usr map to `None` and are not mounted).
   `files/` is a git repo (`gitfiles.py`) and every visit ends in a commit; the node output carries
   `changedFiles`, `commit`, `steps`, and the trajectory path (`agent/<node>-<n>.json`). Hitting
   `limits` (`steps` 30, `cost` 0.50 by default) fails the node after committing its work.

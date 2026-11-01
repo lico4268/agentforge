@@ -299,6 +299,13 @@ def _agent_config(name: str, spec: dict) -> dict:
     if not isinstance(secrets, list) or not all(isinstance(s, str) for s in secrets):
         raise ArchError(f"agent node {name!r}: secrets must be a list of env var names")
     cfg = {"limits": limits, "network": network, "secrets": secrets}
+    if "tools" in spec:
+        tools = spec["tools"]
+        if not isinstance(tools, list) or not all(
+            isinstance(t, str) and re.fullmatch(r"[A-Za-z0-9._+-]+", t) for t in tools
+        ):
+            raise ArchError(f"agent node {name!r}: tools must be a list of command names")
+        cfg["tools"] = tools
     if "files" in spec:
         cfg["files"] = _files_scope(name, spec["files"])
     return cfg

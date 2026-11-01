@@ -106,9 +106,28 @@ def check_scope(files: Path, scope: dict | None) -> None:
             )
 
 
+def pick_tools(node_id: str, names: list[str] | None) -> dict[str, str | None]:
+    """Tool name -> host path to mount, or None for a system command already under /usr."""
+    available = sandbox_tools()
+    if names is None:
+        return dict(available)
+    picked: dict[str, str | None] = {}
+    for name in names:
+        if name in available:
+            picked[name] = available[name]
+        elif shutil.which(name, path="/usr/local/bin:/usr/bin:/bin"):
+            picked[name] = None
+        else:
+            raise ValueError(
+                f"node {node_id!r}: tool {name!r} not found — use an agentforge tool "
+                f"({', '.join(available)}) or a command in /usr/bin"
+            )
+    return picked
+
+
 def bwrap_args(
     network: bool,
-    tools: dict[str, str],
+    tools: dict[str, str | None],
     ro: tuple[Path, ...] = (),
     mounts: list[str] = (),
 ) -> list[str]:
@@ -124,7 +143,8 @@ def bwrap_args(
         args += ["--ro-bind-try", d, d]
     args += ["--tmpfs", "/tmp", "--proc", "/proc", "--dev", "/dev", "--tmpfs", SANDBOX_BIN]
     for name, path in tools.items():
-        args += ["--ro-bind", path, f"{SANDBOX_BIN}/{name}"]
+        if path:
+            args += ["--ro-bind", path, f"{SANDBOX_BIN}/{name}"]
     for p in ro:
         args += ["--ro-bind", str(p), str(p)]
     return args + list(mounts)
@@ -271,7 +291,7 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
     secrets = resolve_secrets(node_id, cfg.get("secrets") or [])
     if shutil.which("bwrap") is None:
         raise ValueError(f"node {node_id!r}: run: agent needs bwrap (bubblewrap) installed")
-    tools = sandbox_tools()
+    tools = pick_tools(node_id, cfg.get("tools"))
     scope = cfg.get("files")
     scope_text = ""
     if scope:
