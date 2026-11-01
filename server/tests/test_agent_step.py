@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 
@@ -158,6 +159,7 @@ def test_missing_secret_fails_at_compile(agent_run, monkeypatch):
         ("    files: {read: notes}\n", "files.read must be a list"),
         ("    files: {read: [/etc]}\n", "must be a relative folder inside files/"),
         ("    files: {read: [../x]}\n", "must be a relative folder inside files/"),
+        ("    files: {read: ['']}\n", "must be a relative folder inside files/"),
         ("    files: {write: [a/.git]}\n", "must be a relative folder inside files/"),
         ("    files: {read: [a], write: [./a/]}\n", "'a' is in both files.read and files.write"),
     ],
@@ -253,6 +255,23 @@ def test_dirty_repo_warns(repo_run, repo):
     (repo / "README").write_text("edited\n")
     _, cap = repo_run([SUBMIT + "done"], repo)
     assert "uncommitted changes" in cap.err
+
+
+@needs_bwrap
+@pytest.mark.parametrize(
+    "scope, seen", [("{write: [src]}", False), ("{read: [.], write: [src]}", True)]
+)
+def test_repo_git_dir_only_visible_to_a_node_that_sees_the_root(repo_run, repo, scope, seen):
+    script = [
+        f"git log --oneline > /dev/null 2>&1; echo $? > src/rc.txt; "
+        f"test -e {repo}/.git && echo seen > src/c.txt || echo hidden > src/c.txt",
+        SUBMIT + "done",
+    ]
+    code, cap = repo_run(script, repo, yaml=AGENT_YAML + f"    files: {scope}\n")
+    assert code == 0
+    branch = f"agentforge/{cap.out.split()[1]}"
+    assert _git(repo, "show", f"{branch}:src/c.txt") == ("seen" if seen else "hidden")
+    assert (_git(repo, "show", f"{branch}:src/rc.txt") == "0") == seen
 
 
 # ── replay ─────────────────────────────────────────────────────────────────────
@@ -352,22 +371,122 @@ def test_no_files_key_means_no_scope():
     assert "files" not in node["config"]
 
 
-def test_files_mounts(tmp_path):
-    from nodes.agent_step import files_mounts
+def _mounts(files, scope):
+    """files_mounts with each bound fd shown as the path it points at."""
+    from nodes.agent_step import close_fds, files_mounts
 
-    f = str(tmp_path)
-    git = ["--ro-bind-try", f"{f}/.git", f"{f}/.git"]
-    assert files_mounts(tmp_path, None) == ["--bind", f, f, *git]
-    assert files_mounts(tmp_path, {"read": ["a"], "write": []}) == [
-        "--tmpfs", f, "--ro-bind-try", f"{f}/a", f"{f}/a"
-    ]
-    assert files_mounts(tmp_path, {"read": ["src/secret", "."], "write": ["src"]}) == [
+    args, fds = files_mounts(files, scope)
+    try:
+        return [
+            os.readlink(f"/proc/self/fd/{a}") if args[i - 1].endswith("-fd") else a
+            for i, a in enumerate(args)
+        ]
+    finally:
+        close_fds(fds)
+
+
+def test_files_mounts(tmp_path):
+    f = os.path.realpath(tmp_path)
+    (tmp_path / ".git").mkdir()
+    git = ["--ro-bind-fd", f"{f}/.git", f"{f}/.git"]
+    assert _mounts(tmp_path, None) == ["--bind-fd", f, f, *git]
+    assert _mounts(tmp_path, {"read": ["a"], "write": []}) == ["--tmpfs", f]  # missing: skipped
+    assert _mounts(tmp_path, {"read": ["src/secret", "."], "write": ["src"]}) == [
         "--tmpfs", f,
-        "--ro-bind-try", f, f,
-        "--bind", f"{f}/src", f"{f}/src",
-        "--ro-bind-try", f"{f}/src/secret", f"{f}/src/secret",
+        "--ro-bind-fd", f, f,
+        "--bind-fd", f"{f}/src", f"{f}/src",
+        "--ro-bind-fd", f"{f}/src/secret", f"{f}/src/secret",
         *git,
     ]
+    # a read folder under a write folder is created up front, so no command can create it rw
+    assert (tmp_path / "src" / "secret").is_dir()
+
+
+@pytest.mark.parametrize(
+    "plant, scope",
+    [
+        ("notes", {"read": ["notes"], "write": []}),  # the scope folder is a symlink
+        ("a", {"read": ["a/b"], "write": []}),  # a component above it is
+        ("src", {"read": [], "write": ["src/new"]}),  # and mkdir must not follow it
+        (".git", {"read": ["."], "write": []}),
+    ],
+)
+def test_files_mounts_refuses_symlinks(tmp_path, plant, scope):
+    files, outside = tmp_path / "files", tmp_path / "outside"
+    (outside / "b").mkdir(parents=True)
+    files.mkdir()
+    (files / plant).symlink_to(outside)
+    with pytest.raises(RuntimeError, match=f"{plant!r} is a symlink"):
+        _mounts(files, scope)
+    assert sorted(p.name for p in outside.iterdir()) == ["b"]  # nothing created through it
+
+
+def test_files_root_symlink_is_refused(tmp_path):
+    (tmp_path / "real").mkdir()
+    (tmp_path / "files").symlink_to(tmp_path / "real")
+    with pytest.raises(RuntimeError, match="is a symlink"):
+        _mounts(tmp_path / "files", None)
+
+
+@needs_bwrap
+def test_swap_after_open_still_binds_the_real_folder(tmp_path):
+    """The race a parallel node could win against a path check: the folder becomes a symlink
+    after it was checked. bwrap binds the fd, so the sandbox still sees the real folder."""
+    from nodes.agent_step import bwrap_args, close_fds, files_mounts
+
+    files, outside = tmp_path / "files", tmp_path / "outside"
+    (files / "notes").mkdir(parents=True)
+    (files / "notes" / "n.txt").write_text("real\n")
+    outside.mkdir()
+    (outside / "n.txt").write_text("SECRET\n")
+    mounts, fds = files_mounts(files, {"read": ["notes"], "write": []})
+    try:
+        (files / "notes").rename(files / "old")
+        (files / "notes").symlink_to(outside)
+        r = subprocess.run(
+            ["bwrap", *bwrap_args(False, {}), *mounts, "cat", f"{files}/notes/n.txt"],
+            capture_output=True,
+            text=True,
+            pass_fds=fds,
+        )
+    finally:
+        close_fds(fds)
+    assert r.stdout == "real\n"
+
+
+@needs_bwrap
+def test_mount_check_stops_the_command_when_a_mount_is_not_the_opened_folder(tmp_path):
+    """bwrap 0.9 turns a bind fd back into a path and mounts that path a moment later, so a
+    symlink swapped in during that window still wins; mount_check catches what it mounted."""
+    from nodes.agent_step import bwrap_args, close_fds, files_mounts, mount_check
+
+    files, outside = tmp_path / "files", tmp_path / "outside"
+    (files / "notes").mkdir(parents=True)
+    (files / "notes" / "n.txt").write_text("real\n")
+    outside.mkdir()
+    (outside / "n.txt").write_text("SECRET\n")
+    f = str(files)
+    mounts, fds = files_mounts(files, {"read": ["notes"], "write": []})
+
+    def run(binds):
+        cmd = mount_check(mounts) + f"cat {f}/notes/n.txt"
+        return subprocess.run(
+            ["bwrap", *bwrap_args(False, {}), *binds, "bash", "-c", cmd],
+            capture_output=True,
+            text=True,
+            pass_fds=fds,
+        )
+
+    try:
+        ok = run(mounts)
+        swapped = run(["--tmpfs", f, "--ro-bind", str(outside), f"{f}/notes"])  # wrong folder
+        elsewhere = run(["--ro-bind", f, f])  # right folder, but not the mount we asked for
+    finally:
+        close_fds(fds)
+    assert ok.returncode == 0 and ok.stdout == "real\n"
+    for r in (swapped, elsewhere):
+        assert r.returncode == 1 and r.stdout == ""
+        assert "mount changed under the sandbox" in r.stderr
 
 
 SCOPED_YAML = """\
@@ -426,6 +545,8 @@ def test_scope_through_preplanted_symlink_fails(agent_run):
     assert code == 1
     assert "symlink" in workspace.read_run_record(out["runId"])["error"]
     assert not (files / "src" / "leak.txt").exists()
+    # it fails in setup, before the first model call, and still ends the node with an error
+    assert [e["nodeId"] for e in _events(out["runId"], "error")] == ["coder"]
 
 
 SELF_PLANT_YAML = SCOPED_YAML.replace(
@@ -438,15 +559,33 @@ def test_scoped_node_cannot_plant_symlink_to_escape(agent_run):
     code, out, files = agent_run(
         [
             SUBMIT + "'prep done'",
-            "ln -s ../.. src/secret",
-            "cp src/secret/server/.env src/leak.txt 2>/dev/null; ls src/secret > src/leak2.txt",
+            "rm -rf src/secret 2>/dev/null; ln -sfn ../.. src/secret 2>/dev/null; true",
+            "cp src/secret/server/.env src/leak.txt 2>/dev/null; ls -A src/secret > src/leak2.txt",
             SUBMIT + "done",
         ],
         yaml=SELF_PLANT_YAML,
     )
-    assert code == 1
-    assert "symlink" in workspace.read_run_record(out["runId"])["error"]
-    assert not (files / "src" / "leak2.txt").exists()
+    # src/secret exists before the first command and is a read-only mount point, so the node
+    # cannot replace it; a symlink planted from outside fails closed (test_files_mounts_refuses_*)
+    assert code == 0
+    assert (files / "src" / "secret").is_dir() and not (files / "src" / "secret").is_symlink()
+    assert (files / "src" / "leak2.txt").read_text() == ""
+    assert not (files / "src" / "leak.txt").exists()
+
+
+@needs_bwrap
+def test_read_folder_under_write_folder_stays_read_only(agent_run):
+    code, _, files = agent_run(
+        [
+            SUBMIT + "'prep done'",
+            "mkdir -p src/secret; (echo x > src/secret/f) 2>/dev/null || echo ro > src/r.txt",
+            SUBMIT + "done",
+        ],
+        yaml=SELF_PLANT_YAML,
+    )
+    assert code == 0
+    assert (files / "src" / "r.txt").read_text() == "ro\n"
+    assert not (files / "src" / "secret" / "f").exists()
 
 
 @needs_bwrap
@@ -482,14 +621,15 @@ def test_ulimit_prefix():
     from nodes.agent_step import ulimit_prefix
 
     assert ulimit_prefix(None, None) == ""
-    assert ulimit_prefix(256, 5) == "ulimit -v 262144; ulimit -t 5\n"
-    assert ulimit_prefix(None, 5) == "ulimit -t 5\n"
+    assert ulimit_prefix(256, 5) == "ulimit -v 262144 || exit 1; ulimit -t 5 || exit 1\n"
+    assert ulimit_prefix(None, 5) == "ulimit -t 5 || exit 1\n"
 
 
 @needs_bwrap
 def test_memory_and_cpu_limits_apply_to_commands(agent_run):
     _, _, files = agent_run(
         [
+            "python3 -c 'b = bytearray(16 * 1024 * 1024)' && echo small > s.txt; "
             "python3 -c 'b = bytearray(512 * 1024 * 1024)' 2>/dev/null && echo big > m.txt "
             "|| echo capped > m.txt; "
             "python3 -c 'while True: pass' 2>/dev/null; echo $? > c.txt",
@@ -497,5 +637,6 @@ def test_memory_and_cpu_limits_apply_to_commands(agent_run):
         ],
         extra="    limits: {memory_mb: 128, cpu_seconds: 1}\n",
     )
+    assert (files / "s.txt").read_text() == "small\n"  # python runs fine under the same cap
     assert (files / "m.txt").read_text() == "capped\n"
-    assert (files / "c.txt").read_text().strip() != "0"
+    assert (files / "c.txt").read_text() == "137\n"  # SIGKILL: ulimit -t sets soft = hard

@@ -88,10 +88,16 @@ error (`_tarjan_scc` + `_validate_gated_cycles`). The checkpointer is passed in 
   `limits` (`steps` 30, `cost` 0.50 by default) fails the node after committing its work.
   With a `files:` scope, `files_mounts` puts a tmpfs over `files/` and mounts only the listed
   folders on top (`.git` only visible when `.` is listed, and an unscoped or `.` node gets it
-  read-only; `check_scope` fails the node before every command if a scope folder is a symlink); `SandboxEnvironment` (a `BubblewrapEnvironment` subclass)
-  runs commands without mini's extra `--bind cwd cwd`, which would hide those mounts.
+  read-only). Before every command the folders are opened by fd from `files/` without following
+  symlinks (a symlink fails the node) and bound with `--bind-fd`/`--ro-bind-fd`; because bwrap
+  0.9 turns those fds back into paths before mounting, `mount_check` re-checks each mount's
+  device:inode inside the sandbox before the command runs. Write folders, and read folders nested
+  under one, are created up front with `mkdir` relative to the parent fd. `SandboxEnvironment` (a
+  `BubblewrapEnvironment` subclass) runs commands without mini's extra `--bind cwd cwd`, which
+  would hide those mounts.
   `limits.memory_mb` / `cpu_seconds` become a `ulimit_prefix` (`ulimit -v`, `ulimit -t`) put in
-  front of every command, so each command gets its own cap.
+  front of every command (failing the command if a limit cannot be set); each process the command
+  starts gets its own cap.
 - `checkpoint.make_human_checkpoint` — emits an `interrupt` event whose payload lists the wired
   labels, then pauses.
 - `loop_guard.py` — pure guard evaluation used by the `loop.guard` node.

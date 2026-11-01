@@ -61,7 +61,7 @@ Examples: `server/arch/gsm8k.yaml` (branch + retry loop, with an `eval:` block),
     out: [result]          # exactly one: the agent's final answer
     prompt: Implement the plan. Run the tests before finishing.
     model: openrouter/qwen/qwen3-coder
-    limits: {steps: 30, cost: 0.50, memory_mb: 2048, cpu_seconds: 60}   # steps/cost default as shown; memory/cpu apply per command, unset = none
+    limits: {steps: 30, cost: 0.50, memory_mb: 2048, cpu_seconds: 60}   # steps/cost default as shown; memory/cpu cap each process a command starts, unset = none
     network: false         # default; true lets commands reach the internet
     secrets: [TAVILY_API_KEY]          # env vars from server/.env passed into the sandbox
     tools: [search, git]   # optional; default is every agentforge tool
@@ -84,8 +84,9 @@ sandbox PATH; it needs `network: true` and `secrets: [TAVILY_API_KEY]`. Agent no
 `files:` narrows what a node sees inside `files/`: it can read the `read` and `write` folders and
 write only the `write` ones. Anything else it writes there is discarded (not committed). It sees
 no `.git` unless `"."` is listed (`.` means the whole folder); a path in both lists is an error.
-A scope folder that is or sits under a symlink fails the node. `.git` is read-only in the sandbox
-for every node, so git can read history but not change it.
+A scope folder that is or sits under a symlink fails the node. Read folders nested under a write
+folder are created up front, so the node cannot create them writable. `.git` is read-only in
+the sandbox for every node, so git can read history but not change it.
 
 To work on an existing repo, add `--repo <path>` to `run`: `files/` becomes a git worktree on a
 new branch `agentforge/<run_id>` from the repo's `HEAD`, so the user's checkout is never touched

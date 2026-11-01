@@ -328,7 +328,7 @@ def _files_scope(name: str, raw: object) -> dict[str, list[str]]:
         scope[key] = []
         for p in paths:
             pp = PurePosixPath(p)
-            if pp.is_absolute() or ".." in pp.parts or ".git" in pp.parts:
+            if not p or pp.is_absolute() or ".." in pp.parts or ".git" in pp.parts:
                 raise ArchError(
                     f"{who}: files.{key}: {p!r} must be a relative folder inside files/ "
                     "(no '..' or '.git')"
