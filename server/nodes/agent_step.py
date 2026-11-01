@@ -2,14 +2,16 @@
 
 LLM calls happen here in the server process (API keys never enter the sandbox). Each command
 runs in a fresh bwrap sandbox: empty environment, no network unless the node sets
-`network: true`, read-only system dirs, and only the run's files/ folder writable.
+`network: true`, read-only system dirs, and only the run's files/ folder
+(or the node's `files:` scope) writable.
 """
 
 import asyncio
 import json
 import os
 import shutil
-from pathlib import Path
+import subprocess
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import yaml
@@ -46,8 +48,9 @@ _MINI = yaml.safe_load((package_dir / "config" / "mini.yaml").read_text())
 INSTANCE_TEMPLATE = f"""{{{{task}}}}
 
 You work in {{{{cwd}}}} through bash. Each command runs in a fresh subshell inside a sandbox:
-{{% if network %}}the network is on{{% else %}}there is no network{{% endif %}}, only {{{{cwd}}}}
-and /tmp are writable, and environment changes do not persist between commands.
+{{% if network %}}the network is on{{% else %}}there is no network{{% endif %}}, \
+{{% if scope %}}{{{{scope}}}}; /tmp is writable{{% else %}}only {{{{cwd}}}}
+and /tmp are writable{{% endif %}}, and environment changes do not persist between commands.
 Extra tools on PATH: {{{{tools or "none"}}}}.
 
 When you are done, run one command (and nothing else) whose output starts with the line
@@ -68,7 +71,30 @@ def sandbox_tools() -> dict[str, str]:
     return tools
 
 
-def bwrap_args(network: bool, tools: dict[str, str], ro: tuple[Path, ...] = ()) -> list[str]:
+def files_mounts(files: Path, scope: dict | None) -> list[str]:
+    """Mounts for the run's files/ folder. No scope: all of it, writable. Scoped: a tmpfs
+    (writes outside the listed folders vanish) with only the listed folders mounted on top."""
+    f = str(files)
+    if scope is None:
+        return ["--bind", f, f]
+    mounts = [(p, "--ro-bind-try") for p in scope["read"]] + [
+        (p, "--bind") for p in scope["write"]
+    ]
+    # parents before children; at equal depth read first (stable sort keeps list order)
+    mounts.sort(key=lambda m: (len(PurePosixPath(m[0]).parts), m[1] == "--bind"))
+    args = ["--tmpfs", f]
+    for p, flag in mounts:
+        path = f if p == "." else f"{f}/{p}"
+        args += [flag, path, path]
+    return args
+
+
+def bwrap_args(
+    network: bool,
+    tools: dict[str, str],
+    ro: tuple[Path, ...] = (),
+    mounts: list[str] = (),
+) -> list[str]:
     args = ["--clearenv", "--unshare-all", "--die-with-parent", "--new-session"]
     if network:
         args.append("--share-net")
@@ -84,7 +110,46 @@ def bwrap_args(network: bool, tools: dict[str, str], ro: tuple[Path, ...] = ()) 
         args += ["--ro-bind", path, f"{SANDBOX_BIN}/{name}"]
     for p in ro:
         args += ["--ro-bind", str(p), str(p)]
-    return args
+    return args + list(mounts)
+
+
+class SandboxEnvironment(BubblewrapEnvironment):
+    """Like BubblewrapEnvironment, but the working-dir mount comes from wrapper_args (it does
+    not append `--bind cwd cwd`, which would cover the scoped mounts)."""
+
+    def execute(self, action: dict, cwd: str = "", *, timeout: int | None = None) -> dict:
+        command = action.get("command", "")
+        cwd = cwd or self.config.cwd or str(self.working_dir)
+        cmd = [self.config.executable, *self.config.wrapper_args, "--chdir", cwd]
+        for key, value in self.config.env.items():
+            cmd.extend(["--setenv", key, value])
+        cmd.extend(["bash", "-c", command])
+        try:
+            result = subprocess.run(
+                cmd,
+                text=True,
+                timeout=timeout or self.config.timeout,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            output = {
+                "output": result.stdout,
+                "returncode": result.returncode,
+                "exception_info": "",
+            }
+        except Exception as e:
+            raw = getattr(e, "output", None)
+            raw = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else (raw or "")
+            output = {
+                "output": raw,
+                "returncode": -1,
+                "exception_info": f"An error occurred while executing the command: {e}",
+                "extra": {"exception_type": type(e).__name__, "exception": str(e)},
+            }
+        self._check_finished(output)
+        return output
 
 
 def resolve_secrets(node_id: str, names: list[str]) -> dict[str, str]:
@@ -179,11 +244,22 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
     if shutil.which("bwrap") is None:
         raise ValueError(f"node {node_id!r}: run: agent needs bwrap (bubblewrap) installed")
     tools = sandbox_tools()
+    scope = cfg.get("files")
+    scope_text = ""
+    if scope:
+        readable = ", ".join(scope["read"] + scope["write"]) or "nothing"
+        writable = ", ".join(scope["write"]) or "nothing"
+        scope_text = (
+            f"in {{cwd}} you can read: {readable} and write: {writable}; "
+            "anything else you write there is discarded"
+        )
 
     async def step(state: AgentState) -> dict:
         await emit(make_event(run_id, node_id, "node_start"))
         files = workspace.files_dir(run_id)
         gitfiles.ensure_repo(files)
+        for d in (scope or {}).get("write", []):
+            (files / d).mkdir(parents=True, exist_ok=True)
         before = gitfiles.head(files)
         traj_dir = workspace._run_dir(run_id) / "agent"
         visit = len(list(traj_dir.glob(f"{node_id}-*.json"))) + 1
@@ -195,13 +271,14 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
             if value is not None:
                 blocks.append(f"## {label}\n{_render(value)}")
         model = _ChatModel(chat)
-        env = BubblewrapEnvironment(
+        # --repo: files/ is a worktree; its git data lives in the main repo (read-only here).
+        # A scoped node only gets it when it can see the folder root.
+        sees_root = scope is None or "." in scope["read"] or "." in scope["write"]
+        git_ro = tuple(filter(None, [gitfiles.common_dir(files)])) if sees_root else ()
+        env = SandboxEnvironment(
             cwd=str(files),
             timeout=COMMAND_TIMEOUT,
-            # --repo: files/ is a worktree; its git data lives in the main repo (read-only here)
-            wrapper_args=bwrap_args(
-                network, tools, tuple(filter(None, [gitfiles.common_dir(files)]))
-            ),
+            wrapper_args=bwrap_args(network, tools, git_ro, files_mounts(files, scope)),
             env={
                 "PATH": f"{SANDBOX_BIN}:/usr/local/bin:/usr/bin:/bin",
                 "HOME": "/tmp",
@@ -225,6 +302,7 @@ def make_agent_node(node: dict, chat, emit: EventEmitter, run_id: str, policy_id
                 "\n\n".join(b for b in blocks if b),
                 network=network,
                 tools=", ".join(tools),
+                scope=scope_text.replace("{cwd}", str(files)),
             )
         except Exception as e:
             await emit(make_error_event(run_id, node_id, e))

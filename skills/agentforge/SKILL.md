@@ -64,6 +64,7 @@ Examples: `server/arch/gsm8k.yaml` (branch + retry loop, with an `eval:` block),
     limits: {steps: 30, cost: 0.50}   # defaults; hitting one fails the node
     network: false         # default; true lets commands reach the internet
     secrets: [TAVILY_API_KEY]          # env vars from server/.env passed into the sandbox
+    files: {read: [notes], write: [src]}   # optional; without it the node sees all of files/
 ```
 
 An agent node is a mini-swe-agent loop: the model runs bash commands until it submits an answer.
@@ -75,6 +76,10 @@ output lists `changedFiles`, the `commit`, `steps`, and the `trajectory` file
 (`agent/<node>-<n>.json`, the full conversation). Web search: `search "<query>"` is on the
 sandbox PATH; it needs `network: true` and `secrets: [TAVILY_API_KEY]`. Agent nodes need
 `bwrap` installed and cannot branch.
+
+`files:` narrows what a node sees inside `files/`: it can read the `read` and `write` folders and
+write only the `write` ones. Anything else it writes there is discarded (not committed), and it
+does not see `.git`. `"."` means the whole folder; a path in both lists is an error.
 
 To work on an existing repo, add `--repo <path>` to `run`: `files/` becomes a git worktree on a
 new branch `agentforge/<run_id>` from the repo's `HEAD`, so the user's checkout is never touched

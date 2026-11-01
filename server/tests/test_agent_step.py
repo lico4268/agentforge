@@ -149,6 +149,13 @@ def test_missing_secret_fails_at_compile(agent_run, monkeypatch):
         ("    limits: {steps: 0}\n", "limits.steps must be a positive number"),
         ("    network: yes please\n", "network must be true or false"),
         ("    secrets: KEY\n", "secrets must be a list"),
+        ("    files: notes\n", "files must be a mapping"),
+        ("    files: {exec: [a]}\n", r"files takes only \['read', 'write'\]"),
+        ("    files: {read: notes}\n", "files.read must be a list"),
+        ("    files: {read: [/etc]}\n", "must be a relative folder inside files/"),
+        ("    files: {read: [../x]}\n", "must be a relative folder inside files/"),
+        ("    files: {write: [a/.git]}\n", "must be a relative folder inside files/"),
+        ("    files: {read: [a], write: [./a/]}\n", "'a' is in both files.read and files.write"),
     ],
 )
 def test_agent_spec_validation(extra, msg):
@@ -327,3 +334,70 @@ def test_bwrap_args_network_switch():
     assert "--share-net" not in bwrap_args(False, {})
     on = bwrap_args(True, {})
     assert "--share-net" in on and "--clearenv" in on
+
+
+def test_files_scope_is_normalized():
+    arch, _ = parse_arch(AGENT_YAML + "    files: {read: [./notes/, .], write: [src]}\n")
+    node = next(n for n in arch["nodes"] if n["id"] == "coder")
+    assert node["config"]["files"] == {"read": ["notes", "."], "write": ["src"]}
+
+
+def test_no_files_key_means_no_scope():
+    arch, _ = parse_arch(AGENT_YAML)
+    node = next(n for n in arch["nodes"] if n["id"] == "coder")
+    assert "files" not in node["config"]
+
+
+def test_files_mounts(tmp_path):
+    from nodes.agent_step import files_mounts
+
+    f = str(tmp_path)
+    assert files_mounts(tmp_path, None) == ["--bind", f, f]
+    assert files_mounts(tmp_path, {"read": ["src/secret", "."], "write": ["src"]}) == [
+        "--tmpfs", f,
+        "--ro-bind-try", f, f,
+        "--bind", f"{f}/src", f"{f}/src",
+        "--ro-bind-try", f"{f}/src/secret", f"{f}/src/secret",
+    ]
+
+
+SCOPED_YAML = """\
+model: anthropic/claude-haiku-4-5-20251001
+flow: |
+  input --> prep --> coder --> output
+nodes:
+  prep:
+    run: agent
+    in: [task]
+    out: [notes]
+    prompt: Prepare.
+  coder:
+    run: agent
+    in: [notes]
+    out: [answer]
+    prompt: Code.
+    files: {read: [notes], write: [src]}
+"""
+
+
+@needs_bwrap
+def test_scoped_node_sees_only_its_folders(agent_run):
+    code, out, files = agent_run(
+        [
+            "mkdir notes && echo n > notes/n.txt && echo s > secret.txt",
+            SUBMIT + "'prep done'",
+            "cat notes/n.txt > src/copy.txt; ls -A > src/ls.txt; "
+            "(echo x > notes/n.txt) 2>/dev/null || echo ro > src/notes.txt; echo junk > junk.txt",
+            SUBMIT + "done",
+        ],
+        yaml=SCOPED_YAML,
+    )
+    assert code == 0
+    assert (files / "src" / "copy.txt").read_text() == "n\n"
+    assert (files / "src" / "notes.txt").read_text() == "ro\n"
+    ls = set((files / "src" / "ls.txt").read_text().split())
+    assert ls == {"notes", "src"}  # no .git, no secret.txt
+    assert (files / "notes" / "n.txt").read_text() == "n\n"
+    assert not (files / "junk.txt").exists()
+    end = next(e for e in _events(out["runId"], "node_end") if e["nodeId"] == "coder")
+    assert end["output"]["changedFiles"] == ["src/copy.txt", "src/ls.txt", "src/notes.txt"]

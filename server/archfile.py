@@ -6,6 +6,7 @@ and the parser needs just one regex (design §3.2).
 """
 
 import re
+from pathlib import PurePosixPath
 from typing import TypedDict
 
 import yaml
@@ -297,7 +298,36 @@ def _agent_config(name: str, spec: dict) -> dict:
     secrets = spec.get("secrets") or []
     if not isinstance(secrets, list) or not all(isinstance(s, str) for s in secrets):
         raise ArchError(f"agent node {name!r}: secrets must be a list of env var names")
-    return {"limits": limits, "network": network, "secrets": secrets}
+    cfg = {"limits": limits, "network": network, "secrets": secrets}
+    if "files" in spec:
+        cfg["files"] = _files_scope(name, spec["files"])
+    return cfg
+
+
+def _files_scope(name: str, raw: object) -> dict[str, list[str]]:
+    who = f"agent node {name!r}"
+    if not isinstance(raw, dict):
+        raise ArchError(f"{who}: files must be a mapping with read/write lists")
+    if set(raw) - {"read", "write"}:
+        raise ArchError(f"{who}: files takes only ['read', 'write']")
+    scope: dict[str, list[str]] = {}
+    for key in ("read", "write"):
+        paths = raw.get(key) or []
+        if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+            raise ArchError(f"{who}: files.{key} must be a list of folders")
+        scope[key] = []
+        for p in paths:
+            pp = PurePosixPath(p)
+            if pp.is_absolute() or ".." in pp.parts or ".git" in pp.parts:
+                raise ArchError(
+                    f"{who}: files.{key}: {p!r} must be a relative folder inside files/ "
+                    "(no '..' or '.git')"
+                )
+            scope[key].append(pp.as_posix())
+    for p in scope["read"]:
+        if p in scope["write"]:
+            raise ArchError(f"{who}: {p!r} is in both files.read and files.write")
+    return scope
 
 
 def _join_mode(name: str, value: object) -> str:
