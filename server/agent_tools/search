@@ -11,7 +11,7 @@ import sys
 import urllib.request
 
 p = argparse.ArgumentParser(prog="search")
-p.add_argument("query")
+p.add_argument("query", nargs="+")
 p.add_argument("-n", type=int, default=5, help="max results (default 5)")
 a = p.parse_args()
 
@@ -20,7 +20,7 @@ if not key:
     sys.exit("search: TAVILY_API_KEY is not set — add it to this node's secrets:")
 req = urllib.request.Request(
     "https://api.tavily.com/search",
-    data=json.dumps({"query": a.query, "max_results": a.n}).encode(),
+    data=json.dumps({"query": " ".join(a.query), "max_results": a.n}).encode(),
     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
 )
 try:

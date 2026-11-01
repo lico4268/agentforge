@@ -319,3 +319,11 @@ def test_replay_of_a_repo_run_branches_from_the_fork_commit(
     rec = workspace.read_run_record(out2["runId"])
     assert rec["repo"]["base"] == workspace.read_run_record(run_id)["repo"]["base"]
     assert "2 files changed" in rec["repo"]["diffstat"]  # a.txt + c.txt vs the user's HEAD
+
+
+def test_bwrap_args_network_switch():
+    from nodes.agent_step import bwrap_args
+
+    assert "--share-net" not in bwrap_args(False, {})
+    on = bwrap_args(True, {})
+    assert "--share-net" in on and "--clearenv" in on

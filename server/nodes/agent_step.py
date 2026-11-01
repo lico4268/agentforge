@@ -72,6 +72,10 @@ def bwrap_args(network: bool, tools: dict[str, str], ro: tuple[Path, ...] = ()) 
     args = ["--clearenv", "--unshare-all", "--die-with-parent", "--new-session"]
     if network:
         args.append("--share-net")
+        # /etc/resolv.conf is often a symlink into /run (systemd-resolved); bind its target
+        resolv = Path("/etc/resolv.conf").resolve()
+        if not resolv.is_relative_to("/etc") and resolv.exists():
+            args += ["--ro-bind", str(resolv), str(resolv)]
     args += ["--ro-bind", "/usr", "/usr"]
     for d in ("/bin", "/lib", "/lib64", "/sbin", "/etc"):
         args += ["--ro-bind-try", d, d]
