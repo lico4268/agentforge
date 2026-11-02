@@ -832,8 +832,8 @@ def compile_graph(
             # If any outgoing edge without a label is mixed in, that edge is caught neither by the
             # targets dict below (no sourceRole) nor by _build_plain_edge_plan (the source is in
             # branch_node_ids so it is excluded wholesale), and silently disappears (BLOCKING 1) —
-            # same rule as _validate_branch_capable in archfile.py; here it guards the raw
-            # architecture dict path (dispatch_graph) that arrives without going through parse_arch.
+            # same rule as _validate_branch_capable in archfile.py; here it guards an
+            # architecture dict that reaches compile_graph without going through parse_arch.
             unlabelled = [e for e in outgoing.get(node_id, []) if not e.get("sourceRole")]
             if unlabelled:
                 raise ValueError(
@@ -847,9 +847,8 @@ def compile_graph(
             # generalizes that, and without the same defense a duplicate label would be silently
             # collapsed into one in the dict comprehension, leaving the remaining edges
             # unreachable. _validate_branch_capable in archfile.py checks the same rule in the
-            # parser (with line numbers), but dispatch_graph in main.py passes the architecture
-            # dict saved from the canvas straight to compile_graph without parse_arch, so without
-            # this check that path is unguarded — neither is a redundant duplicate to remove.
+            # parser (with line numbers); this one guards architecture dicts that reach
+            # compile_graph without parse_arch.
             label_counts: dict[str, int] = {}
             for label in labels:
                 label_counts[label] = label_counts.get(label, 0) + 1

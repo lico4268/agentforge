@@ -196,10 +196,8 @@ The lifespan opens the shared SQLite checkpointer, so paused runs survive a serv
 |----------|-------------|
 | `GET /api/arch`, `GET /api/arch/{name}` | List / parse `server/arch/*.yaml` (`arch_files.py`) |
 | `GET /api/models` | Enabled models from `config.yaml`; `available` shows whether the provider key is set |
-| `GET /api/nodes` | `BUILTIN_MANIFESTS` |
 | `GET /api/runs/{run_id}/files`, `…/files/{name}` | Workspace file list / content |
 | `GET /api/openrouter/catalog`, `GET /api/openrouter/favorites` | OpenRouter model catalog and local favorites |
-| `GET|POST /api/architectures`, `GET /api/architectures/{id}` | Legacy canvas-JSON storage, unused by the dashboard |
 
 ### 6.2 WebSocket `ws://…/ws/run`
 
@@ -215,9 +213,8 @@ Backend → frontend (`kind`): `run_started`, `event` (an `ExecutionEvent.to_fro
 `interrupt` (`nodeId`, `payload`), `run_complete` (`result.answer`), `error` (`message`), and
 `state` (event snapshot for `reconnect`).
 
-`run` with `archFile` parses the YAML server-side, writes `run.json`, and runs through
-`dispatch_graph` → `compile_graph`. `resume` uses the in-memory graph if present, otherwise
-falls back to `runner.resume_run` with the persisted record.
+`run` with `archFile` parses the YAML server-side and calls `runner.start_run`; `resume` calls
+`runner.resume_run`. Both go through the shared SQLite checkpointer, the same path as the CLI.
 
 ### 6.3 Events (`events.py`)
 

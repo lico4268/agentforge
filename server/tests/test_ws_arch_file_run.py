@@ -1,4 +1,4 @@
-"""Integration test that passes the whole ws_run → dispatch_graph → compile_graph path through
+"""Integration test that passes the whole ws_run → runner.start_run → compile_graph path through
 the loop (including auto guard insertion) built from real arch.yaml text. The LLM is mocked
 (AGENTS.md §6).
 
@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 
 import arch_files
 import graphs.compile as compile_mod
-import main
 import workspace as workspace_mod
 from main import app
 from workspace import read_run_record
@@ -140,7 +139,6 @@ def test_paused_run_resumes_after_server_restart(tmp_workspace, fake_llm, monkey
             ws.send_json({"kind": "run", "archFile": "gate.yaml", "input": {"task": "t"}})
             run_id = _recv_until(ws, "interrupt")["runId"]
         assert read_run_record(run_id)["status"] == "paused"
-        main.active_runs.clear()  # simulate a restart: in-memory graph is gone
         with client.websocket_connect("/ws/run") as ws:
             ws.send_json({"kind": "resume", "runId": run_id, "decision": {"action": "approve"}})
             assert _recv_until(ws, "run_complete")["runId"] == run_id
@@ -157,7 +155,6 @@ def test_resume_of_non_paused_run_after_restart_is_an_error(
             run_id = _recv_until(ws, "interrupt")["runId"]
             ws.send_json({"kind": "resume", "runId": run_id, "decision": {"action": "approve"}})
             _recv_until(ws, "run_complete")
-        main.active_runs.clear()
         calls = len(fake_llm.calls)
         with client.websocket_connect("/ws/run") as ws:
             ws.send_json({"kind": "resume", "runId": run_id, "decision": {"action": "approve"}})

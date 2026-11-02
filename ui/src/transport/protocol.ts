@@ -10,9 +10,8 @@ import { ArchitectureSchema, ExecutionEventSchema } from '@/types'
 export const ClientMessageSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('run'),
-    // The canvas-era architecture (JSON) and the text-first arch.yaml file name archFile are
-    // mutually exclusive — the backend prefers architecture when present (server/main.py
-    // ws_run). Dashboard sends only archFile.
+    // The backend runs archFile (a server/arch/*.yaml name) and ignores architecture, which
+    // only MockTransport's canvas-era simulation still reads.
     architecture: ArchitectureSchema.optional(),
     archFile: z.string().optional(),
     input: z.object({

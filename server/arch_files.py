@@ -1,8 +1,7 @@
 """arch.yaml file store — reads the .yaml files under server/arch/.
 
-Same file-based pattern as /api/architectures (JSON store), but this one is the original that
-humans edit in an editor, so there is no write API (design §7 — authoring happens outside the
-browser).
+These are edited by hand (or by Claude Code), so there is no write API — authoring happens outside
+the browser.
 """
 
 from pathlib import Path

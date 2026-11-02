@@ -17,8 +17,8 @@ automatically from that text — the old approach of building by drawing on a no
 agentforge/
 ├── config.yaml              # Central config (server, model list, run parameters, UI). Loaded by config.py
 ├── server/                  # FastAPI backend (Python 3.12)
-│   ├── main.py              # FastAPI app entry point, CORS, REST, WebSocket, dispatch_graph
-│   ├── manifests.py         # GET /api/nodes — list of builtin node manifests (dicts)
+│   ├── main.py              # FastAPI app for the dashboard: CORS, REST, WebSocket (runs via runner)
+│   ├── manifests.py         # builtin node manifests (dicts) — runtime per node type, read by compile.py
 │   ├── models.py            # ModelSettings/CallPolicy + build_model factory
 │   ├── state.py             # AgentState (TypedDict) definition and initial_state
 │   ├── events.py            # ExecutionEvent + make_event/make_error_event + WS/List emitter
@@ -166,7 +166,7 @@ Backend WS handler (main.py: ws_run)
     ▼
 archfile.parse_arch(yaml_text) → Architecture dict (nodes/edges/flow)
     │
-dispatch_graph(architecture) → compile_graph (graphs/compile.py) → LangGraph StateGraph
+runner.start_run → compile_graph (graphs/compile.py) → LangGraph StateGraph
     │ graph.ainvoke(state0)
     ▼
 Each node function → emit(make_event(...)) → WSEventEmitter → WS stream + workspace files

@@ -2,9 +2,6 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -17,9 +14,7 @@ import workspace
 from archfile import ArchError
 from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
-from manifests import BUILTIN_MANIFESTS
-from runner import DEFAULT_MODEL_CFG, RECURSION_LIMIT, open_checkpointer, resume_run
-from state import initial_state
+from runner import open_checkpointer, resume_run, start_run
 
 setup_logging()
 
@@ -94,11 +89,6 @@ def _load_models_config() -> list[dict]:
     return result
 
 
-# ─── Architecture file store (v0.1, file-based) ─────────────────────────────────────
-
-ARCHITECTURE_JSON_DIR = Path(__file__).parent / "architectures"
-ARCHITECTURE_JSON_DIR.mkdir(exist_ok=True)
-
 # ─── REST endpoints ─────────────────────────────────────────────────────────────
 
 
@@ -107,11 +97,6 @@ async def get_models() -> list[dict]:
     """Model list based on models_config.json. The available field shows whether an API key is
     set."""
     return _load_models_config()
-
-
-@app.get("/api/nodes")
-async def get_nodes() -> list[dict]:
-    return BUILTIN_MANIFESTS
 
 
 @app.get("/api/arch")
@@ -153,34 +138,6 @@ async def put_openrouter_favorites(ids: list[str]) -> list[str]:
     return orc.save_favorites(ids)
 
 
-@app.get("/api/architectures")
-async def list_architectures() -> list[dict]:
-    result = []
-    for f in ARCHITECTURE_JSON_DIR.glob("*.json"):
-        try:
-            result.append(json.loads(f.read_text()))
-        except Exception:
-            pass
-    return result
-
-
-@app.post("/api/architectures")
-async def save_architecture(body: dict) -> dict:
-    arch_id = body.get("id") or str(uuid.uuid4())
-    body["id"] = arch_id
-    path = ARCHITECTURE_JSON_DIR / f"{arch_id}.json"
-    path.write_text(json.dumps(body, ensure_ascii=False, indent=2))
-    return body
-
-
-@app.get("/api/architectures/{arch_id}")
-async def get_architecture(arch_id: str) -> dict:
-    path = ARCHITECTURE_JSON_DIR / f"{arch_id}.json"
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="Architecture not found")
-    return json.loads(path.read_text())
-
-
 # ─── Workspace files (run output persistence) ───────────────────────────────────────
 
 
@@ -201,23 +158,6 @@ async def read_run_file(run_id: str, name: str) -> dict:
     if result is None:
         raise HTTPException(status_code=404, detail="File not found")
     return result
-
-
-# ─── Graph dispatcher ─────────────────────────────────────────────────────────────
-
-
-def dispatch_graph(
-    architecture: dict, model_cfg: dict, emit: Any, run_id: str, checkpointer: Any = None
-):
-    from graphs.compile import compile_graph
-
-    merged = {**DEFAULT_MODEL_CFG, **model_cfg}
-    return compile_graph(architecture, merged, emit, run_id, checkpointer)
-
-
-def _record_error(recorded: bool, run_id: str, e: Exception) -> None:
-    if recorded:
-        workspace.update_run_record(run_id, status="error", error=f"{type(e).__name__}: {e}")
 
 
 async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None:
@@ -245,10 +185,6 @@ async def _send_run_outcome(ws, run_id: str, final: dict, history: list) -> None
         )
         return
 
-    # The graph is no longer paused, so it need not be a resume target —
-    # leaving it in active_runs would pile up graph instances without bound.
-    active_runs.pop(run_id, None)
-
     await safe_send_json(
         ws,
         {
@@ -272,9 +208,6 @@ MAX_RUN_HISTORY = 50
 # run_id → accumulated events (to resend on reconnect)
 run_history: dict[str, list] = {}
 
-# run_id → graph instance (for resume)
-active_runs: dict[str, Any] = {}
-
 
 @app.websocket("/ws/run")
 async def ws_run(ws: WebSocket):
@@ -283,148 +216,62 @@ async def ws_run(ws: WebSocket):
 
     try:
         while True:
-            raw = await ws.receive_text()
-            msg = json.loads(raw)
+            msg = json.loads(await ws.receive_text())
             kind = msg.get("kind")
 
             if kind == "run":
-                input_data = msg.get("input") or {}
-                model_cfg = msg.get("model") or {}
-
                 run_id = str(uuid.uuid4())
                 current_run_id = run_id
                 history: list = []
                 run_history[run_id] = history
                 while len(run_history) > MAX_RUN_HISTORY:
-                    oldest_id = next(iter(run_history))
-                    del run_history[oldest_id]
-                    active_runs.pop(oldest_id, None)
-
-                recorded = False
-                emitter = WSEventEmitter(ws, run_id, history)
+                    del run_history[next(iter(run_history))]
                 await safe_send_json(ws, {"kind": "run_started", "runId": run_id})
 
+                arch_file = msg.get("archFile") or ""
                 try:
-                    # architecture (canvas JSON) and archFile (a server/arch/*.yaml name) are
-                    # mutually exclusive — if architecture is explicit (not null), it takes
-                    # precedence.
-                    # ArchError/ValueError/FileNotFoundError are handled in the except below.
-                    arch = msg.get("architecture")
-                    if arch is None and msg.get("archFile"):
-                        arch = arch_files.read_arch_file(msg["archFile"])["architecture"]
-                    arch = arch or {}
-
-                    checkpointer = getattr(app.state, "checkpointer", None)
-                    # Only passed when the lifespan opened one (no lifespan → MemorySaver).
-                    extra = {"checkpointer": checkpointer} if checkpointer else {}
-                    graph = dispatch_graph(arch, model_cfg, emitter, run_id, **extra)
-                    active_runs[run_id] = graph
-                    # arch.yaml runs (parse_arch output has "flow") get a run.json record so
-                    # they can be resumed after a restart and are visible to the CLI.
-                    recorded = "flow" in arch
-                    if recorded:
-                        workspace.write_run_record(
-                            run_id,
-                            {
-                                "runId": run_id,
-                                "archPath": msg.get("archFile"),
-                                "archText": None,
-                                "architecture": arch,
-                                "modelCfg": model_cfg,
-                                "task": input_data.get("task", ""),
-                                "createdAt": datetime.now(UTC).isoformat(),
-                                "status": "running",
-                                "error": None,
-                            },
-                        )
-
-                    state0 = initial_state(
-                        task=input_data.get("task", ""),
-                        task_tags=input_data.get("task_tags", []),
-                        batch_mode=False,
-                        intent=input_data.get("intent"),
-                        criteria=input_data.get("criteria"),
+                    arch = arch_files.read_arch_file(arch_file)["architecture"]
+                except FileNotFoundError:
+                    message = f"arch file not found: {arch_file}"
+                except ValueError as e:  # ArchError (with line number) or a bad file name
+                    message = str(e)
+                else:
+                    outcome = await start_run(
+                        arch,
+                        run_id=run_id,
+                        task=(msg.get("input") or {}).get("task", ""),
+                        model_cfg=msg.get("model") or {},
+                        emit=WSEventEmitter(ws, run_id, history),
+                        checkpointer=getattr(app.state, "checkpointer", None),
+                        arch_path=arch_file,
                     )
-                    config = {
-                        "configurable": {"thread_id": run_id},
-                        "recursion_limit": RECURSION_LIMIT,
-                    }
-                    final = await graph.ainvoke(state0, config=config)
-                    if recorded:
-                        status = "paused" if final.get("__interrupt__") else "done"
-                        workspace.update_run_record(run_id, status=status, error=None)
-                    await _send_run_outcome(ws, run_id, final, history)
-                except FileNotFoundError as e:
-                    active_runs.pop(run_id, None)
-                    message = f"arch file not found: {msg.get('archFile')}"
-                    _record_error(recorded, run_id, e)
-                    logger.warning("run %s rejected: %s", run_id, message)
-                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
-                except ValueError as e:
-                    active_runs.pop(run_id, None)
-                    logger.warning("run %s rejected: %s", run_id, e)
-                    _record_error(recorded, run_id, e)
-                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": str(e)})
-                except Exception as e:
-                    active_runs.pop(run_id, None)
-                    logger.exception("run %s failed", run_id)
-                    _record_error(recorded, run_id, e)
-                    await safe_send_json(
-                        ws,
-                        {
-                            "kind": "error",
-                            "runId": run_id,
-                            "message": f"Execution error: {e}",
-                        },
-                    )
+                    if not outcome.error:
+                        await _send_run_outcome(ws, run_id, outcome.final, history)
+                        continue
+                    message = outcome.error
+                logger.warning("run %s failed: %s", run_id, message)
+                await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
 
             elif kind == "resume":
                 run_id = msg.get("runId") or current_run_id
-                decision = msg.get("decision") or {}
-                graph = active_runs.get(run_id) if isinstance(run_id, str) else None
-
-                if not graph:
-                    # Not in memory (e.g. server restarted): fall back to the persisted record
-                    # + SQLite checkpoint.
-                    rec = workspace.read_run_record(run_id) if run_id else None
-                    if rec is None:
-                        message = "Run not found"
-                    elif rec.get("status") != "paused":
-                        message = f"Run {run_id} is not paused (status: {rec.get('status')})"
-                    else:
-                        history = run_history.setdefault(run_id, [])
-                        outcome = await resume_run(
-                            run_id,
-                            decision,
-                            emit=WSEventEmitter(ws, run_id, history),
-                            checkpointer=getattr(app.state, "checkpointer", None),
-                        )
-                        if outcome.error:
-                            message = outcome.error
-                        else:
-                            await _send_run_outcome(ws, run_id, outcome.final, history)
-                            continue
-                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
-                    continue
-
-                from langgraph.types import Command
-
-                config = {
-                    "configurable": {"thread_id": run_id},
-                    "recursion_limit": RECURSION_LIMIT,
-                }
-                try:
-                    final = await graph.ainvoke(Command(resume=decision), config=config)
-                    if workspace.read_run_record(run_id) is not None:
-                        status = "paused" if final.get("__interrupt__") else "done"
-                        workspace.update_run_record(run_id, status=status, error=None)
-                    resume_history = run_history.get(run_id) or []
-                    await _send_run_outcome(ws, run_id, final, resume_history)
-                except Exception as e:
-                    active_runs.pop(run_id, None)
-                    logger.exception("resume of run %s failed", run_id)
-                    _record_error(workspace.read_run_record(run_id) is not None, run_id, e)
-                    await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": str(e)})
+                rec = workspace.read_run_record(run_id) if run_id else None
+                if rec is None:
+                    message = "Run not found"
+                elif rec.get("status") != "paused":
+                    message = f"Run {run_id} is not paused (status: {rec.get('status')})"
+                else:
+                    history = run_history.setdefault(run_id, [])
+                    outcome = await resume_run(
+                        run_id,
+                        msg.get("decision") or {},
+                        emit=WSEventEmitter(ws, run_id, history),
+                        checkpointer=getattr(app.state, "checkpointer", None),
+                    )
+                    if not outcome.error:
+                        await _send_run_outcome(ws, run_id, outcome.final, history)
+                        continue
+                    message = outcome.error
+                await safe_send_json(ws, {"kind": "error", "runId": run_id, "message": message})
 
             elif kind == "reconnect":
                 run_id = msg.get("runId", "")

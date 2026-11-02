@@ -1,5 +1,5 @@
 """
-v0.1 built-in node manifests. Returned by the /api/nodes endpoint.
+Built-in node manifests: the runtime each node type compiles to (read by graphs/compile.py).
 """
 
 from typing import Any

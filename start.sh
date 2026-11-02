@@ -134,7 +134,7 @@ BACKEND_PID=$!
 # Backend health check (up to 10s)
 log "Waiting for backend…"
 for i in $(seq 1 20); do
-  if curl -sf http://localhost:8000/api/nodes > /dev/null 2>&1; then
+  if curl -sf http://localhost:8000/api/models > /dev/null 2>&1; then
     ok "Backend ready (http://localhost:8000)"
     break
   fi

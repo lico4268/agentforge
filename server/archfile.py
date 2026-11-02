@@ -383,11 +383,9 @@ def _validate_branch_capable(nodes: list[dict], flow_edges: list[FlowEdge]) -> N
     are never subject to this, and a guard the user pulled out directly with `{ run: loop.guard }`
     is already in the branchable list because its type is loop.guard.
 
-    The duplicate-label check also exists in compile.py's branch-wiring loop (not a duplicate) —
-    an architecture dict saved from the canvas goes straight from main.py's dispatch_graph to
-    compile_graph without passing through this parser, so it must be blocked there too to
-    avoid silently dropping edges. The only difference is that here (the parser) gives arch.yaml
-    authors a line number."""
+    The duplicate-label check also exists in compile.py's branch-wiring loop, for architecture
+    dicts that reach compile_graph without this parser; here it gives arch.yaml authors a line
+    number."""
     node_types = {n["id"]: n["type"] for n in nodes}
     labelled_by_source: dict[str, list[tuple[str, int]]] = {}
     unlabelled_by_source: dict[str, list[int]] = {}

@@ -135,7 +135,9 @@ def test_rest_read_yaml_syntax_error_400_not_500_with_line(arch_dir):
     assert "line 5" in resp.json()["detail"]
 
 
-def test_ws_run_with_yaml_syntax_error_sends_clean_error_and_socket_stays_usable(arch_dir):
+def test_ws_run_with_yaml_syntax_error_sends_clean_error_and_socket_stays_usable(
+    arch_dir, tmp_workspace, fake_llm
+):
     """When running an archFile with a YAML syntax error, does the WS stay alive and send an error
     message, and does a following run on the same socket get handled normally."""
     (arch_dir / "bad_syntax.yaml").write_text(
@@ -143,36 +145,20 @@ def test_ws_run_with_yaml_syntax_error_sends_clean_error_and_socket_stays_usable
         "  b: { in: [x], out: [y], prompt: q }\n",
         encoding="utf-8",
     )
-    import main
-
-    class FakeGraph:
-        async def ainvoke(self, state0, config):
-            return {"answer": "ok"}
-
-    def fake_dispatch(architecture, model_cfg, emit, run_id):
-        return FakeGraph()
-
-    # Leaves the fixture without monkeypatch, so patch/undo directly
-    original = main.dispatch_graph
-    main.dispatch_graph = fake_dispatch
-    try:
-        client = TestClient(app)
-        with client.websocket_connect("/ws/run") as ws:
-            ws.send_json({"kind": "run", "archFile": "bad_syntax.yaml", "input": {"task": "2+2"}})
+    client = TestClient(app)
+    with client.websocket_connect("/ws/run") as ws:
+        ws.send_json({"kind": "run", "archFile": "bad_syntax.yaml", "input": {"task": "2+2"}})
+        msg = ws.receive_json()
+        if msg["kind"] == "run_started":
             msg = ws.receive_json()
-            if msg["kind"] == "run_started":
-                msg = ws.receive_json()
-            assert msg["kind"] == "error"
-            assert "line 5" in msg["message"]
+        assert msg["kind"] == "error"
+        assert "line 5" in msg["message"]
 
-            # Verify that the socket stays alive and handles the following run normally
-            ws.send_json({"kind": "run", "archFile": "sample.yaml", "input": {"task": "2+2"}})
-            msg2 = ws.receive_json()
-            if msg2["kind"] == "run_started":
-                msg2 = ws.receive_json()
-            assert msg2["kind"] == "run_complete"
-    finally:
-        main.dispatch_graph = original
+        # Verify that the socket stays alive and handles the following run normally
+        ws.send_json({"kind": "run", "archFile": "sample.yaml", "input": {"task": "2+2"}})
+        while (msg2 := ws.receive_json())["kind"] in ("run_started", "event"):
+            pass
+        assert msg2["kind"] == "run_complete"
 
 
 def test_rest_percent_encoded_slash_blocked_at_routing_layer(arch_dir):
@@ -185,79 +171,15 @@ def test_rest_percent_encoded_slash_blocked_at_routing_layer(arch_dir):
     assert resp.status_code == 404
 
 
-def test_ws_run_accepts_arch_file_name(arch_dir, monkeypatch):
-    """Can a WS run message trigger execution via archFile instead of architecture — verify that
-    the architecture passed to dispatch_graph was actually parsed from the file
-    (the LLM call is avoided by mocking dispatch_graph wholesale)."""
-    import main
-
-    captured = {}
-
-    class FakeGraph:
-        async def ainvoke(self, state0, config):
-            return {"answer": "ok"}
-
-    def fake_dispatch(architecture, model_cfg, emit, run_id):
-        captured["architecture"] = architecture
-        return FakeGraph()
-
-    monkeypatch.setattr(main, "dispatch_graph", fake_dispatch)
-
+def test_ws_run_accepts_arch_file_name(arch_dir, tmp_workspace, fake_llm):
+    """A WS run message names a server/arch/*.yaml file, and that file's nodes are what run."""
     client = TestClient(app)
     with client.websocket_connect("/ws/run") as ws:
         ws.send_json({"kind": "run", "archFile": "sample.yaml", "input": {"task": "2+2"}})
-        while True:
-            msg = ws.receive_json()
-            if msg["kind"] == "run_complete":
-                break
+        while ws.receive_json()["kind"] != "run_complete":
+            pass
 
-    assert {n["id"] for n in captured["architecture"]["nodes"]} == {"input", "solve", "output"}
-
-
-def test_ws_run_architecture_wins_over_arch_file_when_both_given(arch_dir, monkeypatch):
-    """item 7: no test pinned whether the ws_run comment ("architecture and archFile are mutually
-    exclusive — if architecture is given, it takes precedence") was actually honoured.
-    If both arrive, the inline architecture (node "explicit") must be passed to dispatch_graph
-    as-is without reading the archFile (sample.yaml, node "solve")."""
-    import main
-
-    captured = {}
-
-    class FakeGraph:
-        async def ainvoke(self, state0, config):
-            return {"answer": "ok"}
-
-    def fake_dispatch(architecture, model_cfg, emit, run_id):
-        captured["architecture"] = architecture
-        return FakeGraph()
-
-    monkeypatch.setattr(main, "dispatch_graph", fake_dispatch)
-
-    inline_architecture = {
-        "version": "0.1",
-        "metadata": {"name": "inline"},
-        "nodes": [
-            {"id": "explicit", "type": "io.output", "position": {"x": 0, "y": 0}, "config": {}}
-        ],
-        "edges": [],
-    }
-
-    client = TestClient(app)
-    with client.websocket_connect("/ws/run") as ws:
-        ws.send_json(
-            {
-                "kind": "run",
-                "architecture": inline_architecture,
-                "archFile": "sample.yaml",
-                "input": {"task": "2+2"},
-            }
-        )
-        while True:
-            msg = ws.receive_json()
-            if msg["kind"] == "run_complete":
-                break
-
-    assert captured["architecture"] == inline_architecture
+    assert fake_llm.calls == ["solve"]
 
 
 def test_ws_run_with_missing_arch_file_sends_error(arch_dir):

@@ -1422,9 +1422,8 @@ async def test_branch_node_with_unlabelled_edge_raises_at_compile(monkeypatch):
     """If a branch node (with two or more labelled outgoing edges) has even one more outgoing
     edge without a label, that edge is caught nowhere — neither in _build_plain_edge_plan (the
     source is in branch_node_ids, so excluded) nor in add_conditional_edges' targets dict (no
-    sourceRole, so not matched) — and silently disappears (BLOCKING 1). dispatch_graph in
-    main.py hands the raw architecture dict saved from the canvas straight here without the
-    archfile.py parser, so compile_graph itself has to reject this path."""
+    sourceRole, so not matched) — and silently disappears (BLOCKING 1). compile_graph rejects it
+    itself for architecture dicts that skip the archfile.py parser."""
     _patch_model(monkeypatch)
     arch = _arch(
         [
