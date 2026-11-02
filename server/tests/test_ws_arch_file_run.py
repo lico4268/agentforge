@@ -13,10 +13,10 @@ text fixture that archfile.py parses.
 from arch_samples import CHECKPOINT_YAML
 from fastapi.testclient import TestClient
 
-import arch_files
 import graphs.compile as compile_mod
 import workspace as workspace_mod
-from main import app
+from web import arch_files
+from web.main import app
 from workspace import read_run_record
 
 # input --> solve --> review, review -->|ok| output, review -->|retry| solve (back edge) —

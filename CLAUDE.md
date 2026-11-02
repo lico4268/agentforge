@@ -17,7 +17,6 @@ automatically from that text — the old approach of building by drawing on a no
 agentforge/
 ├── config.yaml              # Central config (server, model list, run parameters, UI). Loaded by config.py
 ├── server/                  # FastAPI backend (Python 3.12)
-│   ├── main.py              # FastAPI app for the dashboard: CORS, REST, WebSocket (runs via runner)
 │   ├── manifests.py         # builtin node manifests (dicts) — runtime per node type, read by compile.py
 │   ├── models.py            # ModelSettings/CallPolicy + build_model factory
 │   ├── state.py             # AgentState (TypedDict) definition and initial_state
@@ -30,7 +29,6 @@ agentforge/
 │   ├── evaluate.py          # agentforge eval/compare — eval: block, graders, dataset runs, reports
 │   ├── replay.py            # Pick the node a replay starts from; refuse flow changes; reuse stats
 │   ├── archfile.py           # parse_arch — arch.yaml (mermaid flow + node defs) → Architecture dict
-│   ├── arch_files.py         # List/read server/arch/*.yaml (file-based, GET /api/arch[/​{name}])
 │   ├── arch/                 # Human-authored arch.yaml files (e.g. gsm8k.yaml)
 │   ├── gitfiles.py          # Git plumbing for agent files/ (per-visit commits, --repo worktrees, replay clones)
 │   ├── agent_tools/         # Commands mounted on the agent sandbox PATH (search → Tavily)
@@ -39,8 +37,12 @@ agentforge/
 │   │   ├── agent_step.py    # make_agent_node — `run: agent`: mini-swe-agent loop, commands in bwrap
 │   │   ├── checkpoint.py    # make_human_checkpoint — interrupt-based human review
 │   │   └── loop_guard.py    # pure guard evaluation for loop.guard nodes
-│   └── graphs/              # LangGraph StateGraph definitions (the actual execution engine)
-│       └── compile.py       # compile_graph — dynamically compiles the Architecture dict that parse_arch builds from arch.yaml
+│   ├── graphs/              # LangGraph StateGraph definitions (the actual execution engine)
+│   │   └── compile.py       # compile_graph — dynamically compiles the Architecture dict that parse_arch builds from arch.yaml
+│   └── web/                 # Dashboard-only FastAPI server; the engine and CLI never import it
+│       ├── main.py          # FastAPI app: CORS, REST, WebSocket (runs via runner)
+│       ├── arch_files.py    # List/read server/arch/*.yaml (GET /api/arch[/{name}])
+│       └── openrouter_catalog.py  # OpenRouter catalog + favorites (GET/PUT /api/openrouter/*)
 │
 ├── ui/                      # React + TypeScript frontend (Vite)
 │   └── src/
@@ -124,7 +126,7 @@ Headless CLI (no servers): `agentforge check|run|resume|replay|show|eval|compare
 
 ```bash
 # Backend only
-cd server && .venv/bin/uvicorn main:app --reload --port 8000
+cd server && .venv/bin/uvicorn web.main:app --reload --port 8000
 
 # Frontend only
 cd ui && npm run dev -- --port 5137
@@ -161,7 +163,7 @@ A human writes server/arch/*.yaml
 Frontend Dashboard (pick from the arch.yaml list + enter a task + Run)
     │ WebSocket ws://localhost:8000/ws/run
     ▼
-Backend WS handler (main.py: ws_run)
+Backend WS handler (web/main.py: ws_run)
     │ { kind: "run", archFile: "<name>.yaml", input, model }
     ▼
 archfile.parse_arch(yaml_text) → Architecture dict (nodes/edges/flow)

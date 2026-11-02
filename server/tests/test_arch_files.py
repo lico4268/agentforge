@@ -1,8 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
-import arch_files
-from main import app
+from web import arch_files
+from web.main import app
 
 SAMPLE = """
 name: sample

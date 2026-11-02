@@ -8,7 +8,7 @@ from pathlib import Path
 
 from archfile import parse_arch
 
-ARCH_DIR = Path(__file__).parent / "arch"
+ARCH_DIR = Path(__file__).parent.parent / "arch"
 
 
 def _resolve(name: str) -> Path:

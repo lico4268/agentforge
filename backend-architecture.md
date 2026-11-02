@@ -6,7 +6,8 @@
 
 The backend turns an `arch.yaml` into a LangGraph `StateGraph` and runs it. Two front doors share
 one core: the headless CLI (`server/cli.py`, the main path, driven from Claude Code) and the
-FastAPI server (`server/main.py`, used by the optional browser dashboard).
+FastAPI server (`server/web/`, used only by the optional browser dashboard; the engine and CLI
+never import it).
 
 ---
 
@@ -186,7 +187,7 @@ what Claude reads back small. `--json` prints the same data as JSON.
 
 ---
 
-## 6. Server (`main.py`)
+## 6. Server (`web/main.py`)
 
 The lifespan opens the shared SQLite checkpointer, so paused runs survive a server restart.
 
@@ -194,7 +195,7 @@ The lifespan opens the shared SQLite checkpointer, so paused runs survive a serv
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/arch`, `GET /api/arch/{name}` | List / parse `server/arch/*.yaml` (`arch_files.py`) |
+| `GET /api/arch`, `GET /api/arch/{name}` | List / parse `server/arch/*.yaml` (`web/arch_files.py`) |
 | `GET /api/models` | Enabled models from `config.yaml`; `available` shows whether the provider key is set |
 | `GET /api/runs/{run_id}/files`, `…/files/{name}` | Workspace file list / content |
 | `GET /api/openrouter/catalog`, `GET /api/openrouter/favorites` | OpenRouter model catalog and local favorites |

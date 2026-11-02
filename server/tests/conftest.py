@@ -19,7 +19,7 @@ if str(_SERVER_DIR) not in sys.path:
 @pytest.fixture
 def client() -> TestClient:
     """Synchronous TestClient for the FastAPI app."""
-    from main import app
+    from web.main import app
 
     return TestClient(app)
 

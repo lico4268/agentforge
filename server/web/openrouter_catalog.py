@@ -3,7 +3,7 @@
 OpenRouter has hundreds of models, so exposing them all would make the node UI's
 (Inspector model slot) dropdown unusably long. The full catalog is therefore browsed only in a
 "pick favorites" screen, and the list selectable on actual nodes is just the few
-model ids pinned as favorites (see main.py:_load_models_config).
+model ids pinned as favorites (see web/main.py:_load_models_config).
 """
 
 import json
@@ -14,7 +14,7 @@ import httpx
 
 CATALOG_URL = "https://openrouter.ai/api/v1/models"
 CATALOG_TTL = 3600  # seconds — public endpoint needing no key, so caching is cheap
-FAVORITES_PATH = Path(__file__).parent / "openrouter_favorites.json"
+FAVORITES_PATH = Path(__file__).parent.parent / "openrouter_favorites.json"
 DEFAULT_FAVORITES = ["openrouter/auto"]
 
 _catalog_cache: list[dict] = []

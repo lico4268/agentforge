@@ -202,7 +202,7 @@ server/
 ├── runner.py          # Shared start / resume / replay core
 ├── replay.py          # Replay start-node selection
 ├── workspace.py       # Persistent storage for run records and outputs
-└── main.py            # FastAPI and WebSocket entry point
+└── web/               # FastAPI + WebSocket server for the dashboard only
 
 skills/agentforge/     # Claude Code skill
 

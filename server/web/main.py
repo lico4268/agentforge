@@ -7,14 +7,14 @@ import httpx
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-import arch_files
 import config as cfg
-import openrouter_catalog as orc
 import workspace
 from archfile import ArchError
 from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
 from runner import open_checkpointer, resume_run, start_run
+from web import arch_files
+from web import openrouter_catalog as orc
 
 setup_logging()
 

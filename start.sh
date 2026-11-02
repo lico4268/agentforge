@@ -8,7 +8,7 @@
 # ├──────────────┼────────────────────────────────────────────────────────┤
 # │  server      │  Python 3.12 venv                                      │
 # │              │  Path: <repo>/server/.venv                             │
-# │              │  Run:  server/.venv/bin/uvicorn  main:app              │
+# │              │  Run:  server/.venv/bin/uvicorn  web.main:app          │
 # │              │  pip:  server/.venv/bin/pip                            │
 # ├──────────────┼────────────────────────────────────────────────────────┤
 # │  frontend    │  System Node.js (no separate venv)                     │
@@ -127,7 +127,7 @@ LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="
 log "Starting backend → http://localhost:8000"
 log "  venv    : $BACKEND_VENV"
 log "  uvicorn : $BACKEND_UVICORN"
-(cd "$BACKEND" && "$BACKEND_UVICORN" main:app --reload --host 0.0.0.0 --port 8000 --log-level warning) \
+(cd "$BACKEND" && "$BACKEND_UVICORN" web.main:app --reload --host 0.0.0.0 --port 8000 --log-level warning) \
   2>&1 | sed $'s/^/\033[0;36m[server]\033[0m /' &
 BACKEND_PID=$!
 

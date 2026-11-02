@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /**
- * REST response contract for the arch.yaml store (maps to server/arch_files.py:read_arch_file, Task 5).
+ * REST response contract for the arch.yaml store (maps to server/web/arch_files.py:read_arch_file, Task 5).
  * `architecture` is intentionally unknown — text-first architecture nodes differ in shape from the
  * canvas-era `ArchitectureSchema` (position required): no position, but a `flow` string.
  * The dashboard only views, never authors, so there's no need to redefine the full schema.

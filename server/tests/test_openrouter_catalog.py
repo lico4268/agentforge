@@ -1,7 +1,7 @@
 """OpenRouter favorites file storage + cached label lookup. The catalog fetch (network) is
 not tested without a mock (AGENTS.md §6) — get_catalog()'s HTTP part is out of scope here."""
 
-import openrouter_catalog as orc
+from web import openrouter_catalog as orc
 
 
 def test_favorites_defaults_when_no_file(tmp_path, monkeypatch):

@@ -15,7 +15,7 @@ export type ModelConfig = z.infer<typeof ModelConfigSchema>
 
 export const ModelConfigListSchema = z.array(ModelConfigSchema)
 
-/** Live catalog entry for the OpenRouter favorites picker. Maps to server/openrouter_catalog.py. */
+/** Live catalog entry for the OpenRouter favorites picker. Maps to server/web/openrouter_catalog.py. */
 export const OpenRouterCatalogEntrySchema = z.object({
   id: z.string(),
   label: z.string(),
