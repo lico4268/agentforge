@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -14,7 +15,6 @@ import workspace
 from archfile import ArchError, _split_model
 from events import FileEventEmitter
 from graphs.compile import PASSTHROUGH_TYPES
-from harness import gsm8k_grader
 from models import ModelSettings, build_model
 from runner import resume_run, start_run, summarize, usd
 
@@ -25,6 +25,13 @@ class EvalError(ValueError):
     """Bad eval: block or dataset. Message goes to the user as-is."""
 
 
+def _number(answer: str | None, gold: str) -> bool:
+    """Compare the last number in each, numerically ("72.0" == "72", "1,200" == "1200")."""
+    nums_answer = re.findall(r"-?\d+(?:\.\d+)?", (answer or "").replace(",", ""))
+    nums_gold = re.findall(r"-?\d+(?:\.\d+)?", gold.replace(",", ""))
+    return bool(nums_answer and nums_gold) and float(nums_answer[-1]) == float(nums_gold[-1])
+
+
 def _exact(answer: str | None, gold: str) -> bool:
     return answer is not None and answer.strip() == gold.strip()
 
@@ -33,7 +40,7 @@ def _contains(answer: str | None, gold: str) -> bool:
     return answer is not None and gold.strip().lower() in answer.lower()
 
 
-GRADERS = {"number": gsm8k_grader, "exact": _exact, "contains": _contains}
+GRADERS = {"number": _number, "exact": _exact, "contains": _contains}
 
 
 class Verdict(BaseModel):

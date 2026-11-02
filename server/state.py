@@ -57,14 +57,13 @@ class AgentState(TypedDict):
     intent: str | None  # original intent — if absent, review treats the task itself as the intent
     plan: list[str] | None
     answer: str | None
-    confidence: float | None  # ReasonOut reference metric (not used for routing)
-    criteria: list[dict]  # list of Criterion.model_dump()
-    review_delta: dict | None  # ReviewDelta.model_dump()
+    confidence: float | None
+    criteria: list[dict]
+    review_delta: dict | None
     review_branch: str | None  # accept/refine/clarify set by the review node (read by the router)
     retries: int
     feedback: str | None  # unmet delta from the previous review → rework input
     batch_mode: bool  # if True, demote clarify → accept (envs where interrupt is impossible)
-    matched_cards: list[str]  # judgment card ids matched by classify
     loop_runtime: Annotated[dict[str, LoopRuntimeState], merge_loop_runtime]
     # Role values for custom node types (Phase B) — keys not listed here have no LangGraph channel
     # and would be silently dropped, so every role not listed above lives in this bucket.
@@ -112,7 +111,6 @@ def initial_state(
         retries=0,
         feedback=None,
         batch_mode=batch_mode,
-        matched_cards=[],
         loop_runtime={},
         vars={},
     )

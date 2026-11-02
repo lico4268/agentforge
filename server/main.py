@@ -18,7 +18,6 @@ from archfile import ArchError
 from events import WSEventEmitter, safe_send_json
 from logging_config import logger, setup_logging
 from manifests import BUILTIN_MANIFESTS
-from models import ModelSettings, build_model
 from runner import DEFAULT_MODEL_CFG, RECURSION_LIMIT, open_checkpointer, resume_run
 from state import initial_state
 
@@ -207,52 +206,13 @@ async def read_run_file(run_id: str, name: str) -> dict:
 # ─── Graph dispatcher ─────────────────────────────────────────────────────────────
 
 
-def _model_settings(c: dict) -> ModelSettings:
-    """Toolbar model selection → ModelSettings. Inherits max_tokens/top_p from the model defaults
-    (config.yaml)."""
-    md = cfg.model_defaults(c["model"])
-    return ModelSettings(
-        provider=c["provider"],
-        model=c["model"],
-        temperature=float(c.get("temperature", 0.0) or 0.0),
-        max_tokens=md.get("max_tokens"),
-        top_p=md.get("top_p"),
-    )
-
-
 def dispatch_graph(
     architecture: dict, model_cfg: dict, emit: Any, run_id: str, checkpointer: Any = None
 ):
-    """
-    v0.1: the names 'gsm8k-baseline'/'gsm8k-treatment' dispatch to the fixed graph builders.
-    v0.3: anything else compiles the canvas directly with compile_graph(architecture) (§8 seam).
+    from graphs.compile import compile_graph
 
-    Fixed-name matching applies only to an architecture with no "flow" key (a call that points
-    at a fixed graph itself, or old canvas JSON) — an architecture built by archfile.parse_arch
-    always has a "flow" key (the original mermaid string, for frontend rendering).
-    Without this distinction, the moment a user's arch.yaml happens to have name:
-    gsm8k-treatment/-baseline
-    (the deployed file's name is "GSM8K Treatment" — differing only in case)
-    the whole file is ignored and the fixed graph runs instead, with no warning (item 4).
-    """
-    arch_name = (architecture.get("metadata") or {}).get("name", "")
     merged = {**DEFAULT_MODEL_CFG, **model_cfg}
-    is_fixed_graph_candidate = "flow" not in architecture
-
-    if is_fixed_graph_candidate and arch_name == "gsm8k-baseline":
-        model = build_model(_model_settings(merged))
-        from graphs.baseline import build_baseline
-
-        return build_baseline(model=model, emit=emit, run_id=run_id)
-    elif is_fixed_graph_candidate and arch_name == "gsm8k-treatment":
-        model = build_model(_model_settings(merged))
-        from graphs.treatment import build_treatment
-
-        return build_treatment(model=model, emit=emit, run_id=run_id)
-    else:
-        from graphs.compile import compile_graph
-
-        return compile_graph(architecture, merged, emit, run_id, checkpointer)
+    return compile_graph(architecture, merged, emit, run_id, checkpointer)
 
 
 def _record_error(recorded: bool, run_id: str, e: Exception) -> None:

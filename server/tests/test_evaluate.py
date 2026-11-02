@@ -22,6 +22,27 @@ def _eval_json(capsys, *args):
     return code, json.loads(capsys.readouterr().out)
 
 
+@pytest.mark.parametrize(
+    ("answer", "gold", "expected"),
+    [
+        ("The answer is 42", "42", True),
+        ("Result 18", "#### 18", True),
+        ("The answer is 99", "100", False),
+        ("", "42", False),
+        (None, "42", False),
+        ("no number", "42", False),
+        ("72.0", "72", True),
+        ("Answer: 1,200 dollars", "1200", True),
+        ("$18", "18.00", True),
+        ("-3", "-3.0", True),
+        ("First 10, then 25", "25", True),  # last number wins
+        ("First 25, then 10", "25", False),
+    ],
+)
+def test_number_grader(answer, gold, expected):
+    assert evaluate.GRADERS["number"](answer, gold) is expected
+
+
 def test_graders():
     g = evaluate.GRADERS
     assert g["number"]("so the answer is 72.0", "72")

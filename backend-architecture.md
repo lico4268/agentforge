@@ -101,11 +101,6 @@ error (`_tarjan_scc` + `_validate_gated_cycles`). The checkpointer is passed in 
 - `checkpoint.make_human_checkpoint` — emits an `interrupt` event whose payload lists the wired
   labels, then pauses.
 - `loop_guard.py` — pure guard evaluation used by the `loop.guard` node.
-- `review.py` / `policy.py` — the fixed accept/refine/clarify review used only by
-  `graphs/treatment.py` (stale vocabulary; see DIRECTION.md §6).
-
-`graphs/baseline.py` and `graphs/treatment.py` are fixed GSM8K graphs for the benchmark harness
-(`harness.py`, `scripts/run_benchmark.py`). YAML runs never use them.
 
 ---
 
@@ -230,7 +225,7 @@ falls back to `runner.resume_run` with the persisted record.
 `ui/src/types/events.ts`. Main `eventType`s: `node_start`, `node_end`, `log` (token usage),
 `interrupt`, `decision_record`, `error` (built by `make_error_event`, with `error = {type, detail}`).
 Emitters: `WSEventEmitter` (WS + files), `FileEventEmitter` (files only, CLI),
-`ListEventEmitter` (memory only, harness and tests).
+`ListEventEmitter` (memory only: `check`, eval, tests).
 
 ---
 

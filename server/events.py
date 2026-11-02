@@ -85,7 +85,7 @@ class ExecutionEvent:
         return d
 
     def model_dump(self) -> dict:
-        """snake_case dict for the harness (internal). Keep fields symmetric with to_frontend()."""
+        """snake_case dict (internal). Keep fields symmetric with to_frontend()."""
         return {
             "event_type": self.event_type,
             "run_id": self.run_id,
@@ -178,7 +178,7 @@ class FileEventEmitter:
         persist_event(self.run_id, event)
 
 
-# ─── List emitter (for harness) ────────────────────────────────────────────────
+# ─── List emitter (memory only: check, eval, tests) ────────────────────────────
 
 
 class ListEventEmitter:

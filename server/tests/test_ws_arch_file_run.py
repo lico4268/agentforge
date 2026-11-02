@@ -42,22 +42,6 @@ nodes:
 """
 
 
-# item 4 — if the arch.yaml name: happens to equal a hardcoded fixed graph name,
-# dispatch_graph ignores this file entirely and runs the fixed graph (baseline/treatment.py)
-# instead. The deployed arch.yaml's name is "GSM8K Treatment", differing only in case,
-# so a single rename falls into this trap.
-RESERVED_NAME_ARCH_YAML = """
-name: gsm8k-treatment
-flow: |
-  input --> solve --> output
-nodes:
-  solve:
-    in:  [task]
-    out: [answer]
-    prompt: Solve it
-"""
-
-
 def _drain(ws) -> tuple[list[dict], dict]:
     events: list[dict] = []
     while True:
@@ -135,35 +119,6 @@ def test_arch_file_loop_exits_through_the_guard_when_iterations_run_out(tmp_path
     guard_events = [e for e in events if e.get("loopRuntime")]
     assert [e["loopRuntime"]["iteration"] for e in guard_events] == [1, 2, 3, 4]
     assert guard_events[-1]["loopRuntime"]["exitReason"] == "maxIterations"
-
-
-def test_arch_file_named_gsm8k_treatment_runs_its_own_graph_not_the_fixed_one(
-    tmp_path, monkeypatch
-):
-    """Even if the arch.yaml name: equals the hardcoded fixed graph name ("gsm8k-treatment"),
-    this file is a real arch.yaml with flow:, so it must compile as its own graph —
-    dispatch_graph must not jump the queue to the fixed baseline/treatment.py by looking only at
-    name (item 4).
-    Confirmed by whether the node id ("solve"), absent from the fixed treatment graph, appears in
-    the events."""
-    (tmp_path / "reserved.yaml").write_text(RESERVED_NAME_ARCH_YAML, encoding="utf-8")
-    monkeypatch.setattr(arch_files, "ARCH_DIR", tmp_path)
-    monkeypatch.setattr(workspace_mod, "WORKSPACE_DIR", tmp_path)
-    monkeypatch.setattr(compile_mod, "build_model", lambda settings: None)
-
-    async def fake_llm_step(state, *, node_id, **kwargs):
-        if node_id == "solve":
-            return {"answer": "4"}
-        return {}
-
-    monkeypatch.setattr(compile_mod, "run_llm_step", fake_llm_step)
-
-    with TestClient(app) as client, client.websocket_connect("/ws/run") as ws:
-        events, outcome = _run(ws, "reserved.yaml", "2+2")
-
-    assert outcome["kind"] == "run_complete", outcome
-    assert outcome["result"]["answer"] == "4"
-    assert any(e["nodeId"] == "solve" for e in events)
 
 
 def _recv_until(ws, kind: str) -> dict:

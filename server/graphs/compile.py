@@ -1,8 +1,6 @@
 """
-compile_graph: compiles an Architecture (dict) serialized from the canvas into an
-executable LangGraph StateGraph. This is the v0.3 seam that replaces the v0.1 fixed-graph
-(baseline.py/treatment.py) dispatch — dispatch_graph falls back here for any architecture
-name other than 'gsm8k-baseline'/'gsm8k-treatment'.
+compile_graph: compiles the Architecture dict that archfile.parse_arch builds from arch.yaml
+into an executable LangGraph StateGraph.
 """
 
 import time

@@ -1,6 +1,6 @@
 # Current direction (source of truth)
 
-> Last updated: 2026-11-01 (phase 4 done). **This document takes precedence over every other design document.**
+> Last updated: 2026-11-02 (phase 5 done; fixed GSM8K graphs removed). **This document takes precedence over every other design document.**
 > If another document conflicts with this one, that document is out of date.
 
 ## 1. What we are building
@@ -69,14 +69,13 @@ Each phase ships on its own and is useful before the next one starts.
 
 ## 6. Known stale code (to fix)
 
-These still use fixed branch vocabulary, against §2:
+The pre-YAML fixed GSM8K graphs and their accept/refine/clarify review (`harness.py`,
+`graphs/baseline.py`/`treatment.py`, `nodes/review.py`/`policy.py`/`classify.py`) were removed on
+2026-11-02; `server/arch/gsm8k.yaml` with `agentforge eval`/`compare` replaces them. Left over:
 
-- `server/nodes/policy.py` — `ReviewBranch = Literal["accept","refine","clarify"]`
-- `server/nodes/review.py` — the prompt is written in that vocabulary (still used by `graphs/treatment.py`)
-- `server/harness.py` — metrics count branch names (`refine_rate`/`clarify_rate`)
-
-`graphs/baseline.py`/`graphs/treatment.py` are the pre-YAML fixed GSM8K graphs, kept for the
-benchmark harness.
+- `server/state.py` — `AgentState` still carries that flow's fields (`review_branch`,
+  `review_delta`, `criteria`, `intent`, `batch_mode`, ...); `nodes/checkpoint.py` and the
+  WebSocket `run_complete` payload still pass some of them through.
 
 ## 7. Documents
 

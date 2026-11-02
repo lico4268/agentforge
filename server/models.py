@@ -2,61 +2,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
-from pydantic import BaseModel, Field
 
 import config
 from logging_config import logger
-
-# ─── Output schemas ────────────────────────────────────────────────────────────
-
-
-class PlanOut(BaseModel):
-    steps: list[str]
-
-
-class ReasonOut(BaseModel):
-    answer: str
-    # Kept only as a reference metric — not used for routing (POLICY_REDESIGN.md §1)
-    confidence: float = Field(ge=0.0, le=1.0)
-
-
-# ─── Review schemas (POLICY_REDESIGN.md §4) ────────────────────────────────────
-
-
-class Criterion(BaseModel):
-    id: str
-    text: str  # one sentence that can be judged as binary
-    severity: Literal["must_pass", "should_pass"] = "must_pass"
-    impl: Literal["llm", "code", "reminder"] = "llm"  # Phase 1 executes llm only
-    code: str | None = None
-    source: Literal["agent", "human"] = "human"
-    status: Literal["proposed", "confirmed"] = "confirmed"
-    examples: list[str] = []
-    note: str = ""
-
-
-class CriterionVerdict(BaseModel):
-    id: str  # target Criterion.id
-    verdict: Literal["met", "unmet", "unsure"]
-    evidence: str  # one piece of evidence quoted from the result
-
-
-class ReviewDelta(BaseModel):
-    """Review output = diff. No score field — prevents confidence from coming back."""
-
-    per_criterion: list[CriterionVerdict] = []
-    misalignments: list[str] = []
-    elicit_questions: list[str] = []
-    proposed_criteria: list[str] = []
-    reroute_hint: str = ""
-
-
-class ClassifyOut(BaseModel):
-    """classify node output — list of matched judgment card ids."""
-
-    card_ids: list[str] = []
-    rationale: str = ""
-
 
 # ─── Model factory ─────────────────────────────────────────────────────────────
 

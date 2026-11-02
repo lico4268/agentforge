@@ -19,11 +19,10 @@ agentforge/
 ├── server/                  # FastAPI backend (Python 3.12)
 │   ├── main.py              # FastAPI app entry point, CORS, REST, WebSocket, dispatch_graph
 │   ├── manifests.py         # GET /api/nodes — list of builtin node manifests (dicts)
-│   ├── models.py            # LLM output schemas (PlanOut/ReasonOut/Criterion/ReviewDelta) + build_model factory
+│   ├── models.py            # ModelSettings/CallPolicy + build_model factory
 │   ├── state.py             # AgentState (TypedDict) definition and initial_state
 │   ├── events.py            # ExecutionEvent + make_event/make_error_event + WS/List emitter
 │   ├── logging_config.py    # setup_logging() / logger (based on config.LOG_LEVEL)
-│   ├── harness.py           # Benchmark harness (run_dataset + gsm8k_grader + Report) — measures pass@1
 │   ├── workspace.py         # Run artifacts under workspace/<run_id>/: run.json, events.jsonl, per-node .md
 │   ├── config.py            # Loads config.yaml + .env (API keys)
 │   ├── cli.py               # `agentforge` CLI — check/run/resume/replay/show/eval/compare (exit 0 done / 3 paused / 1 error)
@@ -39,11 +38,8 @@ agentforge/
 │   │   ├── llm_step.py      # run_llm_step — structured-output LLM call helper
 │   │   ├── agent_step.py    # make_agent_node — `run: agent`: mini-swe-agent loop, commands in bwrap
 │   │   ├── checkpoint.py    # make_human_checkpoint — interrupt-based human review
-│   │   ├── review.py        # make_review — intent×criteria review (produces ReviewDelta, used only by treatment.py)
-│   │   └── policy.py        # compute_review_branch / make_route_review — pure routing functions
+│   │   └── loop_guard.py    # pure guard evaluation for loop.guard nodes
 │   └── graphs/              # LangGraph StateGraph definitions (the actual execution engine)
-│       ├── baseline.py      # build_baseline — single-shot baseline that only does Reasoning
-│       ├── treatment.py     # build_treatment — Planning→Reasoning→Policy three-way structure
 │       └── compile.py       # compile_graph — dynamically compiles the Architecture dict that parse_arch builds from arch.yaml
 │
 ├── ui/                      # React + TypeScript frontend (Vite)
@@ -170,7 +166,7 @@ Backend WS handler (main.py: ws_run)
     ▼
 archfile.parse_arch(yaml_text) → Architecture dict (nodes/edges/flow)
     │
-dispatch_graph(architecture) → LangGraph StateGraph builder in graphs/*.py
+dispatch_graph(architecture) → compile_graph (graphs/compile.py) → LangGraph StateGraph
     │ graph.ainvoke(state0)
     ▼
 Each node function → emit(make_event(...)) → WSEventEmitter → WS stream + workspace files
@@ -179,11 +175,6 @@ Each node function → emit(make_event(...)) → WSEventEmitter → WS stream + 
 Frontend FlowDiagram (passes architecture.flow straight to mermaid) coloring +
 NodeProgress list updates (running / done / failed / paused / skipped)
 ```
-
-> `dispatch_graph` dispatches to a fixed graph builder for the fixed arch names (`gsm8k-baseline`/`gsm8k-treatment`);
-> otherwise it falls back to `compile_graph(architecture)` (`graphs/compile.py`), which compiles the parsed graph
-> directly into a `StateGraph` and runs it. Every `arch.yaml` takes the `compile_graph` path; the fixed builders exist
-> only for the benchmark harness.
 
 **MockTransport vs WebSocketTransport**: `ui/src/transport/TransportContext.tsx` uses the real backend when
 `VITE_WS_URL` is set in `ui/.env` (see `ui/.env.example`), and `MockTransport` otherwise.

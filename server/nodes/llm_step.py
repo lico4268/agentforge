@@ -181,7 +181,7 @@ async def _emit_token_usage(
 ) -> None:
     """Emit collected usage as the 'log' event's token_usage.
 
-    Puts the frontend (prompt/completion) and harness (total_tokens/cost) contracts in one dict.
+    Puts the frontend (prompt/completion) and run summary (total_tokens/cost) contracts in one dict.
     Observability meta (model/attempt/fallbackUsed) is included too — shown in the frontend Metrics.
     Emission is skipped if empty.
     """
