@@ -1,4 +1,4 @@
-"""Headless CLI: agentforge check / run / resume / replay / show / eval / compare."""
+"""Headless CLI: agentforge check / run / resume / discard / replay / show / eval / compare."""
 
 from pathlib import Path
 
@@ -31,6 +31,7 @@ from logging_config import setup_logging  # noqa: E402
 from replay import ReplayError  # noqa: E402
 from runner import (  # noqa: E402
     DEFAULT_MODEL_CFG,
+    discard_run,
     open_checkpointer,
     replay_run,
     resume_run,
@@ -222,6 +223,22 @@ def cmd_resume(a) -> int:
     return asyncio.run(_resume(a))
 
 
+def cmd_discard(a) -> int:
+    try:
+        discard_run(a.run_id)
+    except LookupError:
+        _err("unknown run")
+        return 1
+    except ValueError as e:
+        _err(str(e))
+        return 1
+    if a.json:
+        _out(json.dumps({"runId": a.run_id, "status": "abandoned"}, ensure_ascii=False))
+    else:
+        _out(f"abandoned {a.run_id}")
+    return 0
+
+
 async def _replay(a, arch, path, text, default_model) -> int:
     run_id = str(uuid.uuid4())
     async with open_checkpointer() as cp:
@@ -357,6 +374,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--choice", required=True)
     s.add_argument("--note")
     s.add_argument("--json", action="store_true")
+    d = sub.add_parser("discard", help="abandon a paused run and drop its --repo worktree")
+    d.add_argument("run_id")
+    d.add_argument("--json", action="store_true")
     q = sub.add_parser("replay")
     q.add_argument("run_id")
     q.add_argument("--arch")
@@ -385,6 +405,7 @@ def main(argv: list[str] | None = None) -> int:
         "check": cmd_check,
         "run": cmd_run,
         "resume": cmd_resume,
+        "discard": cmd_discard,
         "replay": cmd_replay,
         "show": cmd_show,
         "eval": cmd_eval,

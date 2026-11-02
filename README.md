@@ -14,7 +14,7 @@ replay from a middle node, and run records you can diff.
 ## Features
 
 - Text-based agent definitions in `server/arch/*.yaml`
-- Headless CLI: `agentforge check | run | resume | replay | show | eval | compare`
+- Headless CLI: `agentforge check | run | resume | discard | replay | show | eval | compare`
 - Dataset evals from an `eval:` block: success rate, cost per success, per-node cost
 - Side-by-side comparison of two variants with paired results and a noise warning
 - Replay a run from the first changed node, reusing earlier nodes' outputs
@@ -81,6 +81,8 @@ network can connect to port `5137` at the VM's address.
 
 `run` and `resume` exit `0` when done, `3` when paused at a human checkpoint, and `1`
 on error. Answer a checkpoint with `./agentforge resume <run_id> --choice <label>`.
+Drop a paused `--repo` run (and its worktree) with `./agentforge discard <run_id>`
+instead of resuming — the branch stays so you can delete it yourself once the worktree is gone.
 After editing a node's prompt or model, `./agentforge replay <run_id> --arch <file.yaml>`
 re-runs from the first changed node. Each run is stored under
 `server/workspace/<run_id>/` (`run.json`, `events.jsonl`, one `.md` per node output).

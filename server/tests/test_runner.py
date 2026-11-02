@@ -214,3 +214,46 @@ async def test_start_run_records_default_model(tmp_workspace, fake_llm):
             default_model="anthropic/x",
         )
     assert read_run_record("r1")["defaultModel"] == "anthropic/x"
+
+
+def test_discard_run_closes_repo_worktree(tmp_workspace, tmp_path):
+    import subprocess
+
+    import gitfiles
+    import workspace
+    from runner import discard_run
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+    git("init", "-q", "-b", "main")
+    (repo / "README").write_text("hi\n")
+    git("add", "-A")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
+
+    run_id = "d1"
+    branch = f"agentforge/{run_id}"
+    base = gitfiles.add_worktree(repo, workspace.files_dir(run_id), branch)
+    workspace.write_run_record(
+        run_id,
+        {
+            "runId": run_id,
+            "status": "paused",
+            "repo": {"path": str(repo), "branch": branch, "base": base},
+        },
+    )
+    assert workspace.files_dir(run_id).exists()
+    assert branch in git("worktree", "list")
+
+    discard_run(run_id)
+
+    assert read_run_record(run_id)["status"] == "abandoned"
+    assert not workspace.files_dir(run_id).exists()
+    assert branch not in git("worktree", "list")
+    # Branch remains for the user to delete.
+    assert git("branch", "--list", branch)

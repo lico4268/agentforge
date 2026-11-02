@@ -98,6 +98,28 @@ def test_resume_rejects_non_paused_run(tmp_workspace, fake_llm, tmp_path, capsys
 
 def test_resume_unknown_run_id(tmp_workspace, capsys):
     assert main(["resume", "nope", "--choice", "approve"]) == 1
+
+
+def test_discard_abandons_paused_run(tmp_workspace, fake_llm, tmp_path, capsys):
+    rc, rid = _paused(tmp_path, capsys)
+    assert rc == 3
+    assert main(["discard", rid]) == 0
+    assert "abandoned" in capsys.readouterr().out
+    assert read_run_record(rid)["status"] == "abandoned"
+    assert main(["resume", rid, "--choice", "approve"]) == 1
+    assert "not paused" in capsys.readouterr().err
+
+
+def test_discard_rejects_non_paused_run(tmp_workspace, fake_llm, tmp_path, capsys):
+    p = _write(tmp_path, LINEAR_YAML)
+    main(["run", str(p), "--task", "t", "--json"])
+    rid = json.loads(capsys.readouterr().out)["runId"]
+    assert main(["discard", rid]) == 1
+    assert "not paused" in capsys.readouterr().err
+
+
+def test_discard_unknown_run_id(tmp_workspace, capsys):
+    assert main(["discard", "nope"]) == 1
     assert "unknown run" in capsys.readouterr().err
 
 
