@@ -114,7 +114,7 @@ OPENROUTER_API_KEY=...
 
 Starts the backend (FastAPI) and frontend (Vite) together. `Ctrl+C` stops both. `agentforge serve` does the same.
 
-Headless CLI (no servers): `agentforge check|run|resume|replay|show|eval|compare` — see `skills/agentforge/SKILL.md`.
+Headless CLI (no servers): `agentforge check|run|resume|discard|replay|show|eval|compare` — see `skills/agentforge/SKILL.md`.
 `run`/`resume` exit 0 when done, 3 when paused at a human checkpoint, 1 on error.
 
 | Process | URL | Environment |

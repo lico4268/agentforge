@@ -105,6 +105,17 @@ def _close_worktree(run_id: str) -> None:
         logger.exception("run %s: could not close worktree", run_id)
 
 
+def discard_run(run_id: str) -> None:
+    """Abandon a paused run and drop its --repo worktree so the branch can be deleted."""
+    rec = workspace.read_run_record(run_id)
+    if rec is None:
+        raise LookupError(f"unknown run: {run_id}")
+    if rec.get("status") != "paused":
+        raise ValueError(f"run {run_id} is {rec.get('status')}, not paused")
+    workspace.update_run_record(run_id, status="abandoned")
+    _close_worktree(run_id)
+
+
 async def start_run(
     architecture: dict,
     *,
