@@ -126,6 +126,8 @@ numbers only: with few items, cost is the reliable signal.
 3. `agentforge run <file.yaml> --task "<text>" [--model provider/model] [--repo <path>] [--json]`.
 4. If it exits 3 (paused), read the `question` and `choices` it prints, ask the user in chat,
    then `agentforge resume <run_id> --choice <label> [--note "<text>"] [--json]`.
+   If the run will not be resumed, `agentforge discard <run_id> [--json]` marks it abandoned and
+   removes its `--repo` worktree (the branch stays for the user to delete).
 5. Read only the summary. For a specific node's full output:
    `agentforge show <run_id> <node>` (`agentforge show <run_id>` reprints the summary).
 6. If the result is not what you wanted, edit the YAML and run

@@ -98,6 +98,7 @@ def test_resume_rejects_non_paused_run(tmp_workspace, fake_llm, tmp_path, capsys
 
 def test_resume_unknown_run_id(tmp_workspace, capsys):
     assert main(["resume", "nope", "--choice", "approve"]) == 1
+    assert "unknown run" in capsys.readouterr().err
 
 
 def test_discard_abandons_paused_run(tmp_workspace, fake_llm, tmp_path, capsys):
