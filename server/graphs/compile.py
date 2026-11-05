@@ -772,10 +772,22 @@ def compile_graph(
             routes = {"approve": END, "revise": END, "reject": END}
             wired = _handle_targets(outgoing, node_id)
             routes.update(wired)
+            sources = {e["source"] for e in incoming.get(node_id, [])}
+            show_keys = [
+                port["id"]
+                for n in nodes
+                if n["id"] in sources
+                for port in (n.get("config") or {}).get("outputs") or []
+            ]
             graph.add_node(
                 node_id,
                 make_human_checkpoint(
-                    emit, run_id, routes=routes, node_id=node_id, actions=list(wired) or None
+                    emit,
+                    run_id,
+                    routes=routes,
+                    node_id=node_id,
+                    actions=list(wired) or None,
+                    show_keys=show_keys,
                 ),
             )
         elif manifest.get("runtime") == "loop_guard":

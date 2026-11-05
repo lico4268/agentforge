@@ -74,8 +74,8 @@ The pre-YAML fixed GSM8K graphs and their accept/refine/clarify review (`harness
 2026-11-02; `server/arch/gsm8k.yaml` with `agentforge eval`/`compare` replaces them. Left over:
 
 - `server/state.py` — `AgentState` still carries that flow's fields (`review_branch`,
-  `review_delta`, `criteria`, `intent`, `batch_mode`, ...); `nodes/checkpoint.py` and the
-  WebSocket `run_complete` payload still pass some of them through.
+  `review_delta`, `criteria`, `intent`, `batch_mode`, ...); the WebSocket `run_complete`
+  payload still passes some of them through.
 
 ## 7. Documents
 

@@ -61,6 +61,12 @@ def test_run_checkpoint_exits_3_and_prints_next_command(tmp_workspace, fake_llm,
     assert "agentforge resume" in out
 
 
+def test_checkpoint_question_shows_upstream_output(tmp_workspace, fake_llm, tmp_path, capsys):
+    p = _write(tmp_path, CHECKPOINT_YAML.replace("[answer]", "[doc]"))
+    assert main(["run", str(p), "--task", "t"]) == 3
+    assert "paused at gate: draft:doc" in capsys.readouterr().out
+
+
 def test_resume_rejects_unwired_choice(tmp_workspace, fake_llm, tmp_path, capsys):
     rc, rid = _paused(tmp_path, capsys)
     assert main(["resume", rid, "--choice", "revise"]) == 1
