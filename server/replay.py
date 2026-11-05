@@ -40,8 +40,12 @@ def changed_nodes(old: dict, new: dict) -> set[str]:
     }
 
 
+# A checkpoint emits no node_start; its first interrupt marks the visit.
+_STARTS = ("node_start", "interrupt")
+
+
 def _first_visits(events: list[dict]) -> list[str]:
-    return list(dict.fromkeys(e["nodeId"] for e in events if e["eventType"] == "node_start"))
+    return list(dict.fromkeys(e["nodeId"] for e in events if e["eventType"] in _STARTS))
 
 
 def visit_order(events: list[dict], reused: list[str]) -> list[str]:
@@ -74,15 +78,13 @@ def reuse_stats(
     The cut sits at the earliest start among `next_nodes` seen up to from_node's first
     start, so fanout siblings of from_node are not counted as reused."""
     first = next(
-        i
-        for i, e in enumerate(events)
-        if e["eventType"] == "node_start" and e["nodeId"] == from_node
+        i for i, e in enumerate(events) if e["eventType"] in _STARTS and e["nodeId"] == from_node
     )
     head = events[: first + 1]
     cuts = [
-        max(i for i, e in enumerate(head) if e["eventType"] == "node_start" and e["nodeId"] == n)
+        max(i for i, e in enumerate(head) if e["eventType"] in _STARTS and e["nodeId"] == n)
         for n in next_nodes
-        if any(e["eventType"] == "node_start" and e["nodeId"] == n for e in head)
+        if any(e["eventType"] in _STARTS and e["nodeId"] == n for e in head)
     ]
     prefix = events[: min(cuts)]
     nodes = [n for n in _first_visits(prefix) if n not in hidden]
@@ -98,7 +100,7 @@ def commit_before(events: list[dict], start: str) -> str | None:
     """The last agent commit recorded before the start node's first visit."""
     last = None
     for e in events:
-        if e["eventType"] == "node_start" and e["nodeId"] == start:
+        if e["eventType"] in _STARTS and e["nodeId"] == start:
             break
         out = e.get("output")
         if e["eventType"] == "node_end" and isinstance(out, dict) and out.get("commit"):

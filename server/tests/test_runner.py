@@ -189,6 +189,16 @@ async def test_paused_replay_can_be_resumed(tmp_workspace, fake_llm):
     assert done.status == "done"
 
 
+async def test_replay_from_checkpoint_reuses_upstream(tmp_workspace, fake_llm):
+    async with open_checkpointer() as cp:
+        await _start(CHECKPOINT_YAML, "p", cp)
+        await resume_run("p", {"action": "approve"}, emit=FileEventEmitter("p"), checkpointer=cp)
+        fake_llm.calls.clear()
+        out = await _replay(CHECKPOINT_YAML, "p", "c1", cp, from_node="gate")
+    assert out.status == "paused" and fake_llm.calls == []
+    assert read_run_record("c1")["reused"] == ["draft"]
+
+
 async def test_replay_of_replay_rejects_reused_node(tmp_workspace, fake_llm):
     async with open_checkpointer() as cp:
         await _start(THREE_YAML, "p", cp)
